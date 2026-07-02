@@ -22,19 +22,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Instal·la dependencies
-        run: pip install cryptography
-
-      - name: Baixa d'AEMET i xifra
+      - name: Baixa d'AEMET
         env:
           AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
-          MAPA_PASS: ${{ secrets.MAPA_PASS }}
         run: python fetch_encrypta.py
 
-      - name: Publica dades.enc
+      - name: Publica dades.json
         run: |
           git config user.name "aemet-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add dades.enc
+          git add dades.json
           git commit -m "Actualitza dades AEMET" || echo "sense canvis"
           git push
