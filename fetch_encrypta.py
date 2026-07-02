@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 Baixa l'observació d'AEMET (Catalunya), calcula màx/mín reals de 24 h i
-XIFRA el resultat amb la contrasenya, generant 'dades.enc'.
+escriu 'dades.json' (obert, sense contrasenya).
 
-Pensat per executar-se dins d'una GitHub Action cada hora. Llig dos secrets
-per variable d'entorn:
+Pensat per executar-se dins d'una GitHub Action cada hora. Llig la clau
+d'AEMET per variable d'entorn:
     AEMET_API_KEY  -> la clau d'AEMET
-    MAPA_PASS      -> la contrasenya per veure el mapa
 
-El xifratge és AES-256-GCM amb clau derivada per PBKDF2-SHA256 (compatible amb
-Web Crypto del navegador). Sense la contrasenya, 'dades.enc' és il·legible.
+(El nom del fitxer es manté per no haver de tocar el workflow; ara genera
+dades en clar, no xifrades.)
 """
 
-import base64
 import json
 import os
 import ssl
@@ -21,15 +19,9 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 API_KEY = os.environ["AEMET_API_KEY"]
-PASSWORD = os.environ["MAPA_PASS"]
 BASE_URL = "https://opendata.aemet.es/opendata/api"
 PROV_CAT = {"BARCELONA", "GIRONA", "LLEIDA", "TARRAGONA"}
-ITER = 200000  # iteracions PBKDF2
 
 _SSL = ssl.create_default_context()
 
@@ -156,27 +148,11 @@ def construir_dades():
     }
 
 
-def _b64(b):
-    return base64.b64encode(b).decode("ascii")
-
-
-def xifrar(text, password):
-    salt = os.urandom(16)
-    iv = os.urandom(12)
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=ITER)
-    key = kdf.derive(password.encode("utf-8"))
-    ct = AESGCM(key).encrypt(iv, text.encode("utf-8"), None)  # inclou el tag al final
-    return {"v": 1, "kdf": "PBKDF2-SHA256", "it": ITER, "alg": "AES-GCM",
-            "salt": _b64(salt), "iv": _b64(iv), "ct": _b64(ct)}
-
-
 def main():
     dades = construir_dades()
-    text = json.dumps(dades, ensure_ascii=False, separators=(",", ":"))
-    blob = xifrar(text, PASSWORD)
-    with open("dades.enc", "w", encoding="utf-8") as f:
-        json.dump(blob, f)
-    print("OK: %s estacions xifrades a dades.enc (%s)" %
+    with open("dades.json", "w", encoding="utf-8") as f:
+        json.dump(dades, f, ensure_ascii=False, separators=(",", ":"))
+    print("OK: %s estacions a dades.json (%s)" %
           (dades["n_estacions"], dades["generat"]))
 
 

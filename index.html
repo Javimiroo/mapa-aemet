@@ -65,29 +65,9 @@
   .lp-tt .big{font-size:14px;font-weight:700}
   .leaflet-popup-content{margin:10px 12px}
   .chartbox{width:280px;height:150px}
-  /* porta de contrasenya */
-  #gate{position:fixed;inset:0;z-index:3000;background:var(--bg);display:flex;align-items:center;justify-content:center}
-  .gatebox{width:300px;max-width:88vw;background:var(--panel);border:1px solid var(--line);border-radius:14px;
-           padding:26px 22px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.5)}
-  .gatebox h1{font-size:17px;margin:0 0 4px}
-  .gatebox p{font-size:12px;color:var(--muted);margin:0 0 16px}
-  .gatebox input{width:100%;margin-bottom:12px;text-align:center;font-size:15px;padding:10px;
-                 background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px}
-  .gatebox .btn{width:100%}
-  .gerr{font-size:12px;color:var(--warn);margin-top:12px;min-height:16px}
 </style>
 </head>
 <body>
-<div id="gate">
-  <div class="gatebox">
-    <h1>Mapa AEMET · Catalunya</h1>
-    <p>Introdueix la contrasenya per accedir</p>
-    <input type="password" id="pass" autocomplete="current-password" autofocus>
-    <button id="enter" class="btn primary">Entrar</button>
-    <div class="gerr" id="gateerr"></div>
-  </div>
-</div>
-
 <div id="app">
   <button id="toggle">✕ Menú</button>
   <div id="panel">
@@ -466,57 +446,30 @@ $('toggle').onclick=()=>{
   setTimeout(()=>map.invalidateSize(),300);
 };
 
-// ------------------------------------------------------------------ dades (xifrades)
-let PASS=null;
-const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-async function desxifra(blob,pass){
-  const bk=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
-  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(blob.salt),iterations:blob.it,hash:'SHA-256'},
-                                          bk,{name:'AES-GCM',length:256},false,['decrypt']);
-  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(blob.iv)},key,b64(blob.ct));
-  return JSON.parse(new TextDecoder().decode(pt));
-}
+// ------------------------------------------------------------------ dades (obertes)
 function setUpdated(){
   if(!DATA)return;
   const g=DATA.generat?DATA.generat.replace('T',' ').slice(0,16):'';
   $('updated').textContent='Baixat: '+g+'  ·  '+(DATA.n_estacions||0)+' estacions';
   $('fontline').textContent=DATA.font||'Observació en temps real';
 }
-async function carregar(pass){
-  const r=await fetch('dades.enc?_='+Date.now(),{cache:'no-store'});
+async function loadData(){
+  const r=await fetch('dades.json?_='+Date.now(),{cache:'no-store'});
   if(!r.ok) throw new Error('no-data');
-  const blob=await r.json();
-  DATA=await desxifra(blob,pass);   // llança excepció si la contrasenya és incorrecta
-  setUpdated(); render();
+  DATA=await r.json(); setUpdated(); render();
 }
-
-// --- porta de contrasenya ---
-async function provaEntrar(){
-  const p=$('pass').value; if(!p)return;
-  $('gateerr').textContent='Comprovant…';
-  try{
-    await carregar(p);
-    PASS=p;
-    $('gate').style.display='none';
-    setTimeout(()=>map.invalidateSize(),150);
-  }catch(e){
-    $('gateerr').textContent = (e && e.message==='no-data')
-      ? 'Encara no hi ha dades publicades. Torna en uns minuts.'
-      : 'Contrasenya incorrecta.';
-    $('pass').select();
-  }
+async function boot(){
+  try{ await loadData(); }
+  catch(e){ $('status').innerHTML='<span style="color:#f59e0b">Encara no hi ha dades publicades. Torna en uns minuts.</span>'; }
 }
-$('enter').onclick=provaEntrar;
-$('pass').addEventListener('keydown',e=>{if(e.key==='Enter')provaEntrar();});
-
 $('refresh').onclick=async()=>{
   const b=$('refresh'); b.disabled=true; b.textContent='↻ Recarregant…';
-  try{ await carregar(PASS); }
+  try{ await loadData(); }
   catch(e){ $('status').innerHTML='<span style="color:#f59e0b">No s\'han pogut recarregar les dades.</span>'; }
   b.disabled=false; b.textContent='↻ Recarregar dades';
 };
 
-renderPresets(); renderStreakPresets(); renderLegend();
+renderPresets(); renderStreakPresets(); renderLegend(); boot();
 </script>
 </body>
 </html>
