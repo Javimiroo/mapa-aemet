@@ -136,6 +136,7 @@
       <label class="switch"><input type="checkbox" id="onlyVar"> En passar el cursor, només la variable triada</label>
       <label class="switch"><input type="checkbox" id="arrows"> Fletxes de vent (direcció)</label>
       <label class="switch"><input type="checkbox" id="fade" checked> Atenuar (60%) els que no compleixen</label>
+      <label class="switch"><input type="checkbox" id="stale" checked> Anell roig si fa &gt;3 h sense actualitzar</label>
     </div>
 
     <div class="card">
@@ -210,6 +211,22 @@ function streakHores(st,vk,op,val){
   }
   return s;
 }
+// --- temps: converteix a hora LOCAL del navegador i detecta estacions endarrerides ---
+const STALE_H=3;  // hores sense actualitzar per marcar en roig
+function toDate(iso){
+  if(!iso) return null;
+  const s=String(iso).replace(/([+-]\d{2})(\d{2})$/,'$1:$2'); // "+0000" -> "+00:00"
+  const d=new Date(s); return isNaN(d)?null:d;
+}
+function horaLoc(iso){const d=toDate(iso);return d?d.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}):'';}
+function dataLoc(iso){const d=toDate(iso);return d?d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';}
+function horesDesdeObs(st){
+  if(!DATA) return null;
+  const g=toDate(DATA.generat), f=toDate(st.actual&&st.actual.fint);
+  if(!g||!f) return null;
+  return (g-f)/3600000;
+}
+function esVella(st){const h=horesDesdeObs(st);return h!=null && h>STALE_H;}
 
 // ------------------------------------------------------------------ estat
 let DATA=null, markers=[], activeFilter=null; // activeFilter: {type,...}
@@ -311,10 +328,12 @@ function tooltipHTML(st){
     ['Humitat',fmt('hr',a.hr)+' %'],['Vent mitjà',fmt('vv',a.vv)+' km/h'],['Ratxa màx.',fmt('vmax',a.vmax)+' km/h'],
     ['Direcció',fmt('dv',a.dv)+'°'],['Precipitació',fmt('prec',a.prec)+' mm'],['Pressió',fmt('pres',a.pres)+' hPa'],
     ['Punt rosada',fmt('tpr',a.tpr)+' °C']];
-  const hora=a.fint?a.fint.slice(11,16):'';
+  const hora=horaLoc(a.fint);
+  const ageh=horesDesdeObs(st);
+  const avis=(ageh!=null&&ageh>STALE_H)?`<div style="color:#ff6b6b;font-weight:600;margin-top:3px">⚠ Fa ${ageh.toFixed(1)} h que no actualitza</div>`:'';
   return `<div class="lp-tt"><b>${st.nom}</b> <span class="muted">(${st.provincia}, ${st.alt||'?'} m)</span>
     <table>${rows.map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
-    <span class="muted">Obs. ${hora} · ${st.idema}</span></div>`;
+    <span class="muted">Obs. ${hora} (local) · ${st.idema}</span>${avis}</div>`;
 }
 
 function makeIcon(st,ok){
@@ -329,8 +348,9 @@ function makeIcon(st,ok){
     arrow=`<svg class="arrow" width="${alen*2}" height="${alen*2}" style="transform:translate(-50%,-50%) rotate(${st.actual.dv}deg)" viewBox="0 0 40 40">
       <path d="M20 4 L26 20 L20 15 L14 20 Z" fill="#e2e8f0" stroke="#0b0b0b" stroke-width="1"/></svg>`;
   }
-  const txt=show?`<div class="stn" style="width:${size}px;height:${size}px;background:${col}">${fmt(vk,v)}</div>`
-                :`<div class="stn" style="width:${size}px;height:${size}px;background:${col}"></div>`;
+  const ring=($('stale')&&$('stale').checked&&esVella(st))?';border-color:#ff3b30;border-width:3px':'';
+  const txt=show?`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}">${fmt(vk,v)}</div>`
+                :`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}"></div>`;
   const html=`<div style="position:relative;width:${size}px;height:${size}px">${arrow}${txt}</div>`;
   return L.divIcon({className:'',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
 }
@@ -339,7 +359,8 @@ function makeIcon(st,ok){
 function makeStreakIcon(st,streak,col){
   const size=Math.min(22+streak*6,68);
   const fs=Math.max(11,Math.round(size*0.36));
-  const html=`<div class="stn" style="width:${size}px;height:${size}px;background:${col};font-size:${fs}px">${streak}</div>`;
+  const ring=($('stale')&&$('stale').checked&&esVella(st))?';border-color:#ff3b30;border-width:3px':'';
+  const html=`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring};font-size:${fs}px">${streak}</div>`;
   return L.divIcon({className:'',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
 }
 function streakTooltip(st,s){
@@ -380,7 +401,7 @@ function drawChart(st,vk){
   const cv=document.getElementById('chart_'+st.idema); if(!cv)return;
   if(chart){chart.destroy();}
   chart=new Chart(cv,{type:'line',
-    data:{labels:pts.map(h=>h.t?h.t.slice(11,16):''),
+    data:{labels:pts.map(h=>horaLoc(h.t)),
       datasets:[{label:VARS[vk].label+' ('+VARS[vk].unit+')',data:pts.map(h=>h[vk]),
         borderColor:'#38bdf8',backgroundColor:'rgba(56,189,248,.15)',fill:true,tension:.3,pointRadius:2}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
@@ -417,7 +438,7 @@ function render(){
 }
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
-['showVal','onlyVar','arrows','fade'].forEach(id=>$(id).addEventListener('change',render));
+['showVal','onlyVar','arrows','fade','stale'].forEach(id=>$(id).addEventListener('change',render));
 
 // --- mode ratxa d'hores consecutives ---
 const selStreakVar=$('streakVar');
@@ -449,8 +470,7 @@ $('toggle').onclick=()=>{
 // ------------------------------------------------------------------ dades (obertes)
 function setUpdated(){
   if(!DATA)return;
-  const g=DATA.generat?DATA.generat.replace('T',' ').slice(0,16):'';
-  $('updated').textContent='Baixat: '+g+'  ·  '+(DATA.n_estacions||0)+' estacions';
+  $('updated').textContent='Baixat: '+dataLoc(DATA.generat)+' (hora local)  ·  '+(DATA.n_estacions||0)+' estacions';
   $('fontline').textContent=DATA.font||'Observació en temps real';
 }
 async function loadData(){
