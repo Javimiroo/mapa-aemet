@@ -1,8 +1,8 @@
 name: Actualitza mapa privat (AEMET + Meteocat)
 
 on:
-  schedule:
-    - cron: "10 6,9,11,13,15,17,19,21 * * *"
+  #schedule:
+  # - cron: "10 6,9,11,13,15,17,19,21 * * *"
   workflow_dispatch: {}
 
 permissions:
