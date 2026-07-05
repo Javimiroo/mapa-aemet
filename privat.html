@@ -220,6 +220,11 @@
         <label>Nom / lloc de l'incendi</label>
         <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
         <button class="btn" id="flama" style="width:100%;margin-top:8px">🔥 Situar incendi al mapa</button>
+        <div class="row" style="margin-top:8px">
+          <button class="btn small" id="perimBtn" style="flex:1">✏️ Dibuixar perímetre</button>
+          <button class="btn small" id="perimClear" style="flex:0 0 auto" title="Esborrar perímetre">🗑</button>
+        </div>
+        <p class="muted" id="perimHint" style="font-size:11px;margin:4px 0 0;display:none">Fes clic al mapa per marcar el contorn. Prem "Acabar" quan estiga.</p>
         <button class="btn primary" id="exportar" style="width:100%;margin-top:8px">📷 Generar imatge</button>
         <p class="muted" style="font-size:11px;margin:8px 0 0">Crea un PNG amb el/els mapes actuals, la marca Bombers, el nom de l'incendi, les llegendes i l'hora d'actualització.</p>
       </div>
@@ -344,6 +349,7 @@ const BASEMAPS={
 };
 let baseLayer=null, baseLayer2=null, map2=null, markers2=[], comboActive=null;
 let flame=null, flame2=null, flameLL=null;
+let perimLL=[], perim=null, perim2=null, dibuixantPerim=false;
 function setBase(key){
   const b=BASEMAPS[key]||BASEMAPS.dark;
   const opt=Object.assign({crossOrigin:true}, b.o);
@@ -373,8 +379,8 @@ function highlightChip(el){document.querySelectorAll('#presets .chip').forEach(x
 
 function renderLegend(){
   const vk=selVar.value, L_=$('legend');
-  let sc, unit;
-  if(vk==='barbes'){ sc=SCALES.wind; unit='km/h'; }
+  let sc, unit, nota='';
+  if(vk==='barbes'){ sc=SCALES.wind; unit='km/h'; nota=' · número al cercle = ratxa última hora'; }
   else {
     sc=SCALES[VARS[vk].scale]; unit=VARS[vk].unit;
     if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
@@ -385,7 +391,7 @@ function renderLegend(){
   for(let i=0;i<=n;i++){ ticks+=`<span>${Math.round(min+span*i/n)}</span>`; }
   L_.innerHTML=`<div class="bar" style="--g:${stops}"></div>
     <div class="barlabels">${ticks}</div>
-    <div class="muted" style="text-align:center;font-size:10px;margin-top:1px">${unit}</div>`;
+    <div class="muted" style="text-align:center;font-size:10px;margin-top:1px">${unit}${nota}</div>`;
 }
 
 let conds=[];
@@ -479,7 +485,7 @@ function windBarbSVG(kmh,col,sc){
 function makeBarbIcon(st){
   const zf=barbZoom();
   const spd=st.actual.vv, gust=st.actual.vmax, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd), R=34*zf;
-  const cr=10*zf, fsz=Math.max(9,Math.round(11*zf)), gtxt=(gust==null)?'':Math.round(gust);
+  const cr=7*zf, fsz=Math.max(8,Math.round(8.5*zf)), gtxt=(gust==null)?'':Math.round(gust);
   const html=`<svg width="${2*R}" height="${2*R}" viewBox="${-R} ${-R} ${2*R} ${2*R}" style="overflow:visible;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))">
       <g transform="rotate(${dir})">${windBarbSVG(spd,col,zf)}</g>
       <circle cx="0" cy="0" r="${cr}" fill="#ffffff" stroke="#222" stroke-width="${Math.max(1,1.3*zf)}"/>
@@ -656,12 +662,13 @@ function aplicaCombo(key){
     markers2.length=0;
     render();
     if(flameLL) posaFlames();
+    if(perimLL.length) redibuixaPerim();
     setTimeout(()=>map.invalidateSize(),260);
     return;
   }
   ensureMap2();
   app.classList.add('combinat');
-  setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); if(flameLL) posaFlames(); },260);
+  setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); if(flameLL) posaFlames(); if(perimLL.length) redibuixaPerim(); },260);
 }
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
@@ -726,7 +733,7 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   for(let i=0;i<=6;i++) c.fillText(Math.round(min+span*i/6), bx+bw*i/6, by+bh+3*S);
   c.fillStyle='#555'; c.font=(11*S)+'px Arial';
   const unit=isBarb?'km/h':VARS[vk].unit;
-  const extra=isBarb?(unit+' · número al cercle = ratxa'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):unit);
+  const extra=isBarb?(unit+' · número al cercle = ratxa última hora'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):unit);
   c.fillText(extra, x+w/2, by+bh+18*S);
   c.restore();
 }
@@ -737,12 +744,12 @@ async function generarImatge(){
   try{
     const nom=($('incident').value||'').trim();
     const panes = comboActive
-      ? [{el:$('map'),spec:specWithThr(comboActive.a)},{el:$('map2'),spec:specWithThr(comboActive.b)}]
-      : [{el:$('map'),spec:especMapaUnic()}];
+      ? [{el:$('map'),mapObj:map,spec:specWithThr(comboActive.a)},{el:$('map2'),mapObj:map2,spec:specWithThr(comboActive.b)}]
+      : [{el:$('map'),mapObj:map,spec:especMapaUnic()}];
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
-      ignoreElements:el=>el.classList&&el.classList.contains('leaflet-control-zoom')};
+      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane'))};
     for(const p of panes){ p.canvas=await html2canvas(p.el, opts); }
-    const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=54*S;
+    const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=64*S;
     const mapW=(panes.length>1?680:940)*S;
     const mapH=Math.round(mapW*panes[0].canvas.height/panes[0].canvas.width);
     const W=panes.length*mapW+(panes.length-1)*gap+2*pad;
@@ -758,13 +765,21 @@ async function generarImatge(){
     let x=pad; const mapY=pad+headerH;
     for(const p of panes){
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
+      if(perimLL.length>=2 && p.mapObj){
+        const el=p.el, sx=mapW/el.clientWidth, sy=mapH/el.clientHeight;
+        c.beginPath();
+        perimLL.forEach((ll,i)=>{ const pt=p.mapObj.latLngToContainerPoint(ll); const X=x+pt.x*sx, Y=mapY+pt.y*sy; i?c.lineTo(X,Y):c.moveTo(X,Y); });
+        c.closePath();
+        c.fillStyle='rgba(232,56,13,0.10)'; c.fill();
+        c.strokeStyle='#e8380d'; c.lineWidth=3*S; c.lineJoin='round'; c.stroke();
+      }
       c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,mapY,mapW,mapH);
       dibuixaLlegendaExport(c, p.spec, x, mapY+mapH+9*S, mapW, S);
       x+=mapW+gap;
     }
     const ultimaObs=(font)=>{ const arr=DATA.estacions.filter(e=>e.font===font); let mx=null; arr.forEach(e=>{const d=toDate(e.actual&&e.actual.fint); if(d&&(!mx||d>mx))mx=d;}); return mx; };
     const fmtD=(d)=> d ? d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
-    const y1=H-pad-footH+16*S, y2=H-pad-footH+40*S;
+    const y1=H-pad-34*S, y2=H-pad-10*S;
     c.textBaseline='middle'; c.textAlign='left'; c.fillStyle='#222'; c.font=(15*S)+'px Arial';
     c.fillText('Dades actualitzades — AEMET: '+fmtD(ultimaObs('AEMET'))+'   ·   Meteocat: '+fmtD(ultimaObs('Meteocat'))+'   (hora local)', pad, y1);
     c.fillStyle='#444'; c.font=(14*S)+'px Arial';
@@ -782,8 +797,8 @@ async function generarImatge(){
 $('exportar').addEventListener('click',generarImatge);
 
 // ---------------- flameta per situar l'incendi ----------------
-const FLAMA_SVG='<svg width="34" height="42" viewBox="0 0 34 42" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))"><path d="M17 2 C 24 12 28 16 24 26 C 21 34 13 34 10 26 C 8 21 12 19 13 13 C 15 17 18 16 17 2 Z" fill="#e8380d" stroke="#7a1200" stroke-width="1.5"/><path d="M17 14 C 21 19 22 23 19 28 C 17 32 12 31 13 26 C 14 22 16 21 17 14 Z" fill="#ffbe20"/></svg>';
-function flamaIcon(){ return L.divIcon({className:'',html:FLAMA_SVG,iconSize:[34,42],iconAnchor:[17,40]}); }
+const FLAMA_SVG='<svg width="52" height="64" viewBox="0 0 34 42" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))"><path d="M17 2 C 24 12 28 16 24 26 C 21 34 13 34 10 26 C 8 21 12 19 13 13 C 15 17 18 16 17 2 Z" fill="#e8380d" stroke="#7a1200" stroke-width="1.5"/><path d="M17 14 C 21 19 22 23 19 28 C 17 32 12 31 13 26 C 14 22 16 21 17 14 Z" fill="#ffbe20"/></svg>';
+function flamaIcon(){ return L.divIcon({className:'',html:FLAMA_SVG,iconSize:[52,64],iconAnchor:[26,62]}); }
 function posaFlames(){
   if(flame){map.removeLayer(flame);flame=null;}
   if(flame2&&map2){map2.removeLayer(flame2);flame2=null;}
@@ -801,6 +816,34 @@ function toggleFlama(){
   $('flama').textContent = flameLL ? '🔥 Llevar incendi del mapa' : '🔥 Situar incendi al mapa';
 }
 $('flama').addEventListener('click',toggleFlama);
+
+// ---------------- perímetre aproximat de l'incendi ----------------
+const PERIM_ST={color:'#e8380d',weight:3,fill:true,fillColor:'#e8380d',fillOpacity:0.10};
+function redibuixaPerim(){
+  if(perim){map.removeLayer(perim);perim=null;}
+  if(perim2&&map2){map2.removeLayer(perim2);perim2=null;}
+  if(perimLL.length<2) return;
+  perim=L.polygon(perimLL,PERIM_ST).addTo(map);
+  if(comboActive&&map2) perim2=L.polygon(perimLL,PERIM_ST).addTo(map2);
+}
+function onPerimClick(e){ perimLL.push(e.latlng); redibuixaPerim(); }
+function iniciaPerim(){
+  dibuixantPerim=true; perimLL=[]; redibuixaPerim();
+  map.on('click',onPerimClick); if(map2) map2.on('click',onPerimClick);
+  map.getContainer().style.cursor='crosshair'; if(map2)map2.getContainer().style.cursor='crosshair';
+  $('perimBtn').textContent='✓ Acabar perímetre'; $('perimHint').style.display='';
+}
+function acabaPerim(){
+  dibuixantPerim=false;
+  map.off('click',onPerimClick); if(map2) map2.off('click',onPerimClick);
+  map.getContainer().style.cursor=''; if(map2)map2.getContainer().style.cursor='';
+  $('perimBtn').textContent='✏️ Dibuixar perímetre'; $('perimHint').style.display='none';
+}
+function esborraPerim(){
+  perimLL=[]; if(perim){map.removeLayer(perim);perim=null;} if(perim2&&map2){map2.removeLayer(perim2);perim2=null;}
+}
+$('perimBtn').addEventListener('click',()=>{ dibuixantPerim?acabaPerim():iniciaPerim(); });
+$('perimClear').addEventListener('click',()=>{ esborraPerim(); if(dibuixantPerim)acabaPerim(); });
 $('toggle').onclick=()=>{
   const app=$('app');
   app.classList.toggle('collapsed');
