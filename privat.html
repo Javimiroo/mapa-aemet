@@ -77,7 +77,7 @@
   .updated{font-size:11px;color:var(--muted);margin-top:6px}
   .key{display:inline-block;width:13px;height:13px;background:#94a3b8;border:2px solid #fff;vertical-align:-2px}
   /* markers */
-  .stn{border-radius:50%;border:2px solid rgba(255,255,255,.85);box-shadow:0 1px 4px rgba(0,0,0,.5);
+  .stn{border-radius:50%;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 0.6px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.5);
        display:flex;align-items:center;justify-content:center;font-weight:700;color:#0b0b0b;
        font-size:11px;line-height:1;text-align:center;transition:opacity .15s}
   .arrow{position:absolute;left:50%;top:50%;transform-origin:center;pointer-events:none}
@@ -181,10 +181,12 @@
       <h2>Fons del mapa</h2>
       <div class="cardbody">
         <select id="basemap">
+          <option value="icgc">Comarques i relleu (ICGC)</option>
+          <option value="icgctopo">Topogràfic (ICGC)</option>
           <option value="dark">Fosc</option>
           <option value="light">Clar</option>
           <option value="satellite">Satèl·lit</option>
-          <option value="topo">Relleu</option>
+          <option value="topo">Relleu (OpenTopo)</option>
           <option value="streets">Carrers</option>
         </select>
       </div>
@@ -251,9 +253,9 @@ const VARS = {
 const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pres','tamax','tamin'];
 
 const SCALES = {
-  temp:[[-10,[49,54,149]],[0,[69,117,180]],[10,[171,217,233]],[18,[255,255,191]],[24,[254,224,144]],[30,[253,174,97]],[35,[244,109,67]],[40,[215,48,39]],[45,[145,0,30]]],
-  hum:[[0,[140,81,10]],[20,[216,179,101]],[40,[246,232,195]],[60,[199,234,229]],[80,[90,180,172]],[100,[1,102,94]]],
-  wind:[[0,[26,152,80]],[10,[145,207,96]],[20,[217,239,139]],[30,[254,224,139]],[40,[253,174,97]],[55,[244,109,67]],[75,[215,48,39]],[100,[120,0,50]]],
+  temp:[[6,[150,225,230]],[12,[130,205,190]],[16,[150,210,150]],[20,[200,225,120]],[24,[250,240,110]],[28,[252,205,80]],[32,[250,150,60]],[36,[235,85,50]],[40,[195,25,35]],[44,[150,10,30]]],
+  hum:[[5,[140,10,25]],[15,[205,35,35]],[25,[240,95,45]],[35,[250,160,60]],[45,[250,225,110]],[55,[150,210,100]],[65,[70,195,180]],[75,[60,140,205]],[85,[70,85,190]],[95,[140,60,180]],[100,[180,90,200]]],
+  wind:[[0,[150,230,230]],[10,[110,180,235]],[20,[70,120,220]],[30,[60,80,190]],[40,[90,175,95]],[50,[160,205,90]],[60,[235,225,90]],[70,[250,190,70]],[90,[240,110,50]],[110,[205,35,40]]],
   prec:[[0,[237,248,251]],[0.4,[189,215,231]],[2,[116,169,207]],[8,[43,113,181]],[20,[8,64,129]]],
   pres:[[985,[84,39,143]],[1000,[158,154,200]],[1013,[235,235,235]],[1025,[102,194,164]],[1035,[0,109,44]]],
   dir:'wheel'
@@ -313,6 +315,8 @@ let DATA=null, markers=[], activeFilter=null;
 let streakMode=null;
 const map=L.map('map',{zoomControl:true}).setView([41.75,1.75],8);
 const BASEMAPS={
+  icgc:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
+  icgctopo:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=estandard&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
   dark:{u:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',o:{maxZoom:19,subdomains:'abcd',attribution:'© OSM · © CARTO · AEMET · Meteocat (SMC)'}},
   light:{u:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',o:{maxZoom:19,subdomains:'abcd',attribution:'© OSM · © CARTO · AEMET · Meteocat (SMC)'}},
   satellite:{u:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',o:{maxZoom:19,attribution:'© Esri, Maxar · AEMET · Meteocat (SMC)'}},
@@ -326,7 +330,7 @@ function setBase(key){
   baseLayer=L.tileLayer(b.u,b.o).addTo(map); baseLayer.bringToBack();
   if(map2){ if(baseLayer2)map2.removeLayer(baseLayer2); baseLayer2=L.tileLayer(b.u,b.o).addTo(map2); baseLayer2.bringToBack(); }
 }
-setBase('dark');
+setBase('icgc');
 
 // ------------------------------------------------------------------ UI init
 const $=id=>document.getElementById(id);
@@ -351,9 +355,13 @@ function renderLegend(){
   if(vk==='barbes'){L_.innerHTML='<div class="muted">Barbes (nusos): mitja=5 · sencera=10 · banderola=50 · color=velocitat</div>';return;}
   const sc=SCALES[VARS[vk].scale];
   if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
-  const stops=sc.map((s,i)=>rgb(s[1])+' '+Math.round(i/(sc.length-1)*100)+'%').join(',');
+  const min=sc[0][0], max=sc[sc.length-1][0], span=max-min||1;
+  const stops=sc.map(s=>rgb(s[1])+' '+Math.round((s[0]-min)/span*100)+'%').join(',');
+  const n=6; let ticks='';
+  for(let i=0;i<=n;i++){ ticks+=`<span>${Math.round(min+span*i/n)}</span>`; }
   L_.innerHTML=`<div class="bar" style="--g:${stops}"></div>
-    <div class="barlabels"><span>${sc[0][0]}</span><span>${VARS[vk].unit}</span><span>${sc[sc.length-1][0]}</span></div>`;
+    <div class="barlabels">${ticks}</div>
+    <div class="muted" style="text-align:center;font-size:10px;margin-top:1px">${VARS[vk].unit}</div>`;
 }
 
 let conds=[];
