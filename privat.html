@@ -106,12 +106,11 @@
 
     <div class="card">
       <h2>Xarxes</h2>
-      <div style="font-size:12px;line-height:1.9">
-        <span class="key" style="border-radius:50%"></span> AEMET
-        &nbsp;&nbsp;&nbsp;
-        <span class="key" style="border-radius:22%"></span> Meteocat (XEMA)
-      </div>
-      <div class="muted" id="netcount" style="font-size:11px;margin-top:6px"></div>
+      <label class="switch"><input type="checkbox" id="netAemet" checked>
+        <span class="key" style="border-radius:50%"></span> AEMET <span class="muted" id="infoAemet" style="font-size:11px"></span></label>
+      <label class="switch"><input type="checkbox" id="netMeteocat" checked>
+        <span class="key" style="border-radius:22%"></span> Meteocat <span class="muted" id="infoMeteocat" style="font-size:11px"></span></label>
+      <div class="muted" style="font-size:10px;margin-top:4px">nombre d'estacions · última observació (local)</div>
     </div>
 
     <div class="card">
@@ -182,7 +181,6 @@
       <h2>Opcions</h2>
       <label class="switch"><input type="checkbox" id="showVal" checked> Etiqueta amb el valor al disc</label>
       <label class="switch"><input type="checkbox" id="onlyVar"> En passar el cursor, només la variable triada</label>
-      <label class="switch"><input type="checkbox" id="barbs"> Barbes de vent (velocitat + direcció)</label>
       <label class="switch"><input type="checkbox" id="fade" checked> Atenuar (60%) els que no compleixen</label>
       <label class="switch"><input type="checkbox" id="stale" checked> Anell roig si fa &gt;3 h sense actualitzar</label>
     </div>
@@ -201,18 +199,19 @@
 <script>
 // ------------------------------------------------------------------ config
 const VARS = {
-  ta:   {label:'Temperatura',        unit:'°C',   dir:'>', scale:'temp', presets:[20,25,30,35,40], dec:1},
-  tamax:{label:'Temp. màx (24 h)',   unit:'°C',   dir:'>', scale:'temp', presets:[25,30,35,40],    dec:1},
-  tamin:{label:'Temp. mín (24 h)',   unit:'°C',   dir:'>', scale:'temp', presets:[15,20,25],       dec:1},
-  hr:   {label:'Humitat relativa', unit:'%',    dir:'<', scale:'hum',  presets:[40,30,20,10],    dec:0},
-  vv:   {label:'Vent mitjà',       unit:'km/h', dir:'>', scale:'wind', presets:[20,30,40],       dec:1},
-  vmax: {label:'Ratxa màxima',     unit:'km/h', dir:'>', scale:'wind', presets:[50,70,90],       dec:1},
-  dv:   {label:'Direcció vent',    unit:'°',    dir:'>', scale:'dir',  presets:[],               dec:0},
-  prec: {label:'Precipitació',     unit:'mm',   dir:'>', scale:'prec', presets:[0.1,1,5,10],     dec:1},
-  pres: {label:'Pressió (mar)',    unit:'hPa',  dir:'>', scale:'pres', presets:[],               dec:1},
-  tpr:  {label:'Punt de rosada',   unit:'°C',   dir:'>', scale:'temp', presets:[10,15,20],       dec:1},
+  ta:    {label:'Temperatura',      unit:'°C',   dir:'>', scale:'temp', presets:[20,25,30,35,40], dec:1},
+  hr:    {label:'Humitat relativa', unit:'%',    dir:'<', scale:'hum',  presets:[40,30,20,10],    dec:0},
+  tpr:   {label:'Punt de rosada',   unit:'°C',   dir:'>', scale:'temp', presets:[10,15,20],       dec:1},
+  barbes:{label:'Barbes: velocitat i direcció vent', unit:'', special:'barbs', presets:[],        dec:0},
+  vv:    {label:'Vent mitjà',       unit:'km/h', dir:'>', scale:'wind', presets:[20,30,40],       dec:1},
+  vmax:  {label:'Ratxa màxima',     unit:'km/h', dir:'>', scale:'wind', presets:[50,70,90],       dec:1},
+  dv:    {label:'Direcció vent',    unit:'°',    dir:'>', scale:'dir',  presets:[],               dec:0},
+  prec:  {label:'Precipitació',     unit:'mm',   dir:'>', scale:'prec', presets:[0.1,1,5,10],     dec:1},
+  pres:  {label:'Pressió (mar)',    unit:'hPa',  dir:'>', scale:'pres', presets:[],               dec:1},
+  tamax: {label:'Temp. màx (24 h)', unit:'°C',   dir:'>', scale:'temp', presets:[25,30,35,40],    dec:1},
+  tamin: {label:'Temp. mín (24 h)', unit:'°C',   dir:'>', scale:'temp', presets:[15,20,25],       dec:1},
 };
-const ORDER = ['ta','tamax','tamin','hr','vv','vmax','dv','prec','pres','tpr'];
+const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pres','tamax','tamin'];
 
 const SCALES = {
   temp:[[-10,[49,54,149]],[0,[69,117,180]],[10,[171,217,233]],[18,[255,255,191]],[24,[254,224,144]],[30,[253,174,97]],[35,[244,109,67]],[40,[215,48,39]],[45,[145,0,30]]],
@@ -295,7 +294,7 @@ setBase('dark');
 // ------------------------------------------------------------------ UI init
 const $=id=>document.getElementById(id);
 const selVar=$('var');
-ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+' ('+VARS[k].unit+')';selVar.appendChild(o);});
+ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':'');selVar.appendChild(o);});
 selVar.value='ta';
 
 function renderPresets(){
@@ -311,7 +310,9 @@ function renderPresets(){
 function highlightChip(el){document.querySelectorAll('#presets .chip').forEach(x=>x.classList.remove('on'));if(el)el.classList.add('on');}
 
 function renderLegend(){
-  const vk=selVar.value, sc=SCALES[VARS[vk].scale], L_=$('legend');
+  const vk=selVar.value, L_=$('legend');
+  if(vk==='barbes'){L_.innerHTML='<div class="muted">Barbes (nusos): mitja=5 · sencera=10 · banderola=50 · color=velocitat</div>';return;}
+  const sc=SCALES[VARS[vk].scale];
   if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
   const stops=sc.map((s,i)=>rgb(s[1])+' '+Math.round(i/(sc.length-1)*100)+'%').join(',');
   L_.innerHTML=`<div class="bar" style="--g:${stops}"></div>
@@ -429,7 +430,7 @@ function streakTooltip(st,s){
 function renderStreak(){
   const {v,op,val}=streakMode; let shown=0,maxs=0;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null)return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st))return;
     const s=streakHores(st,v,op,val);
     if(v==='hr' && s===0) return;
     const col=colorFor(v,getVal(st,v));
@@ -472,14 +473,15 @@ function afegirMarker(st,icon){
   m.on('click',()=>{m.bindPopup(popupHTML(st),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st),60);});
   m.addTo(map); markers.push(m); return m;
 }
+function xarxaActiva(st){ return st.font==='AEMET' ? $('netAemet').checked : $('netMeteocat').checked; }
 function render(){
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(!DATA)return;
   if(streakMode){ renderStreak(); return; }
-  const barbMode=$('barbs').checked, vk=selVar.value;
+  const vk=selVar.value, barbMode=(vk==='barbes');
   const filtering=!!activeFilter; let nOk=0, shown=0;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null)return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st))return;
     if(barbMode){
       if(st.actual.vv==null) return;               // barbes: només estacions amb vent
       afegirMarker(st,makeBarbIcon(st)); shown++; return;
@@ -506,8 +508,7 @@ function render(){
 }
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
-['showVal','onlyVar','fade','stale'].forEach(id=>$(id).addEventListener('change',render));
-$('barbs').addEventListener('change',()=>{ if(!$('barbs').checked) renderLegend(); render(); });
+['showVal','onlyVar','fade','stale','netAemet','netMeteocat'].forEach(id=>$(id).addEventListener('change',render));
 
 const selStreakVar=$('streakVar');
 function renderStreakPresets(){
@@ -536,11 +537,21 @@ $('toggle').onclick=()=>{
 };
 
 // ------------------------------------------------------------------ dades (xifrades)
+function infoXarxa(font){
+  const arr=DATA.estacions.filter(e=>e.font===font);
+  if(!arr.length) return '';
+  let mx=null;
+  arr.forEach(e=>{const d=toDate(e.actual&&e.actual.fint); if(d&&(!mx||d>mx))mx=d;});
+  const h=mx?mx.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}):'—';
+  return `(${arr.length} · ${h})`;
+}
 function setUpdated(){
   if(!DATA)return;
   $('updated').textContent='Baixat: '+dataLoc(DATA.generat)+' (hora local)  ·  '+(DATA.n_estacions||0)+' estacions';
   $('fontline').textContent=DATA.font||'Observació en temps real';
-  $('netcount').textContent=(DATA.n_aemet||0)+' AEMET · '+(DATA.n_meteocat||0)+' Meteocat';
+  const ia=$('infoAemet'), im=$('infoMeteocat');
+  if(ia) ia.textContent=infoXarxa('AEMET');
+  if(im) im.textContent=infoXarxa('Meteocat');
 }
 let PASS=null;
 const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
