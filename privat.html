@@ -42,10 +42,19 @@
   .btn.small{padding:4px 8px;font-size:11px}
   .switch{display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer;font-size:12px;color:var(--txt)}
   .switch input{width:16px;height:16px;accent-color:var(--accent);margin:0}
-  .cond{display:flex;gap:5px;align-items:center;margin-bottom:6px}
-  .cond select,.cond input{padding:5px 6px;font-size:12px}
-  .cond .del{cursor:pointer;color:var(--muted);padding:0 4px;font-size:16px}
+  .cond{display:flex;flex-wrap:wrap;gap:5px 6px;align-items:center;margin-bottom:9px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  .cond select,.cond input{padding:6px;font-size:12px}
+  .cond .varsel{flex:1 1 100%}
+  .cond .opsel{flex:0 0 62px}
+  .cond .valinp{flex:1 1 90px;min-width:0}
+  .cond .del{cursor:pointer;color:var(--muted);padding:0 2px;font-size:17px;flex:0 0 auto}
   .cond .del:hover{color:#ef4444}
+  /* targetes desplegables */
+  .card.coll>h2{cursor:pointer;display:flex;justify-content:space-between;align-items:center;margin:0;user-select:none}
+  .card.coll>h2::after{content:'▾';font-size:10px;color:var(--muted)}
+  .card.coll.collapsed>h2::after{content:'▸'}
+  .card.coll:not(.collapsed)>h2{margin-bottom:9px}
+  .card.coll.collapsed .cardbody{display:none}
   .status{font-size:12px;line-height:1.5}
   .status b{color:var(--accent)}
   .legend{display:flex;flex-direction:column;gap:3px;font-size:11px}
@@ -111,54 +120,62 @@
       <div class="legend" id="legend"></div>
     </div>
 
-    <div class="card">
+    <div class="card coll collapsed">
       <h2>Llindar ràpid</h2>
-      <div class="presets" id="presets"></div>
-      <label>Llindar personalitzat</label>
-      <div class="row">
-        <select id="op" style="flex:0 0 70px">
-          <option value=">">&gt;</option>
-          <option value=">=">&ge;</option>
-          <option value="<">&lt;</option>
-          <option value="<=">&le;</option>
-        </select>
-        <input type="number" id="thr" placeholder="valor" step="any">
-        <button class="btn small" id="applyThr">Aplica</button>
+      <div class="cardbody">
+        <div class="presets" id="presets"></div>
+        <label>Llindar personalitzat</label>
+        <div class="row">
+          <select id="op" style="flex:0 0 70px">
+            <option value=">">&gt;</option>
+            <option value=">=">&ge;</option>
+            <option value="<">&lt;</option>
+            <option value="<=">&le;</option>
+          </select>
+          <input type="number" id="thr" placeholder="valor" step="any">
+          <button class="btn small" id="applyThr">Aplica</button>
+        </div>
+        <button class="btn small" id="clearThr" style="margin-top:8px">Llevar filtre</button>
       </div>
-      <button class="btn small" id="clearThr" style="margin-top:8px">Llevar filtre</button>
     </div>
 
-    <div class="card">
+    <div class="card coll collapsed">
       <h2>Filtre combinat (i)</h2>
-      <div id="conds"></div>
-      <div class="row" style="margin-top:6px">
-        <button class="btn small" id="addCond">+ condició</button>
-        <button class="btn small" id="applyComb">Aplica combinat</button>
+      <div class="cardbody">
+        <div id="conds"></div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn small" id="addCond">+ condició</button>
+          <button class="btn small" id="applyComb">Aplica combinat</button>
+        </div>
+        <button class="btn small" id="egComb" style="margin-top:8px">Exemple: &gt;30°C · &lt;30% · &gt;30 km/h</button>
       </div>
-      <button class="btn small" id="egComb" style="margin-top:8px">Exemple: &gt;30°C · &lt;30% · &gt;30 km/h</button>
     </div>
 
-    <div class="card">
+    <div class="card coll collapsed">
       <h2>Hores consecutives (ratxa)</h2>
-      <label>Variable</label>
-      <select id="streakVar">
-        <option value="ta">Temperatura (per damunt)</option>
-        <option value="hr">Humitat (per davall)</option>
-      </select>
-      <div class="presets" id="streakPresets"></div>
-      <p class="muted" style="font-size:11px;margin:8px 0 0">La mida i el número del cercle = hores seguides (des d'ara cap enrere) que compleixen. Humitat: es lleven del mapa els que no compleixen.</p>
-      <button class="btn small" id="streakOff" style="margin-top:8px">Desactivar ratxa</button>
+      <div class="cardbody">
+        <label>Variable</label>
+        <select id="streakVar">
+          <option value="ta">Temperatura (per damunt)</option>
+          <option value="hr">Humitat (per davall)</option>
+        </select>
+        <div class="presets" id="streakPresets"></div>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">La mida i el número del cercle = hores seguides (des d'ara cap enrere) que compleixen. Humitat: es lleven del mapa els que no compleixen.</p>
+        <button class="btn small" id="streakOff" style="margin-top:8px">Desactivar ratxa</button>
+      </div>
     </div>
 
-    <div class="card">
+    <div class="card coll collapsed">
       <h2>Fons del mapa</h2>
-      <select id="basemap">
-        <option value="dark">Fosc</option>
-        <option value="light">Clar</option>
-        <option value="satellite">Satèl·lit</option>
-        <option value="topo">Relleu</option>
-        <option value="streets">Carrers</option>
-      </select>
+      <div class="cardbody">
+        <select id="basemap">
+          <option value="dark">Fosc</option>
+          <option value="light">Clar</option>
+          <option value="satellite">Satèl·lit</option>
+          <option value="topo">Relleu</option>
+          <option value="streets">Carrers</option>
+        </select>
+      </div>
     </div>
 
     <div class="card">
@@ -304,14 +321,14 @@ function renderLegend(){
 let conds=[];
 function condRow(c,i){
   const div=document.createElement('div');div.className='cond';
-  const vs=document.createElement('select');
-  ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label;if(k===c.v)o.selected=true;vs.appendChild(o);});
+  const vs=document.createElement('select');vs.className='varsel';
+  ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+' ('+VARS[k].unit+')';if(k===c.v)o.selected=true;vs.appendChild(o);});
   vs.onchange=e=>{c.v=e.target.value;c.op=VARS[c.v].dir;os.value=c.op;};
-  const os=document.createElement('select');os.style.flex='0 0 52px';
+  const os=document.createElement('select');os.className='opsel';
   [['>','>'],['>=','≥'],['<','<'],['<=','≤']].forEach(([v,t])=>{const o=document.createElement('option');o.value=v;o.textContent=t;if(v===c.op)o.selected=true;os.appendChild(o);});
   os.onchange=e=>c.op=e.target.value;
-  const inp=document.createElement('input');inp.type='number';inp.step='any';inp.value=c.val;inp.style.flex='1';inp.oninput=e=>c.val=e.target.value;
-  const del=document.createElement('span');del.className='del';del.textContent='×';del.onclick=()=>{conds.splice(i,1);renderConds();};
+  const inp=document.createElement('input');inp.type='number';inp.step='any';inp.className='valinp';inp.placeholder='valor';inp.value=c.val;inp.oninput=e=>c.val=e.target.value;
+  const del=document.createElement('span');del.className='del';del.textContent='×';del.title='Llevar condició';del.onclick=()=>{conds.splice(i,1);renderConds();};
   div.append(vs,os,inp,del);return div;
 }
 function renderConds(){const box=$('conds');box.innerHTML='';conds.forEach((c,i)=>box.appendChild(condRow(c,i)));}
@@ -561,6 +578,9 @@ $('refresh').onclick=async()=>{
   catch(e){ $('status').innerHTML='<span style="color:#f59e0b">No s\'han pogut recarregar les dades.</span>'; }
   b.disabled=false; b.textContent='↻ Recarregar dades';
 };
+
+// desplegables: clic a la capçalera plega/desplega
+document.querySelectorAll('.card.coll>h2').forEach(hh=>hh.addEventListener('click',()=>hh.parentElement.classList.toggle('collapsed')));
 
 renderPresets(); renderStreakPresets(); renderLegend();
 </script>
