@@ -247,8 +247,9 @@
       <h2>Dades</h2>
       <div class="status" id="status">Carregant…</div>
       <div class="updated" id="updated"></div>
-      <button class="btn primary" id="refresh" style="width:100%;margin-top:9px">↻ Recarregar dades</button>
-      <div class="muted" style="font-size:11px;margin-top:8px">AEMET s'actualitza sovint; Meteocat cada ~6 h (límit de consultes). Dades de Meteocat © Servei Meteorològic de Catalunya.</div>
+      <button class="btn primary" id="actualitzar" style="width:100%;margin-top:9px">⬇ Actualitzar (baixa dades noves)</button>
+      <button class="btn" id="refresh" style="width:100%;margin-top:6px">↻ Recarregar (sense baixar)</button>
+      <div class="muted" style="font-size:11px;margin-top:8px">Actualització MANUAL: «Actualitzar» baixa dades noves d'AEMET/Meteocat (màx. 1 cop/hora). «Recarregar» torna a llegir les últimes publicades. Dades de Meteocat © Servei Meteorològic de Catalunya.</div>
     </div>
   </div>
   <div id="map"></div>
@@ -902,8 +903,56 @@ $('refresh').onclick=async()=>{
   const b=$('refresh'); b.disabled=true; b.textContent='↻ Recarregant…';
   try{ await carregar(PASS); }
   catch(e){ $('status').innerHTML='<span style="color:#f59e0b">No s\'han pogut recarregar les dades.</span>'; }
-  b.disabled=false; b.textContent='↻ Recarregar dades';
+  b.disabled=false; b.textContent='↻ Recarregar (sense baixar)';
 };
+
+// ---------------- actualització manual (dispara la GitHub Action) ----------------
+const GH_REPO='Javimiroo/mapa-aemet', GH_WF='privat.yml';
+function ghToken(){ try{return localStorage.getItem('gh_token')||'';}catch(e){return '';} }
+async function gh(path,method,body){
+  return fetch('https://api.github.com/repos/'+GH_REPO+path,{
+    method:method||'GET',
+    headers:{'Authorization':'Bearer '+ghToken(),'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},
+    body:body?JSON.stringify(body):undefined});
+}
+async function ultimaRun(){
+  const r=await gh('/actions/workflows/'+GH_WF+'/runs?per_page=1');
+  if(r.status===401||r.status===403){ const e=new Error('token'); e.auth=true; throw e; }
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const d=await r.json(); return (d.workflow_runs&&d.workflow_runs[0])||null;
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function actualitzar(){
+  if(!ghToken()){
+    const t=prompt('Enganxa el teu token de GitHub (es guarda només al teu navegador):');
+    if(!t) return; try{localStorage.setItem('gh_token',t.trim());}catch(e){}
+  }
+  const b=$('actualitzar'), old=b.textContent; b.disabled=true;
+  try{
+    b.textContent='Comprovant…';
+    const last=await ultimaRun();
+    if(last && last.status!=='completed'){ alert('Ja hi ha una actualització en marxa; espera que acabe.'); b.disabled=false;b.textContent=old; return; }
+    if(last){ const mins=(Date.now()-Date.parse(last.created_at))/60000;
+      if(mins<60){ alert('Per no gastar crèdit, màxim 1 actualització per hora.\nTorna d\'ací a '+Math.ceil(60-mins)+' min.'); b.disabled=false;b.textContent=old; return; } }
+    b.textContent='Llançant…';
+    const r=await gh('/actions/workflows/'+GH_WF+'/dispatches','POST',{ref:'main'});
+    if(r.status===401||r.status===403){ try{localStorage.removeItem('gh_token');}catch(e){} alert('El token no val o no té permisos (cal Actions: Read and write). Torna a provar amb un de nou.'); b.disabled=false;b.textContent=old; return; }
+    if(!(r.status===204||r.ok)) throw new Error('HTTP '+r.status);
+    const abans=DATA&&DATA.generat;
+    for(let i=0;i<40;i++){
+      await sleep(7000); b.textContent='Actualitzant… ('+((i+1)*7)+'s)';
+      let run=null; try{ run=await ultimaRun(); }catch(e){}
+      if(run && run.status==='completed' && run.conclusion && run.conclusion!=='success'){ alert('L\'actualització ha fallat a GitHub (mira la pestanya Actions).'); break; }
+      try{ await carregar(PASS); if(DATA && DATA.generat!==abans){ b.textContent='✓ Actualitzat'; await sleep(3500); b.textContent=old; b.disabled=false; return; } }catch(e){}
+    }
+    b.textContent=old; b.disabled=false;
+  }catch(e){
+    if(e.auth){ try{localStorage.removeItem('gh_token');}catch(_){} alert('El token no és vàlid. Torna a provar.'); }
+    else alert('No s\'ha pogut actualitzar: '+(e.message||e));
+    b.disabled=false; b.textContent=old;
+  }
+}
+$('actualitzar').addEventListener('click',actualitzar);
 
 // desplegables: clic a la capçalera plega/desplega
 document.querySelectorAll('.card.coll>h2').forEach(hh=>hh.addEventListener('click',()=>hh.parentElement.classList.toggle('collapsed')));
