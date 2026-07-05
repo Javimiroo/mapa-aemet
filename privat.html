@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root{
     --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --line:#334155;
@@ -213,12 +214,27 @@
       </div>
     </div>
 
+    <div class="card coll collapsed">
+      <h2>Exporta imatge</h2>
+      <div class="cardbody">
+        <label>Nom / lloc de l'incendi</label>
+        <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
+        <button class="btn primary" id="exportar" style="width:100%;margin-top:8px">📷 Generar imatge</button>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">Crea un PNG amb el/els mapes actuals, la marca Bombers, el nom de l'incendi, les llegendes i l'hora d'actualització.</p>
+      </div>
+    </div>
+
     <div class="card">
       <h2>Opcions</h2>
       <label class="switch"><input type="checkbox" id="showVal" checked> Etiqueta amb el valor al disc</label>
       <label class="switch"><input type="checkbox" id="onlyVar"> En passar el cursor, només la variable triada</label>
       <label class="switch"><input type="checkbox" id="fade" checked> Atenuar (60%) els que no compleixen</label>
-      <label class="switch"><input type="checkbox" id="stale" checked> Anell roig si fa &gt;3 h sense actualitzar</label>
+      <label class="switch"><input type="checkbox" id="stale" checked> Amagar dades desfasades</label>
+      <div class="row" style="margin:2px 0 0 24px;align-items:center;gap:6px">
+        <span class="muted" style="font-size:11px">més de</span>
+        <input type="number" id="staleH" value="3" min="0" step="0.5" style="width:56px">
+        <span class="muted" style="font-size:11px">hores</span>
+      </div>
     </div>
 
     <div class="card">
@@ -308,7 +324,9 @@ function horesDesdeObs(st){
   if(!g||!f) return null;
   return (g-f)/3600000;
 }
-function esVella(st){const h=horesDesdeObs(st);return h!=null && h>STALE_H;}
+function llindarVella(){const v=parseFloat($('staleH')&&$('staleH').value);return isNaN(v)?STALE_H:v;}
+function esVella(st){const h=horesDesdeObs(st);return h!=null && h>llindarVella();}
+function amagaVella(st){return $('stale')&&$('stale').checked && esVella(st);}
 
 // ------------------------------------------------------------------ estat
 let DATA=null, markers=[], activeFilter=null;
@@ -326,9 +344,10 @@ const BASEMAPS={
 let baseLayer=null, baseLayer2=null, map2=null, markers2=[], comboActive=null;
 function setBase(key){
   const b=BASEMAPS[key]||BASEMAPS.dark;
+  const opt=Object.assign({crossOrigin:true}, b.o);
   if(baseLayer)map.removeLayer(baseLayer);
-  baseLayer=L.tileLayer(b.u,b.o).addTo(map); baseLayer.bringToBack();
-  if(map2){ if(baseLayer2)map2.removeLayer(baseLayer2); baseLayer2=L.tileLayer(b.u,b.o).addTo(map2); baseLayer2.bringToBack(); }
+  baseLayer=L.tileLayer(b.u,opt).addTo(map); baseLayer.bringToBack();
+  if(map2){ if(baseLayer2)map2.removeLayer(baseLayer2); baseLayer2=L.tileLayer(b.u,opt).addTo(map2); baseLayer2.bringToBack(); }
 }
 setBase('icgc');
 
@@ -419,7 +438,7 @@ function tooltipHTML(st){
     ['Punt rosada',fmt('tpr',a.tpr)+' °C']];
   const hora=horaLoc(a.fint);
   const ageh=horesDesdeObs(st);
-  const avis=(ageh!=null&&ageh>STALE_H)?`<div style="color:#ff6b6b;font-weight:600;margin-top:3px">⚠ Fa ${ageh.toFixed(1)} h que no actualitza</div>`:'';
+  const avis=(ageh!=null&&ageh>llindarVella())?`<div style="color:#ff6b6b;font-weight:600;margin-top:3px">⚠ Fa ${ageh.toFixed(1)} h que no actualitza</div>`:'';
   return `<div class="lp-tt"><b>${st.nom}</b> <span class="muted">(${st.font} · ${st.provincia}, ${st.alt||'?'} m)</span>
     <table>${rows.map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
     <span class="muted">Obs. ${hora} (local) · ${st.idema}</span>${avis}</div>`;
@@ -430,10 +449,9 @@ function makeIcon(st,vk){
   const col=colorFor(vk,v);
   const show=$('showVal').checked;
   const size=show?34:16;
-  const ring=($('stale')&&$('stale').checked&&esVella(st))?';border-color:#ff3b30;border-width:3px':'';
   const sq=(st.font==='Meteocat')?';border-radius:22%':'';
-  const html=show?`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}${sq}">${fmt(vk,v)}</div>`
-                 :`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}${sq}"></div>`;
+  const html=show?`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${sq}">${fmt(vk,v)}</div>`
+                 :`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${sq}"></div>`;
   return L.divIcon({className:'',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
 }
 
@@ -465,9 +483,8 @@ function makeBarbIcon(st){
 function makeStreakIcon(st,streak,col){
   const size=Math.min(22+streak*6,68);
   const fs=Math.max(11,Math.round(size*0.36));
-  const ring=($('stale')&&$('stale').checked&&esVella(st))?';border-color:#ff3b30;border-width:3px':'';
   const sq=(st.font==='Meteocat')?';border-radius:22%':'';
-  const html=`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}${sq};font-size:${fs}px">${streak}</div>`;
+  const html=`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${sq};font-size:${fs}px">${streak}</div>`;
   return L.divIcon({className:'',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
 }
 function streakTooltip(st,s){
@@ -479,7 +496,7 @@ function streakTooltip(st,s){
 function renderStreak(){
   const {v,op,val}=streakMode; let shown=0,maxs=0;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null||!xarxaActiva(st))return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st))return;
     const s=streakHores(st,v,op,val);
     if(v==='hr' && s===0) return;
     const col=colorFor(v,getVal(st,v));
@@ -531,7 +548,7 @@ function render(){
   const vk=selVar.value, barbMode=(vk==='barbes');
   const filtering=!!activeFilter; let nOk=0, shown=0;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null||!xarxaActiva(st))return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st))return;
     if(barbMode){
       if(st.actual.vv==null) return;               // barbes: només estacions amb vent
       afegirMarker(map,markers,st,makeBarbIcon(st)); shown++; return;
@@ -582,7 +599,7 @@ function renderSpec(mapObj,arr,sp){
   arr.forEach(m=>mapObj.removeLayer(m)); arr.length=0;
   if(!DATA) return;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null||!xarxaActiva(st)) return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)) return;
     if(sp.k==='barbs'){
       if(st.actual.vv==null) return;
       afegirMarker(mapObj,arr,st,makeBarbIcon(st)); return;
@@ -610,7 +627,7 @@ function ensureMap2(){
   if(map2)return;
   map2=L.map('map2',{zoomControl:true}).setView(map.getCenter(),map.getZoom());
   const b=BASEMAPS[$('basemap').value]||BASEMAPS.dark;
-  baseLayer2=L.tileLayer(b.u,b.o).addTo(map2); baseLayer2.bringToBack();
+  baseLayer2=L.tileLayer(b.u,Object.assign({crossOrigin:true},b.o)).addTo(map2); baseLayer2.bringToBack();
   syncMaps(map,map2); syncMaps(map2,map);
 }
 function renderCombinat(){
@@ -640,6 +657,7 @@ function aplicaCombo(key){
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
 ['showVal','onlyVar','fade','stale','netAemet','netMeteocat'].forEach(id=>$(id).addEventListener('change',render));
+$('staleH').addEventListener('input',render);
 
 const selStreakVar=$('streakVar');
 function renderStreakPresets(){
@@ -667,6 +685,90 @@ map.on('zoomend',()=>{
   if(comboActive){ if(comboActive.a.k==='barbs'||comboActive.b.k==='barbs') renderCombinat(); }
   else if(selVar.value==='barbes'){ render(); }
 });
+
+// ---------------- exporta imatge ----------------
+function especMapaUnic(){
+  if(selVar.value==='barbes') return {k:'barbs'};
+  if(streakMode) return {k:'streak',v:streakMode.v,op:streakMode.op,val:streakMode.val,hide0:streakMode.op==='<'};
+  return {k:'var',v:selVar.value};
+}
+function dibuixaLogoBombers(c,x,y,h){
+  c.save(); c.fillStyle='#c00000'; c.textAlign='left'; c.textBaseline='top';
+  const fs=Math.round(h*0.66); c.font='900 '+fs+'px Arial, sans-serif';
+  c.fillText('bombers', x, y);
+  const w=c.measureText('bombers').width;
+  const sq=h*0.2, gap=(w-4*sq)/3;
+  for(let i=0;i<4;i++) c.fillRect(x+i*(sq+gap), y+h*0.80, sq, sq);
+  c.restore(); return w;
+}
+function dibuixaLlegendaExport(c, spec, x, y, w, S){
+  c.save(); c.textAlign='center'; c.textBaseline='top';
+  c.fillStyle='#111'; c.font='bold '+(15*S)+'px Arial';
+  c.fillText(specLabel(spec), x+w/2, y);
+  const vk = spec.k==='barbs' ? null : spec.v, by=y+22*S;
+  if(!vk){
+    c.font=(12*S)+'px Arial'; c.fillStyle='#333';
+    c.fillText('Barbes (nusos): mitja = 5 · sencera = 10 · banderola = 50 · color = velocitat', x+w/2, by);
+    c.restore(); return;
+  }
+  const sc=SCALES[VARS[vk].scale];
+  if(sc==='wheel'){ c.font=(12*S)+'px Arial'; c.fillStyle='#333'; c.fillText('Direcció del vent (roda de matís, 0–360°)', x+w/2, by); c.restore(); return; }
+  const bw=w*0.82, bh=14*S, bx=x+(w-bw)/2, min=sc[0][0], max=sc[sc.length-1][0], span=(max-min)||1;
+  const g=c.createLinearGradient(bx,0,bx+bw,0);
+  sc.forEach(s=>g.addColorStop(Math.min(1,Math.max(0,(s[0]-min)/span)), rgb(s[1])));
+  c.fillStyle=g; c.fillRect(bx,by,bw,bh);
+  c.strokeStyle='#777'; c.lineWidth=S; c.strokeRect(bx,by,bw,bh);
+  c.fillStyle='#111'; c.font=(11*S)+'px Arial';
+  for(let i=0;i<=6;i++) c.fillText(Math.round(min+span*i/6), bx+bw*i/6, by+bh+3*S);
+  c.fillStyle='#555'; c.font=(11*S)+'px Arial';
+  c.fillText(spec.k==='streak'?(VARS[vk].unit+' · mida = hores consecutives'):VARS[vk].unit, x+w/2, by+bh+18*S);
+  c.restore();
+}
+async function generarImatge(){
+  if(!DATA){ alert('Espera que carreguen les dades.'); return; }
+  if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
+  const btn=$('exportar'), old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
+  try{
+    const nom=($('incident').value||'').trim();
+    const panes = comboActive
+      ? [{el:$('map'),spec:specWithThr(comboActive.a)},{el:$('map2'),spec:specWithThr(comboActive.b)}]
+      : [{el:$('map'),spec:especMapaUnic()}];
+    const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
+      ignoreElements:el=>el.classList&&el.classList.contains('leaflet-control-zoom')};
+    for(const p of panes){ p.canvas=await html2canvas(p.el, opts); }
+    const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=34*S;
+    const mapW=(panes.length>1?680:940)*S;
+    const mapH=Math.round(mapW*panes[0].canvas.height/panes[0].canvas.width);
+    const W=panes.length*mapW+(panes.length-1)*gap+2*pad;
+    const H=headerH+mapH+legH+footH+2*pad;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const c=cv.getContext('2d');
+    c.fillStyle='#fff'; c.fillRect(0,0,W,H);
+    const logoW=dibuixaLogoBombers(c, pad, pad+6*S, headerH*0.66);
+    c.fillStyle='#111'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(30*S)+'px Arial';
+    const tx=pad+logoW+30*S;
+    c.fillText('SITUACIÓ METEOROLÒGICA', tx, pad+headerH*0.36);
+    if(nom){ c.font=(21*S)+'px Arial'; c.fillStyle='#b00000'; c.fillText('Incendi de '+nom, tx, pad+headerH*0.72); }
+    let x=pad; const mapY=pad+headerH;
+    for(const p of panes){
+      c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
+      c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,mapY,mapW,mapH);
+      dibuixaLlegendaExport(c, p.spec, x, mapY+mapH+9*S, mapW, S);
+      x+=mapW+gap;
+    }
+    c.textBaseline='middle'; c.fillStyle='#222'; c.font=(16*S)+'px Arial'; c.textAlign='left';
+    c.fillText('Actualització de les dades: '+dataLoc(DATA.generat)+' (hora local)', pad, H-pad-footH*0.4);
+    c.textAlign='right'; c.fillStyle='#888'; c.font=(12*S)+'px Arial';
+    c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC', W-pad, H-pad-footH*0.4);
+    cv.toBlob(bl=>{
+      const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
+      a.download='situacio_meteo_'+(nom||'incendi').replace(/[^\w]+/g,'_')+'.png'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    },'image/png');
+  }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
+  btn.disabled=false; btn.textContent=old;
+}
+$('exportar').addEventListener('click',generarImatge);
 $('toggle').onclick=()=>{
   const app=$('app');
   app.classList.toggle('collapsed');
