@@ -437,24 +437,28 @@ function makeIcon(st,vk){
   return L.divIcon({className:'',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
 }
 
+// factor d'escala de les barbes segons el zoom (menudes en general, grans ampliant)
+function barbZoom(){ const z=(map&&map.getZoom)?map.getZoom():8; return Math.max(0.8, Math.min(3.2, 1+(z-8)*0.4)); }
 // barbes de vent (conveni estàndard, en nusos): mitja=5 kt, sencera=10 kt, banderola=50 kt
-function windBarbSVG(kmh,col){
+function windBarbSVG(kmh,col,sc){
+  sc=sc||1;
   const kt=(kmh||0)/1.852;
   let s=Math.round(kt/5)*5;
-  const L=24,bl=10,sp=4.2;
-  const p=[`<line x1="0" y1="0" x2="0" y2="${-L}" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/>`];
-  if(s<3){ p.push(`<circle cx="0" cy="${-L}" r="3.2" fill="none" stroke="${col}" stroke-width="1.6"/>`); return p.join(''); }
+  const L=24*sc, bl=10*sc, sp=4.2*sc, sw=Math.min(3.2,1.8*sc);
+  const p=[`<line x1="0" y1="0" x2="0" y2="${-L}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`];
+  if(s<3){ p.push(`<circle cx="0" cy="${-L}" r="${3.2*sc}" fill="none" stroke="${col}" stroke-width="${Math.min(2.6,1.6*sc)}"/>`); return p.join(''); }
   let pos=-L, rem=s;
-  while(rem>=50){ p.push(`<path d="M0 ${pos} L ${bl} ${pos+3} L 0 ${pos+6} Z" fill="${col}"/>`); pos+=7.5; rem-=50; }
-  while(rem>=10){ p.push(`<line x1="0" y1="${pos}" x2="${bl}" y2="${pos-3.5}" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/>`); pos+=sp; rem-=10; }
-  if(rem>=5){ if(pos===-L) pos+=sp; p.push(`<line x1="0" y1="${pos}" x2="${bl*0.55}" y2="${pos-2}" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/>`); }
+  while(rem>=50){ p.push(`<path d="M0 ${pos} L ${bl} ${pos+3*sc} L 0 ${pos+6*sc} Z" fill="${col}"/>`); pos+=7.5*sc; rem-=50; }
+  while(rem>=10){ p.push(`<line x1="0" y1="${pos}" x2="${bl}" y2="${pos-3.5*sc}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`); pos+=sp; rem-=10; }
+  if(rem>=5){ if(pos===-L) pos+=sp; p.push(`<line x1="0" y1="${pos}" x2="${bl*0.55}" y2="${pos-2*sc}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`); }
   return p.join('');
 }
 function makeBarbIcon(st){
-  const spd=st.actual.vv, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd), R=30;
+  const zf=barbZoom();
+  const spd=st.actual.vv, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd), R=30*zf;
   const html=`<svg width="${2*R}" height="${2*R}" viewBox="${-R} ${-R} ${2*R} ${2*R}" style="overflow:visible;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))">
-      <circle cx="0" cy="0" r="2.6" fill="${col}" stroke="#0b0b0b" stroke-width="0.8"/>
-      <g transform="rotate(${dir})">${windBarbSVG(spd,col)}</g></svg>`;
+      <circle cx="0" cy="0" r="${2.6*zf}" fill="${col}" stroke="#0b0b0b" stroke-width="0.8"/>
+      <g transform="rotate(${dir})">${windBarbSVG(spd,col,zf)}</g></svg>`;
   return L.divIcon({className:'',html,iconSize:[2*R,2*R],iconAnchor:[R,R]});
 }
 
@@ -658,6 +662,11 @@ $('streakOff').onclick=()=>{clearStreak();renderLegend();render();};
 $('basemap').onchange=e=>setBase(e.target.value);
 $('combo').addEventListener('change',e=>aplicaCombo(e.target.value));
 ['thrHr','thrTa'].forEach(id=>$(id).addEventListener('input',()=>{ if(comboActive) renderCombinat(); }));
+// re-dibuixa les barbes en canviar el zoom (perquè escalen)
+map.on('zoomend',()=>{
+  if(comboActive){ if(comboActive.a.k==='barbs'||comboActive.b.k==='barbs') renderCombinat(); }
+  else if(selVar.value==='barbes'){ render(); }
+});
 $('toggle').onclick=()=>{
   const app=$('app');
   app.classList.toggle('collapsed');
