@@ -16,6 +16,19 @@
   html,body{margin:0;height:100%;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--txt)}
   #app{position:relative;height:100vh;overflow:hidden}
   #map{position:absolute;inset:0;height:100%;width:100%}
+  #map2{position:absolute;top:0;right:0;height:100%;width:50%;display:none;z-index:5}
+  #app.combinat #map{width:50%}
+  #app.combinat #map2{display:block;border-left:2px solid #000}
+  .maplab{position:absolute;top:10px;z-index:1100;display:none;background:rgba(15,23,42,.9);color:var(--txt);
+          padding:4px 11px;border-radius:8px;font-size:12px;font-weight:600;border:1px solid var(--line);
+          pointer-events:none;transform:translateX(-50%);box-shadow:0 2px 6px rgba(0,0,0,.5);white-space:nowrap}
+  #app.combinat .maplab{display:block}
+  #lab1{left:25%} #lab2{left:75%}
+  @media (max-width:640px){
+    #app.combinat #map{width:100%;height:50%}
+    #app.combinat #map2{width:100%;height:50%;top:auto;bottom:0;border-left:none;border-top:2px solid #000}
+    #lab1{left:50%;top:8px} #lab2{left:50%;top:calc(50% + 8px)}
+  }
   #panel{position:absolute;top:0;left:0;height:100%;width:340px;max-width:85vw;background:var(--panel);
          border-right:1px solid var(--line);overflow-y:auto;padding:14px 14px 40px;z-index:1000;
          transition:transform .25s ease;box-shadow:2px 0 14px rgba(0,0,0,.4)}
@@ -177,6 +190,27 @@
       </div>
     </div>
 
+    <div class="card coll collapsed">
+      <h2>Mapes combinats</h2>
+      <div class="cardbody">
+        <select id="combo">
+          <option value="">— Un sol mapa —</option>
+          <option value="th">Temperatura + Humitat</option>
+          <option value="bh">Barbes + Humitat</option>
+          <option value="br">Barbes + Punt de rosada</option>
+          <option value="tb">Temperatura + Barbes</option>
+          <option value="bshr">Barbes + Hores humitat baixa</option>
+          <option value="shst">Hores humitat baixa + Hores temp alta</option>
+          <option value="hrtpr">Humitat + Punt de rosada</option>
+        </select>
+        <div class="row" style="margin-top:8px">
+          <label style="margin:0;flex:1;font-size:11px">Humitat &lt;<input type="number" id="thrHr" value="30" step="any" style="width:100%"></label>
+          <label style="margin:0;flex:1;font-size:11px">Temp &gt;<input type="number" id="thrTa" value="30" step="any" style="width:100%"></label>
+        </div>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">Dos mapes de costat, sincronitzats (mous un, es mou l'altre). Els llindars s'usen a les combinacions amb "hores".</p>
+      </div>
+    </div>
+
     <div class="card">
       <h2>Opcions</h2>
       <label class="switch"><input type="checkbox" id="showVal" checked> Etiqueta amb el valor al disc</label>
@@ -194,6 +228,9 @@
     </div>
   </div>
   <div id="map"></div>
+  <div id="map2"></div>
+  <div class="maplab" id="lab1"></div>
+  <div class="maplab" id="lab2"></div>
 </div>
 
 <script>
@@ -282,12 +319,12 @@ const BASEMAPS={
   topo:{u:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',o:{maxZoom:17,attribution:'© OpenTopoMap · AEMET · Meteocat (SMC)'}},
   streets:{u:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',o:{maxZoom:19,attribution:'© OpenStreetMap · AEMET · Meteocat (SMC)'}},
 };
-let baseLayer=null;
+let baseLayer=null, baseLayer2=null, map2=null, markers2=[], comboActive=null;
 function setBase(key){
-  if(baseLayer)map.removeLayer(baseLayer);
   const b=BASEMAPS[key]||BASEMAPS.dark;
-  baseLayer=L.tileLayer(b.u,b.o).addTo(map);
-  baseLayer.bringToBack();
+  if(baseLayer)map.removeLayer(baseLayer);
+  baseLayer=L.tileLayer(b.u,b.o).addTo(map); baseLayer.bringToBack();
+  if(map2){ if(baseLayer2)map2.removeLayer(baseLayer2); baseLayer2=L.tileLayer(b.u,b.o).addTo(map2); baseLayer2.bringToBack(); }
 }
 setBase('dark');
 
@@ -380,8 +417,8 @@ function tooltipHTML(st){
     <span class="muted">Obs. ${hora} (local) · ${st.idema}</span>${avis}</div>`;
 }
 
-function makeIcon(st,ok){
-  const vk=selVar.value, v=getVal(st,vk);
+function makeIcon(st,vk){
+  const v=getVal(st,vk);
   const col=colorFor(vk,v);
   const show=$('showVal').checked;
   const size=show?34:16;
@@ -467,14 +504,15 @@ function drawChart(st,vk){
               y:{ticks:{color:'#64748b',font:{size:9}},grid:{color:'#e5e7eb33'}}}}});
 }
 
-function afegirMarker(st,icon){
+function afegirMarker(mapObj,arr,st,icon){
   const m=L.marker([st.lat,st.lon],{icon});
   m.bindTooltip(tooltipHTML(st),{direction:'top',opacity:.97,className:'',offset:[0,-6]});
   m.on('click',()=>{m.bindPopup(popupHTML(st),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st),60);});
-  m.addTo(map); markers.push(m); return m;
+  m.addTo(mapObj); arr.push(m); return m;
 }
 function xarxaActiva(st){ return st.font==='AEMET' ? $('netAemet').checked : $('netMeteocat').checked; }
 function render(){
+  if(comboActive){ renderCombinat(); return; }
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(!DATA)return;
   if(streakMode){ renderStreak(); return; }
@@ -484,11 +522,11 @@ function render(){
     if(st.lat==null||st.lon==null||!xarxaActiva(st))return;
     if(barbMode){
       if(st.actual.vv==null) return;               // barbes: només estacions amb vent
-      afegirMarker(st,makeBarbIcon(st)); shown++; return;
+      afegirMarker(map,markers,st,makeBarbIcon(st)); shown++; return;
     }
     if(getVal(st,vk)==null) return;                 // amaga estacions sense dada de la variable triada
     const ok=matches(st); if(ok)nOk++;
-    const m=afegirMarker(st,makeIcon(st,ok)); shown++;
+    const m=afegirMarker(map,markers,st,makeIcon(st,vk)); shown++;
     m.setOpacity((filtering && !ok && $('fade').checked)?0.4:1);
     if(filtering && ok) m.setZIndexOffset(1000);
   });
@@ -505,6 +543,87 @@ function render(){
   $('status').innerHTML = filtering
     ? `Filtre: <b>${f}</b><br>Compleixen: <b>${nOk}</b> / ${shown} amb dada`
     : `<b>${shown}</b> estacions · variable: <b>${VARS[vk].label}</b>`;
+}
+
+// ---------------- mapes combinats (dos mapes sincronitzats) ----------------
+const COMBOS={
+  th:   {a:{k:'var',v:'ta'},           b:{k:'var',v:'hr'}},
+  bh:   {a:{k:'barbs'},                b:{k:'var',v:'hr'}},
+  br:   {a:{k:'barbs'},                b:{k:'var',v:'tpr'}},
+  tb:   {a:{k:'var',v:'ta'},           b:{k:'barbs'}},
+  bshr: {a:{k:'barbs'},                b:{k:'streak',v:'hr',op:'<'}},
+  shst: {a:{k:'streak',v:'hr',op:'<'}, b:{k:'streak',v:'ta',op:'>'}},
+  hrtpr:{a:{k:'var',v:'hr'},           b:{k:'var',v:'tpr'}},
+};
+function specWithThr(sp){
+  if(sp.k!=='streak') return sp;
+  let val = sp.v==='hr' ? parseFloat($('thrHr').value) : parseFloat($('thrTa').value);
+  if(isNaN(val)) val=30;
+  return Object.assign({},sp,{val,hide0:sp.op==='<'});
+}
+function specLabel(sp){
+  if(sp.k==='barbs') return 'Barbes de vent';
+  if(sp.k==='streak') return sp.v==='hr' ? ('Hores humitat < '+sp.val+'%') : ('Hores temp > '+sp.val+'°');
+  return VARS[sp.v].label;
+}
+function renderSpec(mapObj,arr,sp){
+  arr.forEach(m=>mapObj.removeLayer(m)); arr.length=0;
+  if(!DATA) return;
+  DATA.estacions.forEach(st=>{
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)) return;
+    if(sp.k==='barbs'){
+      if(st.actual.vv==null) return;
+      afegirMarker(mapObj,arr,st,makeBarbIcon(st)); return;
+    }
+    if(sp.k==='streak'){
+      const s=streakHores(st,sp.v,sp.op,sp.val);
+      if(s===0 && sp.hide0) return;
+      const m=afegirMarker(mapObj,arr,st,makeStreakIcon(st,s,colorFor(sp.v,getVal(st,sp.v))));
+      m.setOpacity(s===0?0.35:1); return;
+    }
+    if(getVal(st,sp.v)==null) return;
+    afegirMarker(mapObj,arr,st,makeIcon(st,sp.v));
+  });
+}
+let syncing=false;
+function syncMaps(a,b){
+  a.on('move',()=>{
+    if(syncing)return; syncing=true;
+    const c=a.getCenter(), z=a.getZoom();
+    if(b.getZoom()!==z || !b.getCenter().equals(c)) b.setView(c,z,{animate:false});
+    syncing=false;
+  });
+}
+function ensureMap2(){
+  if(map2)return;
+  map2=L.map('map2',{zoomControl:true}).setView(map.getCenter(),map.getZoom());
+  const b=BASEMAPS[$('basemap').value]||BASEMAPS.dark;
+  baseLayer2=L.tileLayer(b.u,b.o).addTo(map2); baseLayer2.bringToBack();
+  syncMaps(map,map2); syncMaps(map2,map);
+}
+function renderCombinat(){
+  if(!comboActive) return;
+  const a=specWithThr(comboActive.a), b=specWithThr(comboActive.b);
+  renderSpec(map,markers,a);
+  renderSpec(map2,markers2,b);
+  $('lab1').textContent='◀ '+specLabel(a);
+  $('lab2').textContent=specLabel(b)+' ▶';
+  $('status').innerHTML=`Combinat:<br><b>${specLabel(a)}</b><br><b>${specLabel(b)}</b>`;
+}
+function aplicaCombo(key){
+  comboActive = key ? COMBOS[key] : null;
+  const app=$('app');
+  if(!comboActive){
+    app.classList.remove('combinat');
+    if(map2) markers2.forEach(m=>map2.removeLayer(m));
+    markers2.length=0;
+    render();
+    setTimeout(()=>map.invalidateSize(),260);
+    return;
+  }
+  ensureMap2();
+  app.classList.add('combinat');
+  setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); },260);
 }
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
@@ -529,6 +648,8 @@ function renderStreakPresets(){
 selStreakVar.onchange=renderStreakPresets;
 $('streakOff').onclick=()=>{clearStreak();renderLegend();render();};
 $('basemap').onchange=e=>setBase(e.target.value);
+$('combo').addEventListener('change',e=>aplicaCombo(e.target.value));
+['thrHr','thrTa'].forEach(id=>$(id).addEventListener('input',()=>{ if(comboActive) renderCombinat(); }));
 $('toggle').onclick=()=>{
   const app=$('app');
   app.classList.toggle('collapsed');
