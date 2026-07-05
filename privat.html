@@ -165,7 +165,7 @@
       <h2>Opcions</h2>
       <label class="switch"><input type="checkbox" id="showVal" checked> Etiqueta amb el valor al disc</label>
       <label class="switch"><input type="checkbox" id="onlyVar"> En passar el cursor, només la variable triada</label>
-      <label class="switch"><input type="checkbox" id="arrows"> Fletxes de vent (direcció)</label>
+      <label class="switch"><input type="checkbox" id="barbs"> Barbes de vent (velocitat + direcció)</label>
       <label class="switch"><input type="checkbox" id="fade" checked> Atenuar (60%) els que no compleixen</label>
       <label class="switch"><input type="checkbox" id="stale" checked> Anell roig si fa &gt;3 h sense actualitzar</label>
     </div>
@@ -367,19 +367,32 @@ function makeIcon(st,ok){
   const col=colorFor(vk,v);
   const show=$('showVal').checked;
   const size=show?34:16;
-  let arrow='';
-  if($('arrows').checked && st.actual.dv!=null){
-    const spd=st.actual.vv||0;
-    const alen=10+Math.min(spd,60)/60*14;
-    arrow=`<svg class="arrow" width="${alen*2}" height="${alen*2}" style="transform:translate(-50%,-50%) rotate(${st.actual.dv}deg)" viewBox="0 0 40 40">
-      <path d="M20 4 L26 20 L20 15 L14 20 Z" fill="#e2e8f0" stroke="#0b0b0b" stroke-width="1"/></svg>`;
-  }
   const ring=($('stale')&&$('stale').checked&&esVella(st))?';border-color:#ff3b30;border-width:3px':'';
   const sq=(st.font==='Meteocat')?';border-radius:22%':'';
-  const txt=show?`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}${sq}">${fmt(vk,v)}</div>`
-                :`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}${sq}"></div>`;
-  const html=`<div style="position:relative;width:${size}px;height:${size}px">${arrow}${txt}</div>`;
+  const html=show?`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}${sq}">${fmt(vk,v)}</div>`
+                 :`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${ring}${sq}"></div>`;
   return L.divIcon({className:'',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
+}
+
+// barbes de vent (conveni estàndard, en nusos): mitja=5 kt, sencera=10 kt, banderola=50 kt
+function windBarbSVG(kmh,col){
+  const kt=(kmh||0)/1.852;
+  let s=Math.round(kt/5)*5;
+  const L=24,bl=10,sp=4.2;
+  const p=[`<line x1="0" y1="0" x2="0" y2="${-L}" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/>`];
+  if(s<3){ p.push(`<circle cx="0" cy="${-L}" r="3.2" fill="none" stroke="${col}" stroke-width="1.6"/>`); return p.join(''); }
+  let pos=-L, rem=s;
+  while(rem>=50){ p.push(`<path d="M0 ${pos} L ${bl} ${pos+3} L 0 ${pos+6} Z" fill="${col}"/>`); pos+=7.5; rem-=50; }
+  while(rem>=10){ p.push(`<line x1="0" y1="${pos}" x2="${bl}" y2="${pos-3.5}" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/>`); pos+=sp; rem-=10; }
+  if(rem>=5){ if(pos===-L) pos+=sp; p.push(`<line x1="0" y1="${pos}" x2="${bl*0.55}" y2="${pos-2}" stroke="${col}" stroke-width="1.8" stroke-linecap="round"/>`); }
+  return p.join('');
+}
+function makeBarbIcon(st){
+  const spd=st.actual.vv, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd), R=30;
+  const html=`<svg width="${2*R}" height="${2*R}" viewBox="${-R} ${-R} ${2*R} ${2*R}" style="overflow:visible;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))">
+      <circle cx="0" cy="0" r="2.6" fill="${col}" stroke="#0b0b0b" stroke-width="0.8"/>
+      <g transform="rotate(${dir})">${windBarbSVG(spd,col)}</g></svg>`;
+  return L.divIcon({className:'',html,iconSize:[2*R,2*R],iconAnchor:[R,R]});
 }
 
 function makeStreakIcon(st,streak,col){
@@ -436,35 +449,48 @@ function drawChart(st,vk){
               y:{ticks:{color:'#64748b',font:{size:9}},grid:{color:'#e5e7eb33'}}}}});
 }
 
+function afegirMarker(st,icon){
+  const m=L.marker([st.lat,st.lon],{icon});
+  m.bindTooltip(tooltipHTML(st),{direction:'top',opacity:.97,className:'',offset:[0,-6]});
+  m.on('click',()=>{m.bindPopup(popupHTML(st),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st),60);});
+  m.addTo(map); markers.push(m); return m;
+}
 function render(){
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(!DATA)return;
   if(streakMode){ renderStreak(); return; }
-  const filtering=!!activeFilter; let nOk=0;
+  const barbMode=$('barbs').checked, vk=selVar.value;
+  const filtering=!!activeFilter; let nOk=0, shown=0;
   DATA.estacions.forEach(st=>{
     if(st.lat==null||st.lon==null)return;
+    if(barbMode){
+      if(st.actual.vv==null) return;               // barbes: només estacions amb vent
+      afegirMarker(st,makeBarbIcon(st)); shown++; return;
+    }
+    if(getVal(st,vk)==null) return;                 // amaga estacions sense dada de la variable triada
     const ok=matches(st); if(ok)nOk++;
-    const m=L.marker([st.lat,st.lon],{icon:makeIcon(st,ok)});
-    const op = (filtering && !ok && $('fade').checked)?0.4:1;
-    m.setOpacity(op);
-    if(filtering && ok){m.setZIndexOffset(1000);}
-    m.bindTooltip(tooltipHTML(st),{direction:'top',opacity:.97,className:'',offset:[0,-6]});
-    m.on('click',()=>{m.bindPopup(popupHTML(st),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st),60);});
-    m.addTo(map); markers.push(m);
+    const m=afegirMarker(st,makeIcon(st,ok)); shown++;
+    m.setOpacity((filtering && !ok && $('fade').checked)?0.4:1);
+    if(filtering && ok) m.setZIndexOffset(1000);
   });
-  const total=DATA.estacions.length;
+  if(barbMode){
+    $('legend').innerHTML='<div class="muted">Barbes (nusos): mitja=5 · sencera=10 · banderola=50 · color=velocitat</div>';
+    $('status').innerHTML=`Barbes de vent · <b>${shown}</b> estacions amb vent`;
+    return;
+  }
   let f='Cap filtre actiu';
   if(activeFilter){
     if(activeFilter.type==='single')f=`${VARS[activeFilter.v].label} ${activeFilter.op} ${activeFilter.val} ${VARS[activeFilter.v].unit}`;
     else f=activeFilter.cs.map(c=>`${VARS[c.v].label}${c.op}${c.val}`).join(' i ');
   }
   $('status').innerHTML = filtering
-    ? `Filtre: <b>${f}</b><br>Compleixen: <b>${nOk}</b> / ${total} estacions`
-    : `<b>${total}</b> estacions · variable: <b>${VARS[selVar.value].label}</b>`;
+    ? `Filtre: <b>${f}</b><br>Compleixen: <b>${nOk}</b> / ${shown} amb dada`
+    : `<b>${shown}</b> estacions · variable: <b>${VARS[vk].label}</b>`;
 }
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
-['showVal','onlyVar','arrows','fade','stale'].forEach(id=>$(id).addEventListener('change',render));
+['showVal','onlyVar','fade','stale'].forEach(id=>$(id).addEventListener('change',render));
+$('barbs').addEventListener('change',()=>{ if(!$('barbs').checked) renderLegend(); render(); });
 
 const selStreakVar=$('streakVar');
 function renderStreakPresets(){
