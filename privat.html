@@ -219,6 +219,7 @@
       <div class="cardbody">
         <label>Nom / lloc de l'incendi</label>
         <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
+        <button class="btn" id="flama" style="width:100%;margin-top:8px">🔥 Situar incendi al mapa</button>
         <button class="btn primary" id="exportar" style="width:100%;margin-top:8px">📷 Generar imatge</button>
         <p class="muted" style="font-size:11px;margin:8px 0 0">Crea un PNG amb el/els mapes actuals, la marca Bombers, el nom de l'incendi, les llegendes i l'hora d'actualització.</p>
       </div>
@@ -342,6 +343,7 @@ const BASEMAPS={
   streets:{u:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',o:{maxZoom:19,attribution:'© OpenStreetMap · AEMET · Meteocat (SMC)'}},
 };
 let baseLayer=null, baseLayer2=null, map2=null, markers2=[], comboActive=null;
+let flame=null, flame2=null, flameLL=null;
 function setBase(key){
   const b=BASEMAPS[key]||BASEMAPS.dark;
   const opt=Object.assign({crossOrigin:true}, b.o);
@@ -371,16 +373,19 @@ function highlightChip(el){document.querySelectorAll('#presets .chip').forEach(x
 
 function renderLegend(){
   const vk=selVar.value, L_=$('legend');
-  if(vk==='barbes'){L_.innerHTML='<div class="muted">Barbes (nusos): mitja=5 · sencera=10 · banderola=50 · color=velocitat</div>';return;}
-  const sc=SCALES[VARS[vk].scale];
-  if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
+  let sc, unit;
+  if(vk==='barbes'){ sc=SCALES.wind; unit='km/h'; }
+  else {
+    sc=SCALES[VARS[vk].scale]; unit=VARS[vk].unit;
+    if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
+  }
   const min=sc[0][0], max=sc[sc.length-1][0], span=max-min||1;
   const stops=sc.map(s=>rgb(s[1])+' '+Math.round((s[0]-min)/span*100)+'%').join(',');
   const n=6; let ticks='';
   for(let i=0;i<=n;i++){ ticks+=`<span>${Math.round(min+span*i/n)}</span>`; }
   L_.innerHTML=`<div class="bar" style="--g:${stops}"></div>
     <div class="barlabels">${ticks}</div>
-    <div class="muted" style="text-align:center;font-size:10px;margin-top:1px">${VARS[vk].unit}</div>`;
+    <div class="muted" style="text-align:center;font-size:10px;margin-top:1px">${unit}</div>`;
 }
 
 let conds=[];
@@ -473,10 +478,13 @@ function windBarbSVG(kmh,col,sc){
 }
 function makeBarbIcon(st){
   const zf=barbZoom();
-  const spd=st.actual.vv, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd), R=30*zf;
+  const spd=st.actual.vv, gust=st.actual.vmax, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd), R=34*zf;
+  const cr=10*zf, fsz=Math.max(9,Math.round(11*zf)), gtxt=(gust==null)?'':Math.round(gust);
   const html=`<svg width="${2*R}" height="${2*R}" viewBox="${-R} ${-R} ${2*R} ${2*R}" style="overflow:visible;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))">
-      <circle cx="0" cy="0" r="${2.6*zf}" fill="${col}" stroke="#0b0b0b" stroke-width="0.8"/>
-      <g transform="rotate(${dir})">${windBarbSVG(spd,col,zf)}</g></svg>`;
+      <g transform="rotate(${dir})">${windBarbSVG(spd,col,zf)}</g>
+      <circle cx="0" cy="0" r="${cr}" fill="#ffffff" stroke="#222" stroke-width="${Math.max(1,1.3*zf)}"/>
+      <text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-weight="700" font-size="${fsz}" fill="#111">${gtxt}</text>
+    </svg>`;
   return L.divIcon({className:'',html,iconSize:[2*R,2*R],iconAnchor:[R,R]});
 }
 
@@ -647,12 +655,13 @@ function aplicaCombo(key){
     if(map2) markers2.forEach(m=>map2.removeLayer(m));
     markers2.length=0;
     render();
+    if(flameLL) posaFlames();
     setTimeout(()=>map.invalidateSize(),260);
     return;
   }
   ensureMap2();
   app.classList.add('combinat');
-  setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); },260);
+  setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); if(flameLL) posaFlames(); },260);
 }
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
@@ -705,13 +714,8 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   c.save(); c.textAlign='center'; c.textBaseline='top';
   c.fillStyle='#111'; c.font='bold '+(15*S)+'px Arial';
   c.fillText(specLabel(spec), x+w/2, y);
-  const vk = spec.k==='barbs' ? null : spec.v, by=y+22*S;
-  if(!vk){
-    c.font=(12*S)+'px Arial'; c.fillStyle='#333';
-    c.fillText('Barbes (nusos): mitja = 5 · sencera = 10 · banderola = 50 · color = velocitat', x+w/2, by);
-    c.restore(); return;
-  }
-  const sc=SCALES[VARS[vk].scale];
+  const by=y+22*S, isBarb=spec.k==='barbs', vk=isBarb?'vv':spec.v;
+  const sc=isBarb?SCALES.wind:SCALES[VARS[vk].scale];
   if(sc==='wheel'){ c.font=(12*S)+'px Arial'; c.fillStyle='#333'; c.fillText('Direcció del vent (roda de matís, 0–360°)', x+w/2, by); c.restore(); return; }
   const bw=w*0.82, bh=14*S, bx=x+(w-bw)/2, min=sc[0][0], max=sc[sc.length-1][0], span=(max-min)||1;
   const g=c.createLinearGradient(bx,0,bx+bw,0);
@@ -721,7 +725,9 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   c.fillStyle='#111'; c.font=(11*S)+'px Arial';
   for(let i=0;i<=6;i++) c.fillText(Math.round(min+span*i/6), bx+bw*i/6, by+bh+3*S);
   c.fillStyle='#555'; c.font=(11*S)+'px Arial';
-  c.fillText(spec.k==='streak'?(VARS[vk].unit+' · mida = hores consecutives'):VARS[vk].unit, x+w/2, by+bh+18*S);
+  const unit=isBarb?'km/h':VARS[vk].unit;
+  const extra=isBarb?(unit+' · número al cercle = ratxa'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):unit);
+  c.fillText(extra, x+w/2, by+bh+18*S);
   c.restore();
 }
 async function generarImatge(){
@@ -736,7 +742,7 @@ async function generarImatge(){
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
       ignoreElements:el=>el.classList&&el.classList.contains('leaflet-control-zoom')};
     for(const p of panes){ p.canvas=await html2canvas(p.el, opts); }
-    const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=34*S;
+    const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=54*S;
     const mapW=(panes.length>1?680:940)*S;
     const mapH=Math.round(mapW*panes[0].canvas.height/panes[0].canvas.width);
     const W=panes.length*mapW+(panes.length-1)*gap+2*pad;
@@ -756,10 +762,15 @@ async function generarImatge(){
       dibuixaLlegendaExport(c, p.spec, x, mapY+mapH+9*S, mapW, S);
       x+=mapW+gap;
     }
-    c.textBaseline='middle'; c.fillStyle='#222'; c.font=(16*S)+'px Arial'; c.textAlign='left';
-    c.fillText('Actualització de les dades: '+dataLoc(DATA.generat)+' (hora local)', pad, H-pad-footH*0.4);
+    const ultimaObs=(font)=>{ const arr=DATA.estacions.filter(e=>e.font===font); let mx=null; arr.forEach(e=>{const d=toDate(e.actual&&e.actual.fint); if(d&&(!mx||d>mx))mx=d;}); return mx; };
+    const fmtD=(d)=> d ? d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+    const y1=H-pad-footH+16*S, y2=H-pad-footH+40*S;
+    c.textBaseline='middle'; c.textAlign='left'; c.fillStyle='#222'; c.font=(15*S)+'px Arial';
+    c.fillText('Dades actualitzades — AEMET: '+fmtD(ultimaObs('AEMET'))+'   ·   Meteocat: '+fmtD(ultimaObs('Meteocat'))+'   (hora local)', pad, y1);
+    c.fillStyle='#444'; c.font=(14*S)+'px Arial';
+    c.fillText('Informe generat: '+fmtD(new Date())+' (hora local)', pad, y2);
     c.textAlign='right'; c.fillStyle='#888'; c.font=(12*S)+'px Arial';
-    c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC', W-pad, H-pad-footH*0.4);
+    c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC', W-pad, y2);
     cv.toBlob(bl=>{
       const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
       a.download='situacio_meteo_'+(nom||'incendi').replace(/[^\w]+/g,'_')+'.png'; a.click();
@@ -769,6 +780,27 @@ async function generarImatge(){
   btn.disabled=false; btn.textContent=old;
 }
 $('exportar').addEventListener('click',generarImatge);
+
+// ---------------- flameta per situar l'incendi ----------------
+const FLAMA_SVG='<svg width="34" height="42" viewBox="0 0 34 42" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))"><path d="M17 2 C 24 12 28 16 24 26 C 21 34 13 34 10 26 C 8 21 12 19 13 13 C 15 17 18 16 17 2 Z" fill="#e8380d" stroke="#7a1200" stroke-width="1.5"/><path d="M17 14 C 21 19 22 23 19 28 C 17 32 12 31 13 26 C 14 22 16 21 17 14 Z" fill="#ffbe20"/></svg>';
+function flamaIcon(){ return L.divIcon({className:'',html:FLAMA_SVG,iconSize:[34,42],iconAnchor:[17,40]}); }
+function posaFlames(){
+  if(flame){map.removeLayer(flame);flame=null;}
+  if(flame2&&map2){map2.removeLayer(flame2);flame2=null;}
+  if(!flameLL) return;
+  flame=L.marker(flameLL,{icon:flamaIcon(),draggable:true,zIndexOffset:3000,keyboard:false}).addTo(map);
+  flame.on('drag',()=>{ flameLL=flame.getLatLng(); if(flame2)flame2.setLatLng(flameLL); });
+  if(comboActive && map2){
+    flame2=L.marker(flameLL,{icon:flamaIcon(),draggable:true,zIndexOffset:3000,keyboard:false}).addTo(map2);
+    flame2.on('drag',()=>{ flameLL=flame2.getLatLng(); if(flame)flame.setLatLng(flameLL); });
+  }
+}
+function toggleFlama(){
+  flameLL = flameLL ? null : map.getCenter();
+  posaFlames();
+  $('flama').textContent = flameLL ? '🔥 Llevar incendi del mapa' : '🔥 Situar incendi al mapa';
+}
+$('flama').addEventListener('click',toggleFlama);
 $('toggle').onclick=()=>{
   const app=$('app');
   app.classList.toggle('collapsed');
