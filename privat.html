@@ -578,10 +578,10 @@ function afegirMarker(mapObj,arr,st,icon){
 }
 function xarxaActiva(st){ return st.font==='AEMET' ? $('netAemet').checked : $('netMeteocat').checked; }
 const BANDES=[
-  {id:'plana',  min:0,    max:300},
-  {id:'mitjana',min:300,  max:800},
-  {id:'munt',   min:800,  max:1500},
-  {id:'alta',   min:1500, max:99999},
+  {id:'plana',  nom:'Plana/interior',  min:0,    max:300},
+  {id:'mitjana',nom:'Terra mitjana',   min:300,  max:800},
+  {id:'munt',   nom:'Muntanya mitjana',min:800,  max:1500},
+  {id:'alta',   nom:'Alta muntanya',   min:1500, max:99999},
 ];
 function altitudOk(st, rang){
   const a=st.alt;
@@ -788,6 +788,20 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   c.fillText(extra, x+w/2, by+bh+18*S);
   c.restore();
 }
+function descripcioFiltres(){
+  const parts=[];
+  if(activeFilter){
+    if(activeFilter.type==='single'){ const v=activeFilter.v; parts.push(VARS[v].label+' '+activeFilter.op+' '+activeFilter.val+(VARS[v].unit?(' '+VARS[v].unit):'')); }
+    else parts.push(activeFilter.cs.map(c=>VARS[c.v].label+' '+c.op+' '+c.val).join(' i '));
+  }
+  const marc=Array.prototype.slice.call(document.querySelectorAll('.banda:checked')).map(c=>c.value);
+  if(marc.length && marc.length<BANDES.length) parts.push('altitud: '+marc.map(id=>{const b=BANDES.find(x=>x.id===id);return b?b.nom:id;}).join(', '));
+  const mn=parseFloat($('altMin').value), mx=parseFloat($('altMax').value);
+  if(!isNaN(mn)||!isNaN(mx)) parts.push('altitud '+(isNaN(mn)?'0':mn)+'–'+(isNaN(mx)?'∞':mx)+' m');
+  if(!$('netAemet').checked && $('netMeteocat').checked) parts.push('només Meteocat');
+  if($('netAemet').checked && !$('netMeteocat').checked) parts.push('només AEMET');
+  return parts.join('   ·   ');
+}
 async function generarImatge(){
   if(!DATA){ alert('Espera que carreguen les dades.'); return; }
   if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
@@ -801,10 +815,12 @@ async function generarImatge(){
       ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane'))};
     for(const p of panes){ p.canvas=await html2canvas(p.el, opts); }
     const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=64*S;
+    const filtreTxt=descripcioFiltres();
+    const filtreH=filtreTxt?30*S:0;
     const mapW=(panes.length>1?680:940)*S;
     const mapH=Math.round(mapW*panes[0].canvas.height/panes[0].canvas.width);
     const W=panes.length*mapW+(panes.length-1)*gap+2*pad;
-    const H=headerH+mapH+legH+footH+2*pad;
+    const H=headerH+filtreH+mapH+legH+footH+2*pad;
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
     const c=cv.getContext('2d');
     c.fillStyle='#fff'; c.fillRect(0,0,W,H);
@@ -813,7 +829,9 @@ async function generarImatge(){
     const tx=pad+logoW+30*S;
     c.fillText('SITUACIÓ METEOROLÒGICA', tx, pad+headerH*0.36);
     if(nom){ c.font=(21*S)+'px Arial'; c.fillStyle='#b00000'; c.fillText('Incendi de '+nom, tx, pad+headerH*0.72); }
-    let x=pad; const mapY=pad+headerH;
+    if(filtreTxt){ c.fillStyle='#b00000'; c.font='bold '+(15*S)+'px Arial'; c.textAlign='left'; c.textBaseline='middle';
+      c.fillText('Filtre aplicat:  '+filtreTxt, pad, pad+headerH+filtreH*0.5); }
+    let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
       if(perimLL.length>=2 && p.mapObj){
