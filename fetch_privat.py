@@ -257,6 +257,75 @@ def xifrar(text, password):
             "ct": base64.b64encode(ct).decode()}
 
 
+def desxifrar(blob, password):
+    salt = base64.b64decode(blob["salt"]); iv = base64.b64decode(blob["iv"]); ct = base64.b64decode(blob["ct"])
+    key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=blob.get("it", ITER)).derive(password.encode())
+    return json.loads(AESGCM(key).decrypt(iv, ct, None).decode("utf-8"))
+
+
+# ============================ acumulació de l'històric ============================
+DIES_HISTORIC = 6
+OUT_FILE = "dades_privat.enc"
+
+
+def _parse_t(t):
+    if not t:
+        return None
+    s = t.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    if len(s) >= 5 and s[-5] in "+-" and s[-3] != ":":   # +0000 -> +00:00
+        s = s[:-2] + ":" + s[-2:]
+    try:
+        d = datetime.fromisoformat(s)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def carrega_historic_previ():
+    """{idema: [rows historic]} de l'execució anterior (si es pot desxifrar)."""
+    if not os.path.exists(OUT_FILE):
+        return {}
+    try:
+        with open(OUT_FILE, encoding="utf-8") as f:
+            prev = desxifrar(json.load(f), PASSWORD)
+        return {e["idema"]: e.get("historic", []) for e in prev.get("estacions", [])}
+    except Exception as ex:  # noqa
+        print("  avis: no s'ha pogut llegir l'històric previ (%s)" % ex)
+        return {}
+
+
+def acumula(estacions, previ):
+    ara = datetime.now(timezone.utc)
+    tall = ara - timedelta(days=DIES_HISTORIC)
+    t24 = ara - timedelta(hours=24)
+    for e in estacions:
+        byt = {}
+        for row in previ.get(e["idema"], []) + e.get("historic", []):
+            t = row.get("t")
+            if t:
+                byt[t] = row                       # el nou (afegit després) sobreescriu el vell
+        rows = []
+        for t in sorted(byt):
+            d = _parse_t(t)
+            if d and d >= tall:
+                rows.append(byt[t])
+        e["historic"] = rows
+        # màx/mín de les últimes 24 h sobre l'històric acumulat
+        mx = [r[k] for r in rows if (_parse_t(r.get("t")) or ara) >= t24
+              for k in ("tamax", "ta") if r.get(k) is not None]
+        mn = [r[k] for r in rows if (_parse_t(r.get("t")) or ara) >= t24
+              for k in ("tamin", "ta") if r.get(k) is not None]
+        if mx:
+            e["actual"]["tamax_dia"] = round(max(mx), 1)
+        if mn:
+            e["actual"]["tamin_dia"] = round(min(mn), 1)
+        e["actual"]["n_hores"] = len(rows)
+
+
 # ============================ principal ============================
 def main():
     print("Baixant AEMET...")
@@ -267,6 +336,10 @@ def main():
     print("  Meteocat:", len(m), "estacions")
 
     estacions = sorted(a + m, key=lambda e: e["nom"])
+    print("Acumulant històric (fins a %d dies)..." % DIES_HISTORIC)
+    acumula(estacions, carrega_historic_previ())
+    nh = [e["actual"]["n_hores"] for e in estacions] or [0]
+    print("  hores/estació -> min %d · màx %d · mitjana %d" % (min(nh), max(nh), sum(nh)//len(nh)))
     dades = {
         "generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "font": "AEMET (OpenData) + Meteocat (XEMA) - dades © Servei Meteorologic de Catalunya",

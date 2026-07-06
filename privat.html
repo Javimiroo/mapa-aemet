@@ -308,12 +308,14 @@ function getVal(st,vk){
   return a[vk];
 }
 function streakHores(st,vk,op,val){
-  const h=st.historic||[]; let s=0;
+  const h=st.historic||[]; let s=0, lastT=null;
   for(let i=h.length-1;i>=0;i--){
+    const t=toDate(h[i].t);
+    if(lastT && t && (lastT-t) > 1.8*3600000) break;
     const x=h[i][vk];
-    if(x==null) continue;
+    if(x==null){ if(t)lastT=t; continue; }
     const ok = op==='>'?x>val:op==='<'?x<val:false;
-    if(ok) s++; else break;
+    if(ok){ s++; if(t)lastT=t; } else break;
   }
   return s;
 }
@@ -536,7 +538,7 @@ function popupHTML(st,vk){
 }
 function drawChart(st,vk){
   vk=vk||selVar.value;
-  const pts=st.historic.filter(h=>h[vk]!=null);
+  const pts=st.historic.filter(h=>h[vk]!=null).slice(-72);
   const cv=document.getElementById('chart_'+st.idema); if(!cv)return;
   if(chart){chart.destroy();}
   chart=new Chart(cv,{type:'line',
