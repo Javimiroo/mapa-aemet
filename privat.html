@@ -403,7 +403,7 @@ function highlightChip(el){document.querySelectorAll('#presets .chip').forEach(x
 function renderLegend(){
   const vk=selVar.value, L_=$('legend');
   let sc, unit, nota='';
-  if(vk==='barbes'){ sc=SCALES.wind; unit='km/h'; nota=' · número al cercle = ratxa última hora'; }
+  if(vk==='barbes'){ sc=SCALES.wind; unit='km/h'; nota=' · número al cercle = ratxa diària'; }
   else {
     sc=SCALES[VARS[vk].scale]; unit=VARS[vk].unit;
     if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
@@ -998,7 +998,7 @@ async function actualitzar(){
     if(d.error==='running'){ alert('Ja hi ha una actualització en marxa; espera que acabe.'); b.disabled=false;b.textContent=old; return; }
     if(!(r.ok && d.ok)){ throw new Error(d.error||('HTTP '+r.status)); }
     const abans=DATA&&DATA.generat;
-    for(let i=0;i<40;i++){
+    for(let i=0;i<60;i++){
       await sleep(7000); b.textContent='Actualitzant… ('+((i+1)*7)+'s)';
       try{ await carregar(PASS); if(DATA && DATA.generat!==abans){ b.textContent='✓ Actualitzat'; await sleep(3500); b.textContent=old; b.disabled=false; return; } }catch(e){}
     }
