@@ -946,9 +946,13 @@ async function desxifra(blob,pass){
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(blob.iv)},key,b64(blob.ct));
   return JSON.parse(new TextDecoder().decode(pt));
 }
+// Llegim les dades directament de raw (l'últim commit), evitant el desplegament
+// de Pages, que és inestable. Si raw falla, provem el fitxer publicat per Pages.
+const DADES_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/dades_privat.enc';
 async function carregar(pass){
-  const r=await fetch('dades_privat.enc?_='+Date.now(),{cache:'no-store'});
-  if(!r.ok) throw new Error('no-data');
+  let r=await fetch(DADES_URL+'?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+  if(!r||!r.ok) r=await fetch('dades_privat.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+  if(!r||!r.ok) throw new Error('no-data');
   const blob=await r.json();
   DATA=await desxifra(blob,pass);
   setUpdated(); render();
