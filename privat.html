@@ -179,6 +179,23 @@
     </div>
 
     <div class="card coll collapsed">
+      <h2>Altitud</h2>
+      <div class="cardbody">
+        <label class="switch"><input type="checkbox" class="banda" value="plana" checked> Plana / interior (&lt;300 m)</label>
+        <label class="switch"><input type="checkbox" class="banda" value="mitjana" checked> Terra mitjana (300–800 m)</label>
+        <label class="switch"><input type="checkbox" class="banda" value="munt" checked> Muntanya mitjana (800–1500 m)</label>
+        <label class="switch"><input type="checkbox" class="banda" value="alta" checked> Alta muntanya (&gt;1500 m)</label>
+        <label style="margin-top:8px">Rang lliure (m)</label>
+        <div class="row">
+          <input type="number" id="altMin" placeholder="mín" step="any">
+          <span class="muted">–</span>
+          <input type="number" id="altMax" placeholder="màx" step="any">
+        </div>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">Es mostren les estacions d'alguna franja marcada i dins del rang. Amb totes marcades, no filtra per franja.</p>
+      </div>
+    </div>
+
+    <div class="card coll collapsed">
       <h2>Fons del mapa</h2>
       <div class="cardbody">
         <select id="basemap">
@@ -205,6 +222,9 @@
           <option value="bshr">Barbes + Hores humitat baixa</option>
           <option value="shst">Hores humitat baixa + Hores temp alta</option>
           <option value="hrtpr">Humitat + Punt de rosada</option>
+          <option value="hr_alt">Humitat: planes | muntanya</option>
+          <option value="ta_alt">Temperatura: planes | muntanya</option>
+          <option value="barb_alt">Barbes: planes | muntanya</option>
         </select>
         <div class="row" style="margin-top:8px">
           <label style="margin:0;flex:1;font-size:11px">Humitat &lt;<input type="number" id="thrHr" value="30" step="any" style="width:100%"></label>
@@ -513,7 +533,7 @@ function streakTooltip(st,s){
 function renderStreak(){
   const {v,op,val}=streakMode; let shown=0,maxs=0;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st))return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
     const s=streakHores(st,v,op,val);
     if(v==='hr' && s===0) return;
     const col=colorFor(v,getVal(st,v));
@@ -557,6 +577,27 @@ function afegirMarker(mapObj,arr,st,icon){
   m.addTo(mapObj); arr.push(m); return m;
 }
 function xarxaActiva(st){ return st.font==='AEMET' ? $('netAemet').checked : $('netMeteocat').checked; }
+const BANDES=[
+  {id:'plana',  min:0,    max:300},
+  {id:'mitjana',min:300,  max:800},
+  {id:'munt',   min:800,  max:1500},
+  {id:'alta',   min:1500, max:99999},
+];
+function altitudOk(st, rang){
+  const a=st.alt;
+  if(rang){ if(a==null) return false; return a>=rang[0] && a<rang[1]; }   // franja fixa (comparació combinada)
+  if(a==null) return true;                                                // sense altitud: no la filtrem globalment
+  const marcades=Array.prototype.slice.call(document.querySelectorAll('.banda:checked')).map(c=>c.value);
+  if(marcades.length < BANDES.length){                                    // filtre de franges actiu si n'hi ha alguna desmarcada
+    let ok=false;
+    for(const id of marcades){ const b=BANDES.find(x=>x.id===id); if(b && a>=b.min && a<b.max){ ok=true; break; } }
+    if(!ok) return false;
+  }
+  const mn=parseFloat($('altMin').value), mx=parseFloat($('altMax').value);
+  if(!isNaN(mn) && a<mn) return false;
+  if(!isNaN(mx) && a>mx) return false;
+  return true;
+}
 function render(){
   if(comboActive){ renderCombinat(); return; }
   markers.forEach(m=>map.removeLayer(m)); markers=[];
@@ -565,7 +606,7 @@ function render(){
   const vk=selVar.value, barbMode=(vk==='barbes');
   const filtering=!!activeFilter; let nOk=0, shown=0;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st))return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
     if(barbMode){
       if(st.actual.vv==null) return;               // barbes: només estacions amb vent
       afegirMarker(map,markers,st,makeBarbIcon(st)); shown++; return;
@@ -600,6 +641,9 @@ const COMBOS={
   bshr: {a:{k:'barbs'},                b:{k:'streak',v:'hr',op:'<'}},
   shst: {a:{k:'streak',v:'hr',op:'<'}, b:{k:'streak',v:'ta',op:'>'}},
   hrtpr:{a:{k:'var',v:'hr'},           b:{k:'var',v:'tpr'}},
+  hr_alt:  {a:{k:'var',v:'hr', alt:[0,400],   altnom:'planes (<400 m)'},  b:{k:'var',v:'hr', alt:[800,99999], altnom:'muntanya (>800 m)'}},
+  ta_alt:  {a:{k:'var',v:'ta', alt:[0,400],   altnom:'planes (<400 m)'},  b:{k:'var',v:'ta', alt:[800,99999], altnom:'muntanya (>800 m)'}},
+  barb_alt:{a:{k:'barbs',      alt:[0,400],   altnom:'planes (<400 m)'},  b:{k:'barbs',      alt:[800,99999], altnom:'muntanya (>800 m)'}},
 };
 function specWithThr(sp){
   if(sp.k!=='streak') return sp;
@@ -608,15 +652,17 @@ function specWithThr(sp){
   return Object.assign({},sp,{val,hide0:sp.op==='<'});
 }
 function specLabel(sp){
-  if(sp.k==='barbs') return 'Barbes de vent';
-  if(sp.k==='streak') return sp.v==='hr' ? ('Hores humitat < '+sp.val+'%') : ('Hores temp > '+sp.val+'°');
-  return VARS[sp.v].label;
+  let base;
+  if(sp.k==='barbs') base='Barbes de vent';
+  else if(sp.k==='streak') base = sp.v==='hr' ? ('Hores humitat < '+sp.val+'%') : ('Hores temp > '+sp.val+'°');
+  else base=VARS[sp.v].label;
+  return base + (sp.altnom ? (' · '+sp.altnom) : '');
 }
 function renderSpec(mapObj,arr,sp){
   arr.forEach(m=>mapObj.removeLayer(m)); arr.length=0;
   if(!DATA) return;
   DATA.estacions.forEach(st=>{
-    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)) return;
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st,sp.alt)) return;
     if(sp.k==='barbs'){
       if(st.actual.vv==null) return;
       afegirMarker(mapObj,arr,st,makeBarbIcon(st)); return;
@@ -677,6 +723,8 @@ function aplicaCombo(key){
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
 ['showVal','onlyVar','fade','stale','netAemet','netMeteocat'].forEach(id=>$(id).addEventListener('change',render));
 $('staleH').addEventListener('input',render);
+document.querySelectorAll('.banda').forEach(c=>c.addEventListener('change',render));
+['altMin','altMax'].forEach(id=>$(id).addEventListener('input',render));
 
 const selStreakVar=$('streakVar');
 function renderStreakPresets(){
