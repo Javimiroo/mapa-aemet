@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Mapa 3D · Estacions (AEMET + Meteocat)</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  :root{--bg:#0f172a;--panel:#111827ee;--line:#334155;--txt:#e5e7eb;--muted:#94a3b8;--accent:#2563eb;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+  #map{position:absolute;inset:0}
+  .maplibregl-popup-content{background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:10px;font-size:12.5px;box-shadow:0 6px 22px #0008}
+  .maplibregl-popup-tip{border-top-color:#0f172a!important;border-bottom-color:#0f172a!important}
+  .maplibregl-popup-close-button{color:#94a3b8;font-size:16px}
+  /* Panell */
+  #panel{position:absolute;top:10px;left:10px;z-index:5;width:270px;max-width:calc(100vw - 20px);
+         background:var(--panel);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:12px;
+         padding:12px;box-shadow:0 8px 26px #0007;max-height:calc(100vh - 20px);overflow:auto}
+  #panel h1{font-size:14px;margin:0 0 8px}
+  .row{margin:8px 0}
+  label.lb{display:block;font-size:11px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.03em}
+  select,input[type=number]{width:100%;background:#0b1220;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:13px}
+  input[type=range]{width:100%}
+  .chk{display:flex;align-items:center;gap:7px;font-size:13px;margin:5px 0}
+  .chk input{width:15px;height:15px}
+  .btn{width:100%;border:none;border-radius:9px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;background:var(--accent);color:#fff}
+  .btn.sec{background:#1f2937;color:#e5e7eb;border:1px solid var(--line)}
+  .muted{color:var(--muted);font-size:11px;line-height:1.35}
+  .flex{display:flex;gap:8px}
+  .flex>*{flex:1}
+  /* Llegenda */
+  #legend{position:absolute;bottom:12px;left:10px;z-index:5;background:var(--panel);border:1px solid var(--line);
+          border-radius:10px;padding:9px 11px;font-size:11px;min-width:120px}
+  #legend b{font-size:12px}
+  .lrow{display:flex;align-items:center;gap:6px;margin:2px 0}
+  .sw{width:16px;height:11px;border-radius:2px;border:1px solid #0006}
+  /* Porta */
+  #gate{position:fixed;inset:0;z-index:20;background:#0b1220;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:340px;max-width:100%;background:#111827;border:1px solid var(--line);border-radius:14px;padding:22px;text-align:center}
+  .card h2{margin:0 0 4px;font-size:17px}
+  .card p{margin:4px 0 14px;color:var(--muted);font-size:12.5px}
+  .card input{margin-bottom:10px;text-align:center}
+  #gateerr{min-height:16px;font-size:12px;color:#fca5a5;margin-top:8px}
+  .badge{display:inline-block;font-size:10px;background:#1e3a8a;color:#dbeafe;padding:2px 7px;border-radius:99px;margin-bottom:8px}
+  .hint{font-size:10.5px;color:var(--muted);margin-top:10px}
+  a{color:#93c5fd}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <h1>🏔️ Mapa 3D d'estacions</h1>
+
+  <div class="row">
+    <label class="lb">Variable</label>
+    <select id="var"></select>
+  </div>
+
+  <div class="row">
+    <label class="lb">Exageració del relleu · <span id="exagV">1.6×</span></label>
+    <input type="range" id="exag" min="1" max="3.5" step="0.1" value="1.6">
+  </div>
+
+  <div class="row">
+    <label class="lb">Fons (drapat sobre el relleu)</label>
+    <select id="base">
+      <option value="icgc">Comarques i relleu (ICGC)</option>
+      <option value="icgctopo">Topogràfic (ICGC)</option>
+      <option value="sat">Satèl·lit (Esri)</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label class="lb">Xarxes</label>
+    <div class="chk"><input type="checkbox" id="netAemet" checked><span>AEMET</span></div>
+    <div class="chk"><input type="checkbox" id="netMeteocat" checked><span>Meteocat (SMC)</span></div>
+  </div>
+
+  <div class="row">
+    <div class="chk"><input type="checkbox" id="showVals" checked><span>Mostrar el valor sobre el cercle</span></div>
+    <div class="chk"><input type="checkbox" id="hideEmpty" checked><span>Amagar estacions sense dada</span></div>
+    <div class="chk"><input type="checkbox" id="hideStale"><span>Amagar desfasades (&gt; <input type="number" id="staleH" value="3" min="1" step="1" style="width:46px;display:inline;padding:2px 4px"> h)</span></div>
+  </div>
+
+  <div class="row flex">
+    <button class="btn sec" id="reload">↻ Recarregar</button>
+    <button class="btn sec" id="reset">Vista inicial</button>
+  </div>
+
+  <div class="muted" id="updated">—</div>
+  <div class="muted" style="margin-top:6px">Arrossega amb el botó dret (o dos dits) per inclinar i girar. Les dades noves es baixen des del mapa principal. © ICGC · AEMET · Meteocat (SMC) · relleu: Mapzen/AWS.</div>
+</div>
+
+<div id="legend"></div>
+
+<div id="gate">
+  <div class="card">
+    <div class="badge">PRIVAT · xifrat</div>
+    <h2>Mapa 3D d'estacions</h2>
+    <p>Introdueix la contrasenya de l'equip per desxifrar les dades.</p>
+    <input type="password" id="pass" placeholder="Contrasenya" autocomplete="current-password">
+    <button class="btn" id="enter">Entrar</button>
+    <div id="gateerr"></div>
+    <div class="hint">Mateixa contrasenya que el mapa principal. Dades d'AEMET i Meteocat (SMC); ús intern.</div>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------- config dades
+const VARS = {
+  ta:   {label:'Temperatura',      unit:'°C',   scale:'temp', dec:1},
+  hr:   {label:'Humitat relativa', unit:'%',    scale:'hum',  dec:0},
+  tpr:  {label:'Punt de rosada',   unit:'°C',   scale:'temp', dec:1},
+  vv:   {label:'Vent mitjà',       unit:'km/h', scale:'wind', dec:1},
+  vmax: {label:'Ratxa màxima',     unit:'km/h', scale:'wind', dec:1},
+  dv:   {label:'Direcció vent',    unit:'°',    scale:'dir',  dec:0},
+  prec: {label:'Precipitació',     unit:'mm',   scale:'prec', dec:1},
+  pres: {label:'Pressió (mar)',    unit:'hPa',  scale:'pres', dec:1},
+  tamax:{label:'Temp. màx (24 h)', unit:'°C',   scale:'temp', dec:1},
+  tamin:{label:'Temp. mín (24 h)', unit:'°C',   scale:'temp', dec:1},
+};
+const ORDER = ['ta','hr','tpr','vv','vmax','dv','prec','pres','tamax','tamin'];
+const SCALES = {
+  temp:[[6,[150,225,230]],[12,[130,205,190]],[16,[150,210,150]],[20,[200,225,120]],[24,[250,240,110]],[28,[252,205,80]],[32,[250,150,60]],[36,[235,85,50]],[40,[195,25,35]],[44,[150,10,30]]],
+  hum:[[5,[140,10,25]],[15,[205,35,35]],[25,[240,95,45]],[35,[250,160,60]],[45,[250,225,110]],[55,[150,210,100]],[65,[70,195,180]],[75,[60,140,205]],[85,[70,85,190]],[95,[140,60,180]],[100,[180,90,200]]],
+  wind:[[0,[150,230,230]],[10,[110,180,235]],[20,[70,120,220]],[30,[60,80,190]],[40,[90,175,95]],[50,[160,205,90]],[60,[235,225,90]],[70,[250,190,70]],[90,[240,110,50]],[110,[205,35,40]]],
+  prec:[[0,[237,248,251]],[0.4,[189,215,231]],[2,[116,169,207]],[8,[43,113,181]],[20,[8,64,129]]],
+  pres:[[985,[84,39,143]],[1000,[158,154,200]],[1013,[235,235,235]],[1025,[102,194,164]],[1035,[0,109,44]]],
+  dir:'wheel'
+};
+function lerp(a,b,t){return Math.round(a+(b-a)*t)}
+function rgb(a){return 'rgb('+a[0]+','+a[1]+','+a[2]+')'}
+function colorFor(vk,val){
+  if(val==null||isNaN(val)) return '#64748b';
+  const sc=SCALES[VARS[vk].scale];
+  if(sc==='wheel'){const h=((val%360)+360)%360;return 'hsl('+h+',70%,55%)';}
+  if(val<=sc[0][0]) return rgb(sc[0][1]);
+  if(val>=sc[sc.length-1][0]) return rgb(sc[sc.length-1][1]);
+  for(let i=0;i<sc.length-1;i++){
+    if(val>=sc[i][0]&&val<=sc[i+1][0]){
+      const t=(val-sc[i][0])/(sc[i+1][0]-sc[i][0]);
+      return rgb([lerp(sc[i][1][0],sc[i+1][1][0],t),lerp(sc[i][1][1],sc[i+1][1][1],t),lerp(sc[i][1][2],sc[i+1][1][2],t)]);
+    }
+  }
+  return '#64748b';
+}
+function fmt(vk,v){if(v==null||isNaN(v))return '—';return Number(v).toFixed(VARS[vk].dec)}
+function getVal(st,vk){
+  const a=st.actual||{};
+  if(vk==='tamax') return a.tamax_dia!=null?a.tamax_dia:a.tamax;
+  if(vk==='tamin') return a.tamin_dia!=null?a.tamin_dia:a.tamin;
+  return a[vk];
+}
+function toDate(iso){
+  if(!iso) return null;
+  const s=String(iso).replace(/([+-]\d{2})(\d{2})$/,'$1:$2');
+  const d=new Date(s); return isNaN(d)?null:d;
+}
+function dataLoc(iso){const d=toDate(iso);return d?d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}
+function horaLoc(iso){const d=toDate(iso);return d?d.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}):''}
+function horesDesdeObs(st){
+  if(!DATA) return null;
+  const g=toDate(DATA.generat), f=toDate(st.actual&&st.actual.fint);
+  if(!g||!f) return null;
+  return (g-f)/3600000;
+}
+function esVella(st){const lim=parseFloat($('staleH').value)||3;const h=horesDesdeObs(st);return h!=null&&h>lim}
+
+// ---------------------------------------------------------------- desxifrat
+const $=id=>document.getElementById(id);
+let DATA=null, PASS=null;
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function desxifra(blob,pass){
+  const bk=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(blob.salt),iterations:blob.it,hash:'SHA-256'},
+                                          bk,{name:'AES-GCM',length:256},false,['decrypt']);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(blob.iv)},key,b64(blob.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+const DADES_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/dades_privat.enc';
+async function carregar(pass){
+  let r=await fetch(DADES_URL+'?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+  if(!r||!r.ok) r=await fetch('dades_privat.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+  if(!r||!r.ok) throw new Error('no-data');
+  const blob=await r.json();
+  DATA=await desxifra(blob,pass);
+  setUpdated();
+  if(map&&map.isStyleLoaded()) refresh();
+}
+function setUpdated(){
+  if(!DATA)return;
+  $('updated').textContent='Baixat: '+dataLoc(DATA.generat)+' (local) · '+(DATA.n_estacions||0)+' estacions';
+}
+
+// ---------------------------------------------------------------- mapa
+const DRAPES={
+  icgc:{tiles:['https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'],attribution:'© ICGC'},
+  icgctopo:{tiles:['https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=estandard&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'],attribution:'© ICGC'},
+  sat:{tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],attribution:'© Esri, Maxar'},
+};
+const INIT={center:[1.70,41.72],zoom:7.2,pitch:62,bearing:-12};
+let map=null;
+function buildStyle(baseKey){
+  const d=DRAPES[baseKey]||DRAPES.icgc;
+  return {
+    version:8,
+    glyphs:'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+    sources:{
+      drape:{type:'raster',tiles:d.tiles,tileSize:256,maxzoom:18,attribution:d.attribution+' · AEMET · Meteocat (SMC)'},
+      dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],tileSize:256,maxzoom:13,encoding:'terrarium',attribution:'Mapzen/AWS'},
+    },
+    layers:[
+      {id:'sky',type:'background',paint:{'background-color':'#bcd6ec'}},
+      {id:'drape',type:'raster',source:'drape'},
+      {id:'hills',type:'hillshade',source:'dem',paint:{'hillshade-exaggeration':0.4,'hillshade-shadow-color':'#1a2233'}},
+    ],
+    terrain:{source:'dem',exaggeration:parseFloat($('exag').value)||1.6},
+  };
+}
+function initMap(){
+  map=new maplibregl.Map({
+    container:'map',
+    style:buildStyle($('base').value),
+    center:INIT.center, zoom:INIT.zoom, pitch:INIT.pitch, bearing:INIT.bearing,
+    maxPitch:80, maxZoom:14, attributionControl:false, dragRotate:true,
+  });
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
+  map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');
+  map.touchZoomRotate.enableRotation();
+  map.on('style.load',()=>{ addPointLayers(); if(DATA) refresh(); });
+  map.on('click','pts',onPointClick);
+  map.on('mouseenter','pts',()=>map.getCanvas().style.cursor='pointer');
+  map.on('mouseleave','pts',()=>map.getCanvas().style.cursor='');
+}
+function addPointLayers(){
+  if(map.getSource('sts')) return;
+  map.addSource('sts',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+  map.addLayer({id:'pts',type:'circle',source:'sts',paint:{
+    'circle-radius':['interpolate',['linear'],['zoom'],6,4,9,7.5,12,13,14,17],
+    'circle-color':['get','col'],
+    'circle-stroke-width':1.4,
+    'circle-stroke-color':'#0b1220',
+    'circle-opacity':0.96,
+  }});
+  map.addLayer({id:'lbl',type:'symbol',source:'sts',layout:{
+    'text-field':['get','txt'],
+    'text-size':['interpolate',['linear'],['zoom'],6,9,10,12,13,15],
+    'text-font':['Open Sans Bold'],
+    'text-allow-overlap':false,
+    'text-optional':true,
+    'text-ignore-placement':false,
+    'symbol-sort-key':['get','sort'],
+  },paint:{
+    'text-color':'#0b1220',
+    'text-halo-color':'#ffffff',
+    'text-halo-width':1.6,
+  }});
+}
+function xarxaActiva(st){ return st.font==='AEMET' ? $('netAemet').checked : $('netMeteocat').checked; }
+
+function refresh(){
+  if(!map||!map.getSource('sts')||!DATA) return;
+  const vk=$('var').value;
+  const showVals=$('showVals').checked, hideEmpty=$('hideEmpty').checked, hideStale=$('hideStale').checked;
+  const feats=[];
+  (DATA.estacions||[]).forEach((st,idx)=>{
+    if(st.lat==null||st.lon==null) return;
+    if(!xarxaActiva(st)) return;
+    if(hideStale && esVella(st)) return;
+    const val=getVal(st,vk);
+    if(hideEmpty && (val==null||isNaN(val))) return;
+    feats.push({type:'Feature',geometry:{type:'Point',coordinates:[st.lon,st.lat]},
+      properties:{idx:idx, col:colorFor(vk,val),
+        txt: showVals && val!=null && !isNaN(val) ? fmt(vk,val) : '',
+        sort: (val==null||isNaN(val))? 1e9 : -val }});
+  });
+  map.getSource('sts').setData({type:'FeatureCollection',features:feats});
+  // labels layout pot canviar amb showVals; ja va per 'txt' buit
+  drawLegend(vk);
+  $('legend').style.display='block';
+}
+
+function onPointClick(e){
+  const f=e.features&&e.features[0]; if(!f) return;
+  const st=DATA.estacions[f.properties.idx]; if(!st) return;
+  const a=st.actual||{};
+  const files=[['ta','vv'],['hr','vmax'],['tpr','dv'],['prec','pres'],['tamax','tamin']];
+  let rows='';
+  files.forEach(par=>{
+    rows+='<tr>';
+    par.forEach(vk=>{
+      const v=getVal(st,vk);
+      rows+='<td style="color:#94a3b8;padding:1px 6px 1px 0">'+VARS[vk].label+'</td>'+
+            '<td style="text-align:right;font-weight:600;padding:1px 0 1px 10px">'+fmt(vk,v)+' '+VARS[vk].unit+'</td>';
+    });
+    rows+='</tr>';
+  });
+  const hora=horaLoc(a.fint);
+  const avis = (horesDesdeObs(st)>(parseFloat($('staleH').value)||3)) ? ' · <span style="color:#fca5a5">desfasada</span>' : '';
+  const html='<div style="min-width:230px">'+
+    '<div style="font-weight:700;font-size:13px">'+st.nom+'</div>'+
+    '<div style="color:#94a3b8;font-size:11px;margin-bottom:6px">'+st.font+' · '+(st.provincia||'')+' · '+(st.alt!=null?st.alt+' m':'?')+'</div>'+
+    '<table style="font-size:11.5px;border-collapse:collapse">'+rows+'</table>'+
+    '<div style="color:#94a3b8;font-size:10.5px;margin-top:6px">Obs. '+hora+' (local) · '+(st.idema||'')+avis+'</div></div>';
+  new maplibregl.Popup({closeButton:true,maxWidth:'300px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
+
+// ---------------------------------------------------------------- llegenda
+function drawLegend(vk){
+  const box=$('legend'); const sc=SCALES[VARS[vk].scale];
+  let h='<b>'+VARS[vk].label+'</b><span class="muted"> ('+VARS[vk].unit+')</span><br>';
+  if(sc==='wheel'){
+    h+='<div class="muted" style="margin-top:4px">Color = direcció (rosa dels vents)</div>';
+    ['N','E','S','O'].forEach((d,i)=>{const deg=i*90;h+='<div class="lrow"><span class="sw" style="background:hsl('+deg+',70%,55%)"></span>'+d+' ('+deg+'°)</div>';});
+  } else {
+    for(let i=0;i<sc.length;i++){
+      const a=sc[i], b=sc[i+1];
+      const lab = b ? (a[0]+'–'+b[0]) : ('≥ '+a[0]);
+      h+='<div class="lrow"><span class="sw" style="background:'+rgb(a[1])+'"></span>'+lab+'</div>';
+    }
+  }
+  box.innerHTML=h;
+}
+
+// ---------------------------------------------------------------- controls
+function fillVars(){
+  const s=$('var'); s.innerHTML='';
+  ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label;s.appendChild(o);});
+  s.value='hr';
+}
+function bindControls(){
+  $('var').addEventListener('change',refresh);
+  $('showVals').addEventListener('change',refresh);
+  $('hideEmpty').addEventListener('change',refresh);
+  $('hideStale').addEventListener('change',refresh);
+  $('staleH').addEventListener('change',refresh);
+  $('netAemet').addEventListener('change',refresh);
+  $('netMeteocat').addEventListener('change',refresh);
+  $('exag').addEventListener('input',()=>{
+    const v=parseFloat($('exag').value)||1.6; $('exagV').textContent=v.toFixed(1)+'×';
+    if(map&&map.getSource('dem')) map.setTerrain({source:'dem',exaggeration:v});
+  });
+  $('base').addEventListener('change',()=>{
+    map.setStyle(buildStyle($('base').value));
+    map.once('style.load',()=>{ addPointLayers(); if(DATA) refresh(); });
+  });
+  $('reload').addEventListener('click',async()=>{
+    const b=$('reload'); const old=b.textContent; b.textContent='…'; b.disabled=true;
+    try{ await carregar(PASS); b.textContent='✓'; }catch(e){ b.textContent='✗'; }
+    setTimeout(()=>{b.textContent=old;b.disabled=false;},1500);
+  });
+  $('reset').addEventListener('click',()=>map.flyTo({...INIT,duration:900}));
+}
+
+// ---------------------------------------------------------------- porta
+async function entrar(){
+  const p=$('pass').value; if(!p)return;
+  $('gateerr').textContent='Comprovant…';
+  try{
+    await carregar(p);
+    PASS=p; try{localStorage.setItem('graf_pass',p);}catch(e){}
+    $('gate').style.display='none';
+    initMap(); bindControls();
+  }catch(e){
+    $('gateerr').textContent=(e&&e.message==='no-data')?'Encara no hi ha dades publicades. Torna en uns minuts.':'Contrasenya incorrecta.';
+    $('pass').select();
+  }
+}
+fillVars();
+$('exagV').textContent='1.6×';
+$('enter').addEventListener('click',entrar);
+$('pass').addEventListener('keydown',e=>{if(e.key==='Enter')entrar();});
+try{const sp=localStorage.getItem('graf_pass'); if(sp){$('pass').value=sp;}}catch(e){}
+</script>
+</body>
+</html>
