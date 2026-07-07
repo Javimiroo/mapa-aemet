@@ -114,6 +114,7 @@ const VARS = {
   ta:   {label:'Temperatura',      unit:'°C',   scale:'temp', dec:1},
   hr:   {label:'Humitat relativa', unit:'%',    scale:'hum',  dec:0},
   tpr:  {label:'Punt de rosada',   unit:'°C',   scale:'temp', dec:1},
+  barbes:{label:'Barbes de vent',  unit:'',     scale:'wind', dec:0, special:'barbs'},
   vv:   {label:'Vent mitjà',       unit:'km/h', scale:'wind', dec:1},
   vmax: {label:'Ratxa màxima',     unit:'km/h', scale:'wind', dec:1},
   dv:   {label:'Direcció vent',    unit:'°',    scale:'dir',  dec:0},
@@ -122,7 +123,7 @@ const VARS = {
   tamax:{label:'Temp. màx (24 h)', unit:'°C',   scale:'temp', dec:1},
   tamin:{label:'Temp. mín (24 h)', unit:'°C',   scale:'temp', dec:1},
 };
-const ORDER = ['ta','hr','tpr','vv','vmax','dv','prec','pres','tamax','tamin'];
+const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pres','tamax','tamin'];
 const SCALES = {
   temp:[[6,[150,225,230]],[12,[130,205,190]],[16,[150,210,150]],[20,[200,225,120]],[24,[250,240,110]],[28,[252,205,80]],[32,[250,150,60]],[36,[235,85,50]],[40,[195,25,35]],[44,[150,10,30]]],
   hum:[[5,[140,10,25]],[15,[205,35,35]],[25,[240,95,45]],[35,[250,160,60]],[45,[250,225,110]],[55,[150,210,100]],[65,[70,195,180]],[75,[60,140,205]],[85,[70,85,190]],[95,[140,60,180]],[100,[180,90,200]]],
@@ -264,6 +265,11 @@ function xarxaActiva(st){ return st.font==='AEMET' ? $('netAemet').checked : $('
 function refresh(){
   if(!map||!map.getSource('sts')||!DATA) return;
   const vk=$('var').value;
+  const isBarb = VARS[vk].special==='barbs';
+  if(map.getLayer('pts')) map.setLayoutProperty('pts','visibility', isBarb?'none':'visible');
+  if(map.getLayer('lbl')) map.setLayoutProperty('lbl','visibility', isBarb?'none':'visible');
+  clearBarbs();
+  if(isBarb){ renderBarbs(); drawLegend(vk); $('legend').style.display='block'; return; }
   const showVals=$('showVals').checked, hideEmpty=$('hideEmpty').checked, hideStale=$('hideStale').checked;
   const feats=[];
   (DATA.estacions||[]).forEach((st,idx)=>{
@@ -283,9 +289,7 @@ function refresh(){
   $('legend').style.display='block';
 }
 
-function onPointClick(e){
-  const f=e.features&&e.features[0]; if(!f) return;
-  const st=DATA.estacions[f.properties.idx]; if(!st) return;
+function popupHTMLFor(st){
   const a=st.actual||{};
   const files=[['ta','vv'],['hr','vmax'],['tpr','dv'],['prec','pres'],['tamax','tamin']];
   let rows='';
@@ -300,17 +304,72 @@ function onPointClick(e){
   });
   const hora=horaLoc(a.fint);
   const avis = (horesDesdeObs(st)>(parseFloat($('staleH').value)||3)) ? ' · <span style="color:#fca5a5">desfasada</span>' : '';
-  const html='<div style="min-width:230px">'+
+  return '<div style="min-width:230px">'+
     '<div style="font-weight:700;font-size:13px">'+st.nom+'</div>'+
     '<div style="color:#94a3b8;font-size:11px;margin-bottom:6px">'+st.font+' · '+(st.provincia||'')+' · '+(st.alt!=null?st.alt+' m':'?')+'</div>'+
     '<table style="font-size:11.5px;border-collapse:collapse">'+rows+'</table>'+
     '<div style="color:#94a3b8;font-size:10.5px;margin-top:6px">Obs. '+hora+' (local) · '+(st.idema||'')+avis+'</div></div>';
-  new maplibregl.Popup({closeButton:true,maxWidth:'300px'}).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
+function openPopupFor(st,lngLat){
+  new maplibregl.Popup({closeButton:true,maxWidth:'300px'}).setLngLat(lngLat).setHTML(popupHTMLFor(st)).addTo(map);
+}
+function onPointClick(e){
+  const f=e.features&&e.features[0]; if(!f) return;
+  const st=DATA.estacions[f.properties.idx]; if(!st) return;
+  openPopupFor(st,e.lngLat);
+}
+// ---------------------------------------------------------------- barbes de vent
+let barbMarkers=[];
+function clearBarbs(){ barbMarkers.forEach(m=>m.remove()); barbMarkers=[]; }
+// conveni estàndard, en nusos: mitja=5 kt, sencera=10 kt, banderola=50 kt
+function windBarbSVG(kmh,col,sc){
+  sc=sc||1;
+  const kt=(kmh||0)/1.852;
+  let s=Math.round(kt/5)*5;
+  const L=24*sc, bl=10*sc, sp=4.2*sc, sw=Math.min(3.2,1.8*sc);
+  const p=['<line x1="0" y1="0" x2="0" y2="'+(-L)+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linecap="round"/>'];
+  if(s<3){ p.push('<circle cx="0" cy="'+(-L)+'" r="'+(3.2*sc)+'" fill="none" stroke="'+col+'" stroke-width="'+Math.min(2.6,1.6*sc)+'"/>'); return p.join(''); }
+  let pos=-L, rem=s;
+  while(rem>=50){ p.push('<path d="M0 '+pos+' L '+bl+' '+(pos+3*sc)+' L 0 '+(pos+6*sc)+' Z" fill="'+col+'"/>'); pos+=7.5*sc; rem-=50; }
+  while(rem>=10){ p.push('<line x1="0" y1="'+pos+'" x2="'+bl+'" y2="'+(pos-3.5*sc)+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linecap="round"/>'); pos+=sp; rem-=10; }
+  if(rem>=5){ if(pos===-L) pos+=sp; p.push('<line x1="0" y1="'+pos+'" x2="'+(bl*0.55)+'" y2="'+(pos-2*sc)+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linecap="round"/>'); }
+  return p.join('');
+}
+function barbEl(st){
+  const spd=st.actual.vv, gust=st.actual.vmax, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd);
+  const sc=1.15, R=34*sc, cr=7*sc, fsz=Math.max(9,Math.round(9*sc)), gtxt=(gust==null||isNaN(gust))?'':Math.round(gust);
+  const el=document.createElement('div');
+  el.style.cursor='pointer';
+  el.innerHTML='<svg width="'+(2*R)+'" height="'+(2*R)+'" viewBox="'+(-R)+' '+(-R)+' '+(2*R)+' '+(2*R)+'" style="overflow:visible;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))">'+
+      '<g transform="rotate('+dir+')">'+windBarbSVG(spd,col,sc)+'</g>'+
+      '<circle cx="0" cy="0" r="'+cr+'" fill="#fff" stroke="#222" stroke-width="1.4"/>'+
+      '<text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-weight="700" font-size="'+fsz+'" fill="#111">'+gtxt+'</text>'+
+    '</svg>';
+  return el;
+}
+function renderBarbs(){
+  const hideStale=$('hideStale').checked;
+  (DATA.estacions||[]).forEach(st=>{
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)) return;
+    if(hideStale && esVella(st)) return;
+    if(st.actual==null || st.actual.vv==null || isNaN(st.actual.vv)) return;
+    const el=barbEl(st);
+    el.addEventListener('click',()=>openPopupFor(st,[st.lon,st.lat]));
+    barbMarkers.push(new maplibregl.Marker({element:el,anchor:'center'}).setLngLat([st.lon,st.lat]).addTo(map));
+  });
 }
 
 // ---------------------------------------------------------------- llegenda
 function drawLegend(vk){
-  const box=$('legend'); const sc=SCALES[VARS[vk].scale];
+  const box=$('legend');
+  if(VARS[vk].special==='barbs'){
+    const w=SCALES.wind;
+    let hb='<b>Barbes de vent</b><br><span class="muted">color = vent mitjà (km/h)</span>';
+    for(let i=0;i<w.length;i++){ const a=w[i],b=w[i+1]; const lab=b?(a[0]+'–'+b[0]):('≥ '+a[0]); hb+='<div class="lrow"><span class="sw" style="background:'+rgb(a[1])+'"></span>'+lab+'</div>'; }
+    hb+='<div class="muted" style="margin-top:5px">número al cercle = ratxa última hora<br>1 barba = 10 kt · ½ = 5 kt · triangle = 50 kt</div>';
+    box.innerHTML=hb; return;
+  }
+  const sc=SCALES[VARS[vk].scale];
   let h='<b>'+VARS[vk].label+'</b><span class="muted"> ('+VARS[vk].unit+')</span><br>';
   if(sc==='wheel'){
     h+='<div class="muted" style="margin-top:4px">Color = direcció (rosa dels vents)</div>';
@@ -344,8 +403,13 @@ function bindControls(){
     if(map&&map.getSource('dem')) map.setTerrain({source:'dem',exaggeration:v});
   });
   $('base').addEventListener('change',()=>{
-    map.setStyle(buildStyle($('base').value));
-    map.once('style.load',()=>{ addPointLayers(); if(DATA) refresh(); });
+    // Només intercanviem la capa de fons (drape), inserida per davall del relleu
+    // i de les dades. Així no es refà l'estil ni desapareixen les estacions.
+    const d=DRAPES[$('base').value]||DRAPES.icgc;
+    if(map.getLayer('drape')) map.removeLayer('drape');
+    if(map.getSource('drape')) map.removeSource('drape');
+    map.addSource('drape',{type:'raster',tiles:d.tiles,tileSize:256,maxzoom:18,attribution:d.attribution+' · AEMET · Meteocat (SMC)'});
+    map.addLayer({id:'drape',type:'raster',source:'drape'}, map.getLayer('hills')?'hills':undefined);
   });
   $('reload').addEventListener('click',async()=>{
     const b=$('reload'); const old=b.textContent; b.textContent='…'; b.disabled=true;
