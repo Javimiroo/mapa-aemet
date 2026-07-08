@@ -112,6 +112,19 @@
   .cerca-item b{color:var(--txt);font-weight:600}
   .cerca-tt{background:#e11d48!important;border:none!important;color:#fff!important;font-weight:600;font-size:11px;box-shadow:0 1px 4px rgba(0,0,0,.5)}
   .cerca-tt::before{border-top-color:#e11d48!important}
+  /* màquina del temps */
+  #timebar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:1150;display:none;
+           align-items:center;gap:8px;background:rgba(15,23,42,.93);border:1px solid var(--line);border-radius:12px;
+           padding:7px 12px;box-shadow:0 6px 20px rgba(0,0,0,.5);max-width:min(700px,94vw)}
+  #timebar.tt{border-color:#e0a11d;box-shadow:0 6px 22px rgba(224,161,29,.4)}
+  #tbRange{width:min(360px,50vw);accent-color:var(--accent)}
+  #timebar.tt #tbRange{accent-color:#e0a11d}
+  #tbLabel{font-size:12px;font-weight:600;color:var(--txt);min-width:150px;text-align:center;white-space:nowrap}
+  #timebar.tt #tbLabel{color:#f2c14e}
+  .tb-btn{cursor:pointer;border:1px solid var(--line);background:var(--bg);color:var(--txt);border-radius:8px;padding:5px 10px;font-size:13px;font-weight:600;line-height:1}
+  .tb-btn:hover{border-color:var(--accent)}
+  #tbNow{font-size:11px}
+  @media (max-width:640px){ #timebar{bottom:8px;padding:6px 9px;gap:6px} #tbRange{width:42vw} #tbLabel{min-width:0;font-size:11px} }
 </style>
 </head>
 <body>
@@ -323,6 +336,13 @@
   <div id="map2"></div>
   <div class="maplab" id="lab1"></div>
   <div class="maplab" id="lab2"></div>
+  <div id="timebar">
+    <button class="tb-btn" id="tbPrev" title="Hora anterior">◀</button>
+    <input type="range" id="tbRange" min="0" max="100" value="100" step="1">
+    <button class="tb-btn" id="tbNext" title="Hora següent">▶</button>
+    <span id="tbLabel">Ara (en directe)</span>
+    <button class="tb-btn" id="tbNow" title="Tornar a l'actual">⏱ Ara</button>
+  </div>
 </div>
 
 <script>
@@ -376,8 +396,10 @@ function getVal(st,vk){
 }
 function streakHores(st,vk,op,val){
   const h=st.historic||[]; let s=0, lastT=null;
+  const _r=refNow(); const R=_r?_r.getTime():Infinity;
   for(let i=h.length-1;i>=0;i--){
     const t=toDate(h[i].t);
+    if(t && t.getTime() > R+1800000) continue;   // màquina del temps: ignora el futur respecte T
     if(lastT && t && (lastT-t) > 1.8*3600000) break;
     const x=h[i][vk];
     if(x==null){ if(t)lastT=t; continue; }
@@ -390,7 +412,7 @@ function streakHores(st,vk,op,val){
 // el llindar, encara que no siguen seguides. Agrupa per hora (mitjana dins l'hora).
 function comptaHores(st,vk,op,val,hores){
   const h=st.historic||[];
-  let refD=toDate(DATA&&DATA.generat);
+  let refD=refNow();
   if(!refD){ for(let i=h.length-1;i>=0;i--){const t=toDate(h[i].t);if(t){refD=t;break;}} }
   if(!refD||!h.length) return {n:0,tot:0};
   const ref=refD.getTime(), from=ref-hores*3600000;
@@ -415,9 +437,11 @@ function toDate(iso){
 }
 function horaLoc(iso){const d=toDate(iso);return d?d.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}):'';}
 function dataLoc(iso){const d=toDate(iso);return d?d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';}
+// temps de referència: l'hora triada a la màquina del temps, o "ara" (generació)
+function refNow(){ return (typeof timeT!=='undefined' && timeT!=null) ? new Date(timeT) : toDate(DATA&&DATA.generat); }
 function horesDesdeObs(st){
   if(!DATA) return null;
-  const g=toDate(DATA.generat), f=toDate(st.actual&&st.actual.fint);
+  const g=refNow(), f=toDate(st.actual&&st.actual.fint);
   if(!g||!f) return null;
   return (g-f)/3600000;
 }
@@ -428,6 +452,7 @@ function amagaVella(st){return $('stale')&&$('stale').checked && esVella(st);}
 // ------------------------------------------------------------------ estat
 let DATA=null, markers=[], activeFilter=null;
 let streakMode=null, countMode=null;
+let timeT=null, tDomain=null;   // màquina del temps (timeT=null → en directe)
 const map=L.map('map',{zoomControl:true}).setView([41.75,1.75],8);
 const BASEMAPS={
   icgc:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
@@ -779,7 +804,57 @@ function altitudOk(st, rang){
   if(!isNaN(mx) && a>mx) return false;
   return true;
 }
+// ---------------- màquina del temps ----------------
+// construeix un "actual" a partir del registre històric de l'estació a l'hora T
+function snapshotAt(st, T){
+  const h=st.historic||[];
+  let best=null, bestT=-Infinity;
+  for(let i=0;i<h.length;i++){ const t=toDate(h[i].t); if(!t) continue; const tm=t.getTime();
+    if(tm<=T+1800000 && tm>bestT){ bestT=tm; best=h[i]; } }
+  if(!best){ let dmin=Infinity; for(let i=0;i<h.length;i++){ const t=toDate(h[i].t); if(!t)continue; const d=Math.abs(t.getTime()-T); if(d<dmin){dmin=d;best=h[i];} } }
+  const orig = st._act0 || st.actual || {};
+  if(!best) return {fint:null, n_hores:orig.n_hores};
+  const snap={fint:best.t, n_hores:orig.n_hores};
+  ['ta','hr','tpr','vv','vmax','dv','prec','pres'].forEach(k=>{ snap[k]=(best[k]!=null?best[k]:null); });
+  const from=T-24*3600000; let mx=null,mn=null;                 // màx/mín de temp de les 24 h fins a T
+  for(let i=0;i<h.length;i++){ const t=toDate(h[i].t); if(!t)continue; const tm=t.getTime(); if(tm<from||tm>T+1800000)continue; const x=h[i].ta; if(x==null)continue; if(mx==null||x>mx)mx=x; if(mn==null||x<mn)mn=x; }
+  snap.tamax_dia=mx; snap.tamin_dia=mn;
+  return snap;
+}
+function aplicaSnapshots(){
+  if(!DATA) return;
+  if(timeT==null){ DATA.estacions.forEach(st=>{ if(st._act0){ st.actual=st._act0; st._act0=null; } }); return; }
+  DATA.estacions.forEach(st=>{ if(!st._act0) st._act0=st.actual; st.actual=snapshotAt(st,timeT); });
+}
+function calcDomini(){
+  if(!DATA) return;
+  const tMax=(toDate(DATA.generat)||new Date()).getTime();
+  let tMin=tMax;
+  DATA.estacions.forEach(st=>{ const h=st.historic; if(h&&h.length){ const t=toDate(h[0].t); if(t&&t.getTime()<tMin) tMin=t.getTime(); } });
+  if(tMin>=tMax) tMin=tMax-24*3600000;
+  const lim=tMax-6*24*3600000; if(tMin<lim) tMin=lim;
+  tDomain={min:tMin,max:tMax,steps:Math.max(1,Math.round((tMax-tMin)/3600000))};
+  const r=$('tbRange'); if(r){ r.min=0; r.max=tDomain.steps;
+    r.value=(timeT==null)?tDomain.steps:Math.max(0,Math.min(tDomain.steps,Math.round((timeT-tMin)/3600000))); }
+  const tb=$('timebar'); if(tb) tb.style.display='flex';
+}
+function fmtTemps(T){ return new Date(T).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function setTimeT(T){
+  timeT=T;
+  const bar=$('timebar');
+  if(T==null){ if(bar)bar.classList.remove('tt'); $('tbLabel').textContent='Ara (en directe)'; }
+  else { if(bar)bar.classList.add('tt'); $('tbLabel').textContent='🕘 '+fmtTemps(T); }
+  render();
+}
+function tbStep(d){
+  if(!tDomain) return;
+  let i=parseInt($('tbRange').value,10)+d;
+  i=Math.max(0,Math.min(tDomain.steps,i));
+  $('tbRange').value=i;
+  setTimeT(i>=tDomain.steps ? null : tDomain.min+i*3600000);
+}
 function render(){
+  aplicaSnapshots();
   if(comboActive){ renderCombinat(); return; }
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(!DATA)return;
@@ -941,6 +1016,12 @@ $('cntApply').onclick=()=>{
   if(comboActive){ $('combo').value=''; aplicaCombo(''); } else { render(); }
 };
 $('cntOff').onclick=()=>{ countMode=null; renderLegend(); render(); };
+
+// màquina del temps
+$('tbRange').addEventListener('input',()=>{ if(!tDomain)return; const i=parseInt($('tbRange').value,10); setTimeT(i>=tDomain.steps?null:tDomain.min+i*3600000); });
+$('tbPrev').onclick=()=>tbStep(-1);
+$('tbNext').onclick=()=>tbStep(1);
+$('tbNow').onclick=()=>{ if(tDomain)$('tbRange').value=tDomain.steps; setTimeT(null); };
 $('basemap').onchange=e=>setBase(e.target.value);
 $('combo').addEventListener('change',e=>aplicaCombo(e.target.value));
 ['thrHr','thrTa'].forEach(id=>$(id).addEventListener('input',()=>{ if(comboActive) renderCombinat(); }));
@@ -988,6 +1069,7 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
 }
 function descripcioFiltres(){
   const parts=[];
+  if(timeT!=null){ parts.push('Vista històrica: '+fmtTemps(timeT)); }
   if(countMode){ const v=countMode.v; parts.push('Hores amb '+VARS[v].label+' '+countMode.op+' '+countMode.val+(VARS[v].unit?(' '+VARS[v].unit):'')+' · finestra últimes '+countMode.hores+' h'); }
   if(activeFilter){
     if(activeFilter.type==='single'){ const v=activeFilter.v; parts.push(VARS[v].label+' '+activeFilter.op+' '+activeFilter.val+(VARS[v].unit?(' '+VARS[v].unit):'')); }
@@ -1135,6 +1217,7 @@ function setUpdated(){
   const ia=$('infoAemet'), im=$('infoMeteocat');
   if(ia) ia.textContent=infoXarxa('AEMET');
   if(im) im.textContent=infoXarxa('Meteocat');
+  calcDomini();
 }
 let PASS=null;
 const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
