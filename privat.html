@@ -1605,7 +1605,7 @@ function baseX(){ return {type:'linear',min:0,max:23,grid:{color:'#eef2f7'},tick
 function drawTemp(labels,ds){
   if(chT) chT.destroy();
   chT=new Chart(document.getElementById('chTemp'),{type:'line',data:{labels:labels,datasets:ds},plugins:[araLine,previsioMarks],options:{
-    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    responsive:true,maintainAspectRatio:false,devicePixelRatio:Math.max(2,window.devicePixelRatio||1),interaction:{mode:'index',intersect:false},
     plugins:{legend:{position:'top',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
     scales:{ x:baseX(),
       yT:{position:'left',afterFit:s=>{s.width=50;},title:{display:true,text:'°C',color:'#64748b'},grid:{color:'#eef2f7'},ticks:{color:'#64748b',font:{size:10}}},
@@ -1617,7 +1617,7 @@ function drawWind(labels,ds,dirs,showDir){
   const rows=dirs.length, padTop=(showDir&&rows)?(10+rows*12):6;
   if(chW) chW.destroy();
   chW=new Chart(document.getElementById('chWind'),{type:'line',data:{labels:labels,datasets:ds},plugins:[chWindArrows,araLine,previsioMarks],options:{
-    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    responsive:true,maintainAspectRatio:false,devicePixelRatio:Math.max(2,window.devicePixelRatio||1),interaction:{mode:'index',intersect:false},
     layout:{padding:{top:padTop,right:46}},
     plugins:{legend:{position:'bottom',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
     scales:{ x:baseX(),
@@ -1710,9 +1710,10 @@ function drawShape(ctx,sh){
     ctx.beginPath(); ctx.moveTo(sh.x1,sh.y1); ctx.lineTo(sh.x1-L*Math.cos(ang-0.42),sh.y1-L*Math.sin(ang-0.42)); ctx.lineTo(sh.x1-L*Math.cos(ang+0.42),sh.y1-L*Math.sin(ang+0.42)); ctx.closePath(); ctx.fill(); }
   else if(sh.tool==='circle'){ const rx=Math.abs(sh.x1-sh.x0)/2, ry=Math.abs(sh.y1-sh.y0)/2, cx=(sh.x0+sh.x1)/2, cy=(sh.y0+sh.y1)/2; ctx.beginPath(); ctx.ellipse(cx,cy,Math.max(2,rx),Math.max(2,ry),0,0,2*Math.PI); ctx.stroke(); }
 }
-function annRedraw(){ const ctx=annCv.getContext('2d'); ctx.clearRect(0,0,annCv.width,annCv.height); annShapes.forEach(s=>drawShape(ctx,s)); if(annCur)drawShape(ctx,annCur); }
+const ANNR=2;   // resolució 2× perquè el dibuix isca nítid en exportar
+function annRedraw(){ const ctx=annCv.getContext('2d'); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,annCv.width,annCv.height); ctx.setTransform(ANNR,0,0,ANNR,0,0); annShapes.forEach(s=>drawShape(ctx,s)); if(annCur)drawShape(ctx,annCur); }
 function setupAnnCanvas(){ const p=document.getElementById('chartPanels'); if(!p||p.style.display==='none')return;
-  const w=p.clientWidth, h=p.clientHeight; if(w&&h&&(annCv.width!==w||annCv.height!==h)){ annCv.width=w; annCv.height=h; } annRedraw(); }
+  const w=p.clientWidth, h=p.clientHeight; if(w&&h&&(annCv.width!==w*ANNR||annCv.height!==h*ANNR)){ annCv.width=w*ANNR; annCv.height=h*ANNR; } annRedraw(); }
 function annXY(e){ const r=annCv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
 annCv.addEventListener('pointerdown',e=>{ if(annTool==='none')return; const p=annXY(e);
   if(annTool==='pen') annCur={tool:'pen',color:annColor,width:annWidth,pts:[p]};
