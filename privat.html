@@ -784,19 +784,22 @@ function makeIcon(st,vk){
   const col=colorFor(vk,v);
   const show=$('showVal').checked;
   const radius=(st.font==='Meteocat')?'5px':'999px';   // AEMET: pastilla · Meteocat: rectangle arrodonit
+  const zf=pillZoom();
   if(!show){
-    const d=11;
+    const d=Math.max(7,Math.round(10*zf));
     const html=`<div class="pill" style="width:${d}px;height:${d}px;padding:0;border-radius:50%;background:${col}"></div>`;
     return L.divIcon({className:'',html,iconSize:[d,d],iconAnchor:[d/2,d/2]});
   }
   const txt=fmt(vk,v);
-  const fs=13, h=21, w=Math.round(txt.length*7.6)+14;
+  const fs=Math.max(9,Math.round(11*zf)), h=Math.round(17*zf), w=Math.round((txt.length*6.8+11)*zf);
   const html=`<div class="pill" style="width:${w}px;height:${h}px;background:${col};color:${txtColor(col)};border-radius:${radius};font-size:${fs}px">${txt}</div>`;
   return L.divIcon({className:'',html,iconSize:[w,h],iconAnchor:[w/2,h/2]});
 }
 
 // factor d'escala de les barbes segons el zoom (menudes en general, grans ampliant)
 function barbZoom(){ const z=(map&&map.getZoom)?map.getZoom():8; return Math.max(0.62, Math.min(2.6, 0.78+(z-8)*0.32)); }
+// mida de les pastilles segons el zoom: menudes a vista general, grans en apropar
+function pillZoom(){ const z=(map&&map.getZoom)?map.getZoom():8; return Math.max(0.9, Math.min(2.2, 1+(z-8)*0.26)); }
 // barbes de vent (conveni estàndard, en nusos): mitja=5 kt, sencera=10 kt, banderola=50 kt
 function windBarbSVG(kmh,col,sc){
   sc=sc||1;
@@ -843,8 +846,8 @@ function countColor(frac){
   return rgb(sc[sc.length-1][1]);
 }
 function makeCountIcon(st,n,denom){
-  const col=countColor(denom?n/denom:0), d=24, radius=(st.font==='Meteocat')?'6px':'50%';
-  const html=`<div class="pill" style="width:${d}px;height:${d}px;border-radius:${radius};background:${col};color:${txtColor(col)};font-size:12px">${n}</div>`;
+  const col=countColor(denom?n/denom:0), zf=pillZoom(), d=Math.round(20*zf), fs=Math.max(10,Math.round(12*zf)), radius=(st.font==='Meteocat')?'6px':'50%';
+  const html=`<div class="pill" style="width:${d}px;height:${d}px;border-radius:${radius};background:${col};color:${txtColor(col)};font-size:${fs}px">${n}</div>`;
   return L.divIcon({className:'',html,iconSize:[d,d],iconAnchor:[d/2,d/2]});
 }
 function countLegHTML(denom, title){
@@ -1197,8 +1200,9 @@ $('combo').addEventListener('change',e=>aplicaCombo(e.target.value));
 ['thrHr','thrTa'].forEach(id=>$(id).addEventListener('input',()=>{ if(comboActive) renderCombinat(); }));
 // re-dibuixa les barbes en canviar el zoom (perquè escalen)
 map.on('zoomend',()=>{
-  if(comboActive){ if(comboActive.a.k==='barbs'||comboActive.b.k==='barbs') renderCombinat(); }
-  else if(selVar.value==='barbes'){ render(); }
+  // re-dibuixem perquè les pastilles i les barbes s'ajusten a la mida segons el zoom
+  if(comboActive) renderCombinat();
+  else render();
 });
 
 // ---------------- exporta imatge ----------------
