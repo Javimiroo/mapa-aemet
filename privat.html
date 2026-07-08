@@ -81,6 +81,10 @@
   .stn{border-radius:50%;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 0.6px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.5);
        display:flex;align-items:center;justify-content:center;font-weight:700;color:#0b0b0b;
        font-size:11px;line-height:1;text-align:center;transition:opacity .15s}
+  /* pastilles estil Meteocat (compactes) */
+  .pill{display:flex;align-items:center;justify-content:center;box-sizing:border-box;font-weight:700;
+        font-size:11px;line-height:1;padding:0 4px;border:1.3px solid rgba(255,255,255,.92);
+        box-shadow:0 1px 2px rgba(0,0,0,.5);white-space:nowrap;transition:opacity .15s}
   .arrow{position:absolute;left:50%;top:50%;transform-origin:center;pointer-events:none}
   .lp-tt{font-size:12px}
   .lp-tt table{border-collapse:collapse}
@@ -315,6 +319,7 @@
       <label class="switch"><input type="checkbox" id="showVal" checked> Etiqueta amb el valor al disc</label>
       <label class="switch"><input type="checkbox" id="onlyVar"> En passar el cursor, només la variable triada</label>
       <label class="switch"><input type="checkbox" id="fade" checked> Atenuar (60%) els que no compleixen</label>
+      <label class="switch"><input type="checkbox" id="hideNoMatch"> Amagar del tot els que no compleixen</label>
       <label class="switch"><input type="checkbox" id="stale" checked> Amagar dades desfasades</label>
       <div class="row" style="margin:2px 0 0 24px;align-items:center;gap:6px">
         <span class="muted" style="font-size:11px">més de</span>
@@ -658,15 +663,27 @@ function tooltipHTML(st){
     <span class="muted">Obs. ${hora} (local) · ${st.idema}</span>${avis}</div>`;
 }
 
+// color de text (fosc o blanc) segons la lluminositat del fons
+function txtColor(c){
+  const m=/rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(c);
+  if(!m) return '#111';
+  const lum=0.299*(+m[1])+0.587*(+m[2])+0.114*(+m[3]);
+  return lum>150?'#111':'#fff';
+}
 function makeIcon(st,vk){
   const v=getVal(st,vk);
   const col=colorFor(vk,v);
   const show=$('showVal').checked;
-  const size=show?34:16;
-  const sq=(st.font==='Meteocat')?';border-radius:22%':'';
-  const html=show?`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${sq}">${fmt(vk,v)}</div>`
-                 :`<div class="stn" style="width:${size}px;height:${size}px;background:${col}${sq}"></div>`;
-  return L.divIcon({className:'',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
+  const radius=(st.font==='Meteocat')?'5px':'999px';   // AEMET: pastilla · Meteocat: rectangle arrodonit
+  if(!show){
+    const d=11;
+    const html=`<div class="pill" style="width:${d}px;height:${d}px;padding:0;border-radius:50%;background:${col}"></div>`;
+    return L.divIcon({className:'',html,iconSize:[d,d],iconAnchor:[d/2,d/2]});
+  }
+  const txt=fmt(vk,v);
+  const w=Math.round(txt.length*6.8)+11, h=17;
+  const html=`<div class="pill" style="width:${w}px;height:${h}px;background:${col};color:${txtColor(col)};border-radius:${radius}">${txt}</div>`;
+  return L.divIcon({className:'',html,iconSize:[w,h],iconAnchor:[w/2,h/2]});
 }
 
 // factor d'escala de les barbes segons el zoom (menudes en general, grans ampliant)
@@ -870,6 +887,7 @@ function render(){
     }
     if(getVal(st,vk)==null) return;                 // amaga estacions sense dada de la variable triada
     const ok=matches(st); if(ok)nOk++;
+    if(filtering && !ok && $('hideNoMatch').checked) return;   // amaga del tot les que no compleixen
     const m=afegirMarker(map,markers,st,makeIcon(st,vk)); shown++;
     m.setOpacity((filtering && !ok && $('fade').checked)?0.4:1);
     if(filtering && ok) m.setZIndexOffset(1000);
@@ -980,7 +998,7 @@ function aplicaCombo(key){
 }
 
 selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
-['showVal','onlyVar','fade','stale','netAemet','netMeteocat'].forEach(id=>$(id).addEventListener('change',render));
+['showVal','onlyVar','fade','hideNoMatch','stale','netAemet','netMeteocat'].forEach(id=>$(id).addEventListener('change',render));
 $('staleH').addEventListener('input',render);
 document.querySelectorAll('.banda').forEach(c=>c.addEventListener('change',render));
 ['altMin','altMax'].forEach(id=>$(id).addEventListener('input',render));
