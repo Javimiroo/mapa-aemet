@@ -411,7 +411,7 @@ ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textConte
 selVar.value='ta';
 
 // ------------------------------------------------------------------ cercador de pobles (ICGC)
-let cercaMarker=null, cercaTO=null;
+let cercaTO=null, termeLayer=null, termeRAF=null; const termeCache={};
 const GEO_URL='https://eines.icgc.cat/geocodificador/autocompletar?size=8&text=';
 function pintaCerca(feats){
   const box=$('cercaLlista');
@@ -421,27 +421,60 @@ function pintaCerca(feats){
     const tip=(p.addendum&&p.addendum.tipus)?p.addendum.tipus:'';
     const sub=[p.municipi,p.comarca].filter(Boolean).join(' · ');
     const nom=(p.etiqueta||p.nom||'').replace(/"/g,'&quot;');
-    return '<div class="cerca-item" data-lon="'+c[0]+'" data-lat="'+c[1]+'" data-nom="'+nom+'">'+
+    const mun=(p.municipi||'').replace(/"/g,'&quot;'), com=(p.comarca||'').replace(/"/g,'&quot;');
+    return '<div class="cerca-item" data-lon="'+c[0]+'" data-lat="'+c[1]+'" data-nom="'+nom+'" data-mun="'+mun+'" data-com="'+com+'">'+
       '<b>'+(p.nom||'')+'</b>'+(tip?' <span class="muted" style="font-size:10px">'+tip+'</span>':'')+
       (sub?'<br><span class="muted" style="font-size:10px">'+sub+'</span>':'')+'</div>';
   }).join('');
   box.style.display='block';
   box.querySelectorAll('.cerca-item').forEach(el=>el.addEventListener('click',()=>{
-    triaCerca(parseFloat(el.dataset.lat),parseFloat(el.dataset.lon),el.dataset.nom);
+    triaCerca(parseFloat(el.dataset.lat),parseFloat(el.dataset.lon),el.dataset.nom,el.dataset.mun,el.dataset.com);
   }));
 }
-function triaCerca(lat,lon,nom){
+function triaCerca(lat,lon,nom,municipi,comarca){
   if(isNaN(lat)||isNaN(lon))return;
-  const icon=L.divIcon({className:'',iconSize:[30,42],iconAnchor:[15,40],html:
-    '<svg width="30" height="42" viewBox="0 0 30 42" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">'+
-    '<path d="M15 1C7.8 1 2 6.8 2 14c0 9.5 13 27 13 27s13-17.5 13-27C28 6.8 22.2 1 15 1z" fill="#e11d48" stroke="#fff" stroke-width="2"/>'+
-    '<circle cx="15" cy="14" r="5" fill="#fff"/></svg>'});
-  if(cercaMarker) map.removeLayer(cercaMarker);
-  cercaMarker=L.marker([lat,lon],{icon,zIndexOffset:1000}).addTo(map);
-  cercaMarker.bindTooltip(nom,{permanent:true,direction:'top',offset:[0,-36],className:'cerca-tt'}).openTooltip();
   map.setView([lat,lon], Math.max(map.getZoom(),12), {animate:true});
   $('cercaLlista').style.display='none';
   $('cerca').value=nom;
+  mostraTerme(municipi||nom, comarca, lat, lon);
+}
+function clearTerme(){ if(termeRAF){cancelAnimationFrame(termeRAF);termeRAF=null;} if(termeLayer){map.removeLayer(termeLayer);termeLayer=null;} }
+// flaix roig translúcid: pulsa i decau fins a un tint molt suau
+function flashTerme(){
+  const dur=2600, t0=performance.now();
+  (function step(now){
+    if(!termeLayer){ termeRAF=null; return; }
+    const e=now-t0;
+    if(e>=dur){ termeLayer.setStyle({fillOpacity:0.06,opacity:0.5,weight:1.5}); termeRAF=null; return; }
+    const k=e/dur, puls=Math.abs(Math.sin(k*Math.PI*3)), decay=1-k;
+    termeLayer.setStyle({fillOpacity:0.30*puls*decay+0.04, opacity:0.45+0.45*puls*decay, weight:2});
+    termeRAF=requestAnimationFrame(step);
+  })(performance.now());
+}
+async function mostraTerme(municipi, comarca, lat, lon){
+  clearTerme();
+  const baseStyle={color:'#e11d48',weight:2,opacity:0.9,fillColor:'#e11d48',fillOpacity:0};
+  const key=(municipi||'')+'|'+(comarca||'');
+  try{
+    let geo=termeCache[key];
+    if(geo===undefined){
+      const q=encodeURIComponent([municipi,comarca,'Catalunya'].filter(Boolean).join(', '));
+      const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&polygon_geojson=1&limit=6&countrycodes=es&q='+q);
+      geo=null;
+      if(r.ok){
+        const arr=await r.json();
+        const poly=a=>a.geojson&&/Polygon/.test(a.geojson.type);
+        const inBox=a=>{const b=a.boundingbox&&a.boundingbox.map(Number); return b&&lat>=b[0]&&lat<=b[1]&&lon>=b[2]&&lon<=b[3];};
+        const cand=arr.find(a=>poly(a)&&a.class==='boundary'&&inBox(a))||arr.find(a=>poly(a)&&inBox(a))||arr.find(a=>poly(a)&&a.class==='boundary')||arr.find(poly);
+        geo=cand?cand.geojson:null;
+      }
+      termeCache[key]=geo;
+    }
+    if(geo){ termeLayer=L.geoJSON(geo,{style:baseStyle}).addTo(map); flashTerme(); return; }
+  }catch(e){}
+  // reserva: si no hi ha polígon, un cercle roig al punt
+  termeLayer=L.circle([lat,lon],Object.assign({radius:2600},baseStyle)).addTo(map);
+  flashTerme();
 }
 async function fesCerca(q){
   try{
@@ -454,7 +487,7 @@ async function fesCerca(q){
 $('cerca').addEventListener('input',e=>{
   const q=e.target.value.trim();
   clearTimeout(cercaTO);
-  if(!q){ if(cercaMarker){map.removeLayer(cercaMarker);cercaMarker=null;} $('cercaLlista').style.display='none'; return; }
+  if(!q){ clearTerme(); $('cercaLlista').style.display='none'; return; }
   if(q.length<2){ $('cercaLlista').style.display='none'; return; }
   cercaTO=setTimeout(()=>fesCerca(q),260);
 });
