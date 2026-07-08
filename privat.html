@@ -731,10 +731,29 @@ function windLegHTML(){
          '<div class="wl-bar" style="background:linear-gradient(90deg,'+stops+')"></div>'+
          '<div class="wl-ticks">'+ticks+'</div>';
 }
-function windLegShow(on){
-  const el=$('windleg'); if(!el) return;
-  if(on){ if(!el.dataset.built){ el.innerHTML=windLegHTML(); el.dataset.built='1'; } el.style.display='block'; }
-  else el.style.display='none';
+// llegenda superposada genèrica (vent o comptador d'hores)
+function mapLeg(html){ const el=$('windleg'); if(!el) return; if(html==null){ el.style.display='none'; return; } el.innerHTML=html; el.style.display='block'; }
+// --- comptador d'hores: escala de calor segons el nombre d'hores (fracció de la finestra) ---
+const HEAT=[[0,[255,247,188]],[0.2,[254,217,142]],[0.4,[254,153,41]],[0.6,[236,112,20]],[0.8,[204,40,30]],[1,[128,0,38]]];
+function countColor(frac){
+  frac=Math.max(0,Math.min(1,isNaN(frac)?0:frac));
+  const sc=HEAT;
+  for(let i=0;i<sc.length-1;i++){ if(frac>=sc[i][0]&&frac<=sc[i+1][0]){ const t=(frac-sc[i][0])/(sc[i+1][0]-sc[i][0]);
+    return rgb([lerp(sc[i][1][0],sc[i+1][1][0],t),lerp(sc[i][1][1],sc[i+1][1][1],t),lerp(sc[i][1][2],sc[i+1][1][2],t)]); } }
+  return rgb(sc[sc.length-1][1]);
+}
+function makeCountIcon(st,n,hores){
+  const col=countColor(hores?n/hores:0), d=24, radius=(st.font==='Meteocat')?'6px':'50%';
+  const html=`<div class="pill" style="width:${d}px;height:${d}px;border-radius:${radius};background:${col};color:${txtColor(col)};font-size:12px">${n}</div>`;
+  return L.divIcon({className:'',html,iconSize:[d,d],iconAnchor:[d/2,d/2]});
+}
+function countLegHTML(hores){
+  const N=hores||1;
+  const stops=[0,0.2,0.4,0.6,0.8,1].map(f=>countColor(f)+' '+Math.round(f*100)+'%').join(',');
+  const ticks=[0,Math.round(N/2),N].map((v,i)=>'<span style="left:'+(i*50)+'%">'+v+'</span>').join('');
+  return '<div class="wl-title">Hores que compleixen (de '+N+')</div>'+
+         '<div class="wl-bar" style="background:linear-gradient(90deg,'+stops+')"></div>'+
+         '<div class="wl-ticks">'+ticks+'</div>';
 }
 
 function makeStreakIcon(st,streak,col){
@@ -782,17 +801,17 @@ function renderCount(){
     if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
     const {n,tot}=comptaHores(st,v,op,val,hores);
     if(tot===0) return;                       // sense dada a la finestra
-    const col=colorFor(v,getVal(st,v));
-    const m=L.marker([st.lat,st.lon],{icon:makeStreakIcon(st,n,col)});
-    m.setOpacity(n===0?0.4:1);
-    m.setZIndexOffset(n*10);
+    const m=L.marker([st.lat,st.lon],{icon:makeCountIcon(st,n,hores)});
+    m.setOpacity(n===0?0.5:1);
+    m.setZIndexOffset(1000+n*10);             // les de més hores, per damunt
     m.bindTooltip(countTooltip(st,n,tot),{direction:'top',opacity:.97,offset:[0,-6]});
     m.on('click',()=>{m.bindPopup(popupHTML(st,v),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st,v),60);});
     m.addTo(map); markers.push(m); shown++; if(n>maxn)maxn=n;
   });
+  mapLeg(countLegHTML(hores));
   const ops=op.replace('>','&gt;').replace('<','&lt;');
   $('status').innerHTML=`Comptador d'hores · <b>${VARS[v].label} ${ops} ${val}${VARS[v].unit}</b> · últimes <b>${hores} h</b><br>Estacions: <b>${shown}</b> · màxim: <b>${maxn} h</b>`;
-  $('legend').innerHTML='<div class="muted">Número = hores que compleixen (de les últimes '+hores+' h) · color = valor actual</div>';
+  $('legend').innerHTML='<div class="muted">Color = hores que compleixen (0 → '+hores+') · número = hores</div>';
 }
 
 let chart=null;
@@ -895,7 +914,7 @@ function tbStep(d){
 }
 function render(){
   aplicaSnapshots();
-  windLegShow(false);
+  mapLeg(null);
   if(comboActive){ renderCombinat(); return; }
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(!DATA)return;
@@ -917,7 +936,7 @@ function render(){
     if(filtering && ok) m.setZIndexOffset(1000);
   });
   if(barbMode){
-    windLegShow(true);
+    mapLeg(windLegHTML());
     $('legend').innerHTML='<div class="muted">Barbes (nusos): mitja=5 · sencera=10 · banderola=50 · color=velocitat</div>';
     $('status').innerHTML=`Barbes de vent · <b>${shown}</b> estacions amb vent`;
     return;
@@ -1094,6 +1113,18 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   c.save(); c.textAlign='center'; c.textBaseline='top';
   c.fillStyle='#111'; c.font='bold '+(15*S)+'px Arial';
   c.fillText(specLabel(spec), x+w/2, y);
+  if(spec.k==='count'){                       // barra de calor 0 → N hores
+    const N=spec.hores||1, by=y+22*S, bw=w*0.82, bh=14*S, bx=x+(w-bw)/2;
+    const g=c.createLinearGradient(bx,0,bx+bw,0);
+    [0,0.2,0.4,0.6,0.8,1].forEach(f=>g.addColorStop(f, countColor(f)));
+    c.fillStyle=g; c.fillRect(bx,by,bw,bh);
+    c.strokeStyle='#777'; c.lineWidth=S; c.strokeRect(bx,by,bw,bh);
+    c.fillStyle='#111'; c.font=(11*S)+'px Arial';
+    [0,Math.round(N/2),N].forEach((v,i)=>c.fillText(v, bx+bw*(i/2), by+bh+3*S));
+    c.fillStyle='#555'; c.font=(11*S)+'px Arial';
+    c.fillText('hores que compleixen (de les últimes '+N+' h) · número = hores', x+w/2, by+bh+18*S);
+    c.restore(); return;
+  }
   const by=y+22*S, isBarb=spec.k==='barbs', vk=isBarb?'vv':spec.v;
   const sc=isBarb?SCALES.wind:SCALES[VARS[vk].scale];
   if(sc==='wheel'){ c.font=(12*S)+'px Arial'; c.fillStyle='#333'; c.fillText('Direcció del vent (roda de matís, 0–360°)', x+w/2, by); c.restore(); return; }
