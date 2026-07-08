@@ -99,6 +99,19 @@
                  background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px}
   .gatebox .btn{width:100%}
   .gerr{font-size:12px;color:var(--warn);margin-top:12px;min-height:16px}
+  /* cercador de pobles */
+  #cercaWrap{position:relative}
+  #cerca{width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px}
+  #cerca:focus{outline:none;border-color:var(--accent)}
+  #cercaLlista{position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:1300;background:var(--bg);
+               border:1px solid var(--line);border-radius:8px;max-height:240px;overflow:auto;display:none;
+               box-shadow:0 8px 22px rgba(0,0,0,.5)}
+  .cerca-item{padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line);line-height:1.25;font-size:12px}
+  .cerca-item:last-child{border-bottom:none}
+  .cerca-item:hover{background:var(--panel2)}
+  .cerca-item b{color:var(--txt);font-weight:600}
+  .cerca-tt{background:#e11d48!important;border:none!important;color:#fff!important;font-weight:600;font-size:11px;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .cerca-tt::before{border-top-color:#e11d48!important}
 </style>
 </head>
 <body>
@@ -117,6 +130,15 @@
   <div id="panel">
     <h1>AEMET + Meteocat</h1>
     <p class="sub" id="fontline">Observació en temps real</p>
+
+    <div class="card">
+      <h2>Cerca un poble</h2>
+      <div id="cercaWrap">
+        <input type="text" id="cerca" placeholder="Escriu un poble o lloc…" autocomplete="off">
+        <div id="cercaLlista"></div>
+      </div>
+      <div class="muted" style="font-size:10px;margin-top:5px">Topònims de l'ICGC · clica un resultat per centrar-hi el mapa</div>
+    </div>
 
     <div class="card">
       <h2>Xarxes</h2>
@@ -387,6 +409,60 @@ const $=id=>document.getElementById(id);
 const selVar=$('var');
 ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':'');selVar.appendChild(o);});
 selVar.value='ta';
+
+// ------------------------------------------------------------------ cercador de pobles (ICGC)
+let cercaMarker=null, cercaTO=null;
+const GEO_URL='https://eines.icgc.cat/geocodificador/autocompletar?size=8&text=';
+function pintaCerca(feats){
+  const box=$('cercaLlista');
+  if(!feats||!feats.length){ box.innerHTML=''; box.style.display='none'; return; }
+  box.innerHTML=feats.map(f=>{
+    const p=f.properties||{}, c=f.geometry.coordinates;
+    const tip=(p.addendum&&p.addendum.tipus)?p.addendum.tipus:'';
+    const sub=[p.municipi,p.comarca].filter(Boolean).join(' · ');
+    const nom=(p.etiqueta||p.nom||'').replace(/"/g,'&quot;');
+    return '<div class="cerca-item" data-lon="'+c[0]+'" data-lat="'+c[1]+'" data-nom="'+nom+'">'+
+      '<b>'+(p.nom||'')+'</b>'+(tip?' <span class="muted" style="font-size:10px">'+tip+'</span>':'')+
+      (sub?'<br><span class="muted" style="font-size:10px">'+sub+'</span>':'')+'</div>';
+  }).join('');
+  box.style.display='block';
+  box.querySelectorAll('.cerca-item').forEach(el=>el.addEventListener('click',()=>{
+    triaCerca(parseFloat(el.dataset.lat),parseFloat(el.dataset.lon),el.dataset.nom);
+  }));
+}
+function triaCerca(lat,lon,nom){
+  if(isNaN(lat)||isNaN(lon))return;
+  const icon=L.divIcon({className:'',iconSize:[30,42],iconAnchor:[15,40],html:
+    '<svg width="30" height="42" viewBox="0 0 30 42" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">'+
+    '<path d="M15 1C7.8 1 2 6.8 2 14c0 9.5 13 27 13 27s13-17.5 13-27C28 6.8 22.2 1 15 1z" fill="#e11d48" stroke="#fff" stroke-width="2"/>'+
+    '<circle cx="15" cy="14" r="5" fill="#fff"/></svg>'});
+  if(cercaMarker) map.removeLayer(cercaMarker);
+  cercaMarker=L.marker([lat,lon],{icon,zIndexOffset:1000}).addTo(map);
+  cercaMarker.bindTooltip(nom,{permanent:true,direction:'top',offset:[0,-36],className:'cerca-tt'}).openTooltip();
+  map.setView([lat,lon], Math.max(map.getZoom(),12), {animate:true});
+  $('cercaLlista').style.display='none';
+  $('cerca').value=nom;
+}
+async function fesCerca(q){
+  try{
+    const r=await fetch(GEO_URL+encodeURIComponent(q));
+    if(!r.ok) return;
+    const j=await r.json();
+    pintaCerca((j.features||[]).slice(0,8));
+  }catch(e){}
+}
+$('cerca').addEventListener('input',e=>{
+  const q=e.target.value.trim();
+  clearTimeout(cercaTO);
+  if(!q){ if(cercaMarker){map.removeLayer(cercaMarker);cercaMarker=null;} $('cercaLlista').style.display='none'; return; }
+  if(q.length<2){ $('cercaLlista').style.display='none'; return; }
+  cercaTO=setTimeout(()=>fesCerca(q),260);
+});
+$('cerca').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ const it=$('cercaLlista').querySelector('.cerca-item'); if(it) it.click(); }
+  else if(e.key==='Escape'){ $('cercaLlista').style.display='none'; }
+});
+document.addEventListener('click',e=>{ if(!e.target.closest('#cercaWrap')) $('cercaLlista').style.display='none'; });
 
 function renderPresets(){
   const vk=selVar.value, box=$('presets'); box.innerHTML='';
