@@ -129,6 +129,14 @@
   .tb-btn:hover{border-color:var(--accent)}
   #tbNow{font-size:11px}
   @media (max-width:640px){ #timebar{bottom:8px;padding:6px 9px;gap:6px} #tbRange{width:42vw} #tbLabel{min-width:0;font-size:11px} }
+  /* llegenda de colors del vent sobre el mapa */
+  #windleg{position:absolute;right:10px;top:54px;z-index:1150;display:none;width:186px;
+           background:rgba(15,23,42,.92);border:1px solid var(--line);border-radius:9px;
+           padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .wl-title{font-size:10.5px;color:var(--txt);font-weight:700;margin-bottom:4px;text-align:center}
+  .wl-bar{height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.45)}
+  .wl-ticks{position:relative;height:13px;margin-top:1px}
+  .wl-ticks span{position:absolute;transform:translateX(-50%);font-size:9px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -348,6 +356,7 @@
     <span id="tbLabel">Ara (en directe)</span>
     <button class="tb-btn" id="tbNow" title="Tornar a l'actual">⏱ Ara</button>
   </div>
+  <div id="windleg"></div>
 </div>
 
 <script>
@@ -687,7 +696,7 @@ function makeIcon(st,vk){
 }
 
 // factor d'escala de les barbes segons el zoom (menudes en general, grans ampliant)
-function barbZoom(){ const z=(map&&map.getZoom)?map.getZoom():8; return Math.max(0.8, Math.min(3.2, 1+(z-8)*0.4)); }
+function barbZoom(){ const z=(map&&map.getZoom)?map.getZoom():8; return Math.max(0.62, Math.min(2.6, 0.78+(z-8)*0.32)); }
 // barbes de vent (conveni estàndard, en nusos): mitja=5 kt, sencera=10 kt, banderola=50 kt
 function windBarbSVG(kmh,col,sc){
   sc=sc||1;
@@ -706,12 +715,26 @@ function makeBarbIcon(st){
   const zf=barbZoom();
   const spd=st.actual.vv, gust=st.actual.vmax, dir=(st.actual.dv==null?0:st.actual.dv), col=colorFor('vv',spd), R=34*zf;
   const cr=7*zf, fsz=Math.max(8,Math.round(8.5*zf)), gtxt=(gust==null)?'':Math.round(gust);
-  const html=`<svg width="${2*R}" height="${2*R}" viewBox="${-R} ${-R} ${2*R} ${2*R}" style="overflow:visible;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))">
+  const html=`<svg width="${2*R}" height="${2*R}" viewBox="${-R} ${-R} ${2*R} ${2*R}" style="overflow:visible;filter:drop-shadow(0 0 .8px #0b0f19) drop-shadow(0 0 .8px #0b0f19) drop-shadow(0 0 .8px #0b0f19)">
       <g transform="rotate(${dir})">${windBarbSVG(spd,col,zf)}</g>
       <circle cx="0" cy="0" r="${cr}" fill="#ffffff" stroke="#222" stroke-width="${Math.max(1,1.3*zf)}"/>
       <text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-weight="700" font-size="${fsz}" fill="#111">${gtxt}</text>
     </svg>`;
   return L.divIcon({className:'',html,iconSize:[2*R,2*R],iconAnchor:[R,R]});
+}
+// llegenda de colors del vent, sobre el mapa (mode barbes)
+function windLegHTML(){
+  const sc=SCALES.wind, min=sc[0][0], max=sc[sc.length-1][0], span=(max-min)||1;
+  const stops=sc.map(s=>rgb(s[1])+' '+Math.round((s[0]-min)/span*100)+'%').join(',');
+  const ticks=[0,20,40,60,80,110].map(v=>'<span style="left:'+Math.round((v-min)/span*100)+'%">'+v+'</span>').join('');
+  return '<div class="wl-title">Vent mitjà (km/h)</div>'+
+         '<div class="wl-bar" style="background:linear-gradient(90deg,'+stops+')"></div>'+
+         '<div class="wl-ticks">'+ticks+'</div>';
+}
+function windLegShow(on){
+  const el=$('windleg'); if(!el) return;
+  if(on){ if(!el.dataset.built){ el.innerHTML=windLegHTML(); el.dataset.built='1'; } el.style.display='block'; }
+  else el.style.display='none';
 }
 
 function makeStreakIcon(st,streak,col){
@@ -872,6 +895,7 @@ function tbStep(d){
 }
 function render(){
   aplicaSnapshots();
+  windLegShow(false);
   if(comboActive){ renderCombinat(); return; }
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(!DATA)return;
@@ -893,6 +917,7 @@ function render(){
     if(filtering && ok) m.setZIndexOffset(1000);
   });
   if(barbMode){
+    windLegShow(true);
     $('legend').innerHTML='<div class="muted">Barbes (nusos): mitja=5 · sencera=10 · banderola=50 · color=velocitat</div>';
     $('status').innerHTML=`Barbes de vent · <b>${shown}</b> estacions amb vent`;
     return;
