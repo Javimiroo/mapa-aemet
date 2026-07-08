@@ -170,6 +170,8 @@
   .sw.on{box-shadow:0 0 0 2px #0ea5e9}
   .wd{cursor:pointer;border:1px solid #cbd5e1;border-radius:6px;padding:2px 7px;background:#fff;font-size:11px}
   .wd.on{border-color:#0ea5e9;background:#e0f2fe}
+  #chPrevInfo{display:none;padding:8px 16px;background:#f5f3ff;border-bottom:1px solid #e2e8f0;font-size:12px;color:#3730a3;line-height:1.45}
+  #chPrevInfo b{color:#5b21b6}
   #chartPanels{position:relative}
   #chAnnot{position:absolute;inset:0;z-index:5;pointer-events:none}
   #chAnnot.draw{pointer-events:auto;cursor:crosshair;touch-action:none}
@@ -430,7 +432,13 @@
           <label><input type="checkbox" data-v="dv" checked> Direcció (fletxes)</label>
         </div>
       </div>
+      <div class="grp">
+        <span class="h">🔮 Previsions (beta)</span>
+        <label><input type="checkbox" id="chPrev"> Estimar hui amb els dies triats</label>
+        <label>vent bufa si ≥ <input type="number" id="chPrevThr" value="15" min="0" step="1" style="width:52px;padding:2px 5px;border:1px solid #cbd5e1;border-radius:6px"> km/h</label>
+      </div>
     </div>
+    <div id="chPrevInfo"></div>
     <div id="chartTools">
       <span class="h">Destacar:</span>
       <button class="tool on" data-tool="none" title="Cursor (interactuar amb el gràfic)">🖱</button>
@@ -1522,6 +1530,63 @@ const araLine={ id:'araline', afterDatasetsDraw(chart){
   ctx.setLineDash([]); ctx.fillStyle='rgba(15,23,42,.6)'; ctx.font='9px Arial'; ctx.fillText('ara', px+3, a.top+9); ctx.restore();
 }};
 function activeVars(){ const o={}; document.querySelectorAll('#chVars input').forEach(c=>o[c.dataset.v]=c.checked); return o; }
+// ---- Previsions (beta): analògic (mitjana dels dies triats) + ajust de biaix amb el que porta hui ----
+let gPrevOn=false, gPrev=null;
+function dirLabel(deg){ const d=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO']; return d[Math.round((((deg%360)+360)%360)/22.5)%16]; }
+function previsioCalc(){
+  gPrev=null;
+  gPrevOn = !!(document.getElementById('chPrev') && document.getElementById('chPrev').checked);
+  if(!gPrevOn||!gEst.length||!DATA) return;
+  const st=estPerId(gEst[0]); if(!st) return;
+  const dies=diesDisponibles(); if(dies.length<2) return;
+  const todayK=dies[0];
+  let refs=gDies.filter(d=>d!==todayK); if(!refs.length) refs=dies.slice(1,4); if(!refs.length) return;
+  const fc=(vk)=>{ const tdy=serieHoraria(st,todayK,vk), ref=new Array(24).fill(null);
+    for(let h=0;h<24;h++){ let s=0,c=0; refs.forEach(d=>{const x=serieHoraria(st,d,vk)[h]; if(x!=null){s+=x;c++;}}); if(c)ref[h]=s/c; }
+    let bs=0,bc=0; for(let h=0;h<24;h++){ if(tdy[h]!=null&&ref[h]!=null){bs+=tdy[h]-ref[h];bc++;} } const bias=bc?bs/bc:0;
+    const out=new Array(24); for(let h=0;h<24;h++) out[h]=(tdy[h]!=null?tdy[h]:(ref[h]!=null?ref[h]+bias:null)); return out; };
+  const fcDir=()=>{ const tdy=serieDir(st,todayK), ref=new Array(24).fill(null);
+    for(let h=0;h<24;h++){ let sx=0,sy=0,c=0; refs.forEach(d=>{const a=serieDir(st,d)[h]; if(a!=null){sx+=Math.cos(a*Math.PI/180);sy+=Math.sin(a*Math.PI/180);c++;}}); if(c){let a=Math.atan2(sy,sx)*180/Math.PI; if(a<0)a+=360; ref[h]=a;} }
+    const out=new Array(24); for(let h=0;h<24;h++) out[h]=(tdy[h]!=null?tdy[h]:ref[h]); return out; };
+  const fTa=fc('ta'),fHr=fc('hr'),fVv=fc('vv'),fDv=fcDir();
+  const argExt=(arr,max)=>{ let bi=-1,bv=max?-Infinity:Infinity; for(let h=0;h<24;h++){ if(arr[h]==null)continue; if(max?arr[h]>bv:arr[h]<bv){bv=arr[h];bi=h;} } return bi<0?null:{h:bi,v:bv}; };
+  const tmax=argExt(fTa,true),hrmin=argExt(fHr,false),vmax=argExt(fVv,true);
+  const thr=parseFloat(document.getElementById('chPrevThr').value)||15;
+  let ini=null,fi=null; for(let h=0;h<24;h++){ if(fVv[h]!=null&&fVv[h]>=thr){ini=h;break;} } if(ini!=null){ for(let h=23;h>=0;h--){ if(fVv[h]!=null&&fVv[h]>=thr){fi=h;break;} } }
+  let gir=null,best=0; for(let h=1;h<24;h++){ if(fDv[h]==null||fDv[h-1]==null)continue; let d=Math.abs(fDv[h]-fDv[h-1]); if(d>180)d=360-d; if(d>best&&d>=45){best=d;gir={h:h,from:fDv[h-1],to:fDv[h]};} }
+  gPrev={st:st,todayK:todayK,refs:refs,fTa:fTa,fHr:fHr,fVv:fVv,fDv:fDv,tmax:tmax,hrmin:hrmin,vmax:vmax,ini:ini,fi:fi,thr:thr,gir:gir};
+}
+function previsioBanner(){
+  const el=document.getElementById('chPrevInfo'); if(!el) return;
+  if(!gPrevOn){ el.style.display='none'; return; }
+  el.style.display='block';
+  if(!gPrev){ el.innerHTML='🔮 <b>Previsió (beta)</b> — tria almenys un dia previ amb dades (dalt, a "Dies") per poder estimar.'; return; }
+  const p=gPrev, parts=[];
+  if(p.tmax) parts.push('Tmàx ~<b>'+p.tmax.v.toFixed(1)+'°</b> a les <b>'+p.tmax.h+'h</b>');
+  if(p.hrmin) parts.push('HRmín ~<b>'+Math.round(p.hrmin.v)+'%</b> a les <b>'+p.hrmin.h+'h</b>');
+  if(p.ini!=null&&p.fi!=null) parts.push('vent ≥'+p.thr+' km/h: bufa <b>'+p.ini+'h→'+p.fi+'h</b>'+(p.vmax?(' (màx '+Math.round(p.vmax.v)+' a '+p.vmax.h+'h)'):''));
+  else if(p.vmax) parts.push('vent màx ~<b>'+Math.round(p.vmax.v)+'</b> km/h a '+p.vmax.h+'h');
+  if(p.gir) parts.push('gir de vent ~<b>'+p.gir.h+'h</b> ('+dirLabel(p.gir.from)+'→'+dirLabel(p.gir.to)+')');
+  el.innerHTML='🔮 <b>Previsió (beta)</b> · '+curtNom(p.st)+' · '+parts.join(' · ')+
+    ' <span style="color:#8b8fa3">— estimació segons els dies '+p.refs.map(diaLabel).join(', ')+'; com més paregut el patró, més fiable.</span>';
+}
+const previsioMarks={ id:'prevmarks', afterDatasetsDraw(chart){
+  if(!gPrevOn||!gPrev) return;
+  const id=chart.canvas.id, x=chart.scales.x, ctx=chart.ctx, area=chart.chartArea;
+  const dot=(h,v,yid,txt,col)=>{ const y=chart.scales[yid]; if(!y||h==null)return; const px=x.getPixelForValue(h), py=y.getPixelForValue(v);
+    ctx.save(); ctx.beginPath(); ctx.arc(px,py,4,0,2*Math.PI); ctx.fillStyle=col; ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.fill(); ctx.stroke();
+    ctx.font='bold 10px Arial'; ctx.textAlign='center'; const w=ctx.measureText(txt).width+8; let ly=py-16; if(ly<area.top+12)ly=py+22;
+    ctx.fillStyle='rgba(255,255,255,.9)'; ctx.fillRect(px-w/2,ly-9,w,15); ctx.fillStyle=col; ctx.fillText(txt,px,ly-1); ctx.restore(); };
+  if(id==='chTemp'){
+    if(gPrev.tmax) dot(gPrev.tmax.h,gPrev.tmax.v,'yT','Tmàx '+gPrev.tmax.v.toFixed(1)+'° '+gPrev.tmax.h+'h','#dc2626');
+    if(gPrev.hrmin) dot(gPrev.hrmin.h,gPrev.hrmin.v,'yH','HRmín '+Math.round(gPrev.hrmin.v)+'% '+gPrev.hrmin.h+'h','#7c3aed');
+  } else if(id==='chWind'){
+    if(gPrev.vmax) dot(gPrev.vmax.h,gPrev.vmax.v,'yW','màx '+Math.round(gPrev.vmax.v)+' '+gPrev.vmax.h+'h','#0ea5e9');
+    [['bufa',gPrev.ini],['amaina',gPrev.fi]].forEach(pair=>{ const lab=pair[0], h=pair[1]; if(h==null)return; const px=x.getPixelForValue(h);
+      ctx.save(); ctx.strokeStyle='#7c3aed'; ctx.setLineDash([3,3]); ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(px,area.top); ctx.lineTo(px,area.bottom); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillStyle='#7c3aed'; ctx.font='bold 9px Arial'; ctx.textAlign='center'; ctx.fillText(lab+' '+h+'h', px, area.bottom-4); ctx.restore(); });
+  }
+}};
 function drawArrow(ctx,cx,cy,bearingDeg,color){
   ctx.save(); ctx.translate(cx,cy); ctx.rotate(bearingDeg*Math.PI/180);
   ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=1.4;
@@ -1539,7 +1604,7 @@ const chWindArrows={ id:'dirarrows', afterDatasetsDraw(chart){
 function baseX(){ return {type:'linear',min:0,max:23,grid:{color:'#eef2f7'},ticks:{stepSize:1,color:'#64748b',font:{size:10},callback:v=>v%3===0?v+'h':''}}; }
 function drawTemp(labels,ds){
   if(chT) chT.destroy();
-  chT=new Chart(document.getElementById('chTemp'),{type:'line',data:{labels:labels,datasets:ds},plugins:[araLine],options:{
+  chT=new Chart(document.getElementById('chTemp'),{type:'line',data:{labels:labels,datasets:ds},plugins:[araLine,previsioMarks],options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     plugins:{legend:{position:'top',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
     scales:{ x:baseX(),
@@ -1551,7 +1616,7 @@ function drawWind(labels,ds,dirs,showDir){
   gDirs=dirs; gShowDir=showDir;
   const rows=dirs.length, padTop=(showDir&&rows)?(10+rows*12):6;
   if(chW) chW.destroy();
-  chW=new Chart(document.getElementById('chWind'),{type:'line',data:{labels:labels,datasets:ds},plugins:[chWindArrows,araLine],options:{
+  chW=new Chart(document.getElementById('chWind'),{type:'line',data:{labels:labels,datasets:ds},plugins:[chWindArrows,araLine,previsioMarks],options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     layout:{padding:{top:padTop,right:46}},
     plugins:{legend:{position:'bottom',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
@@ -1566,11 +1631,16 @@ function dibuixaGrafics(){
   if(!S.length){ empty.style.display='block'; panels.style.display='none'; if(chT){chT.destroy();chT=null;} if(chW){chW.destroy();chW=null;} return; }
   empty.style.display='none'; panels.style.display='block';
   const labels=[]; for(let h=0;h<24;h++) labels.push(h);
+  previsioCalc();
   const dsT=[];
   S.forEach(s=>{
     if(vars.ta) dsT.push({label:s.label+' T', data:serieHoraria(s.st,s.dia,'ta'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yT', tension:.3, pointRadius:1.4, pointHoverRadius:4, borderWidth:2.2, spanGaps:true});
     if(vars.hr) dsT.push({label:s.label+' H', data:serieHoraria(s.st,s.dia,'hr'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yH', tension:.3, pointRadius:1.4, pointHoverRadius:4, borderWidth:1.4, borderDash:[5,4], spanGaps:true});
   });
+  if(gPrevOn && gPrev){
+    if(vars.ta) dsT.push({label:'previsió T', data:gPrev.fTa, borderColor:'#7c3aed', backgroundColor:'#7c3aed', yAxisID:'yT', borderDash:[2,3], borderWidth:2, pointRadius:0, tension:.3, spanGaps:true});
+    if(vars.hr) dsT.push({label:'previsió H', data:gPrev.fHr, borderColor:'#7c3aed', backgroundColor:'#7c3aed', yAxisID:'yH', borderDash:[2,3], borderWidth:1.4, pointRadius:0, tension:.3, spanGaps:true});
+  }
   drawTemp(labels,dsT);
   const dsW=[], dirs=[];
   S.forEach(s=>{
@@ -1578,7 +1648,9 @@ function dibuixaGrafics(){
     if(vars.vv) dsW.push({label:s.label+' vent', data:serieHoraria(s.st,s.dia,'vv'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yW', tension:.3, pointRadius:1.4, pointHoverRadius:4, borderWidth:2.2, spanGaps:true, order:1});
     if(vars.dv) dirs.push({dir:serieDir(s.st,s.dia), color:s.color});
   });
+  if(gPrevOn && gPrev && vars.vv) dsW.push({label:'previsió vent', data:gPrev.fVv, borderColor:'#7c3aed', backgroundColor:'#7c3aed', yAxisID:'yW', borderDash:[2,3], borderWidth:2, pointRadius:0, tension:.3, spanGaps:true, order:1});
   drawWind(labels,dsW,dirs,vars.dv);
+  previsioBanner();
   setTimeout(setupAnnCanvas,40);   // ajusta la capa de dibuix a la mida dels panells
 }
 function omplirControls(){
@@ -1607,6 +1679,8 @@ document.getElementById('chAddEst').addEventListener('change',e=>{ const id=e.ta
 document.getElementById('chEst').addEventListener('click',e=>{ if(e.target.classList.contains('x')){ const id=e.target.dataset.id; gEst=gEst.filter(x=>x!==id); omplirControls(); dibuixaGrafics(); } });
 document.getElementById('chDies').addEventListener('change',()=>{ gDies=Array.prototype.slice.call(document.querySelectorAll('#chDies input:checked')).map(c=>c.value); dibuixaGrafics(); });
 document.getElementById('chVars').addEventListener('change',dibuixaGrafics);
+document.getElementById('chPrev').addEventListener('change',dibuixaGrafics);
+document.getElementById('chPrevThr').addEventListener('change',dibuixaGrafics);
 document.getElementById('chClose').addEventListener('click',()=>{ document.getElementById('chartModal').style.display='none'; if(chT){chT.destroy();chT=null;} if(chW){chW.destroy();chW=null;} });
 document.getElementById('chPrint').addEventListener('click',()=>window.print());
 
