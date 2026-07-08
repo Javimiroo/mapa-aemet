@@ -630,7 +630,7 @@ $('egComb').onclick=()=>{conds=[{v:'ta',op:'>',val:30},{v:'hr',op:'<',val:30},{v
 $('applyComb').onclick=applyCombined;
 
 function applyCombined(){
-  clearStreak();
+  surtModes();
   const cs=conds.filter(c=>c.val!==''&&c.val!=null).map(c=>({v:c.v,op:c.op,val:parseFloat(c.val)}));
   if(!cs.length){activeFilter=null;}
   else activeFilter={type:'comb',cs};
@@ -638,9 +638,10 @@ function applyCombined(){
   render();
 }
 function clearStreak(){streakMode=null;document.querySelectorAll('#streakPresets .chip').forEach(x=>x.classList.remove('on'));}
-function setThreshold(vk,op,val){clearStreak();activeFilter={type:'single',v:vk,op,val:parseFloat(val)};render();}
+function surtModes(){ clearStreak(); countMode=null; }   // deixa ratxa/comptador per mostrar un altre mapa
+function setThreshold(vk,op,val){surtModes();activeFilter={type:'single',v:vk,op,val:parseFloat(val)};render();}
 $('applyThr').onclick=()=>{const t=$('thr').value;if(t==='')return;setThreshold(selVar.value,$('op').value,t);highlightChip(null);};
-$('clearThr').onclick=()=>{clearStreak();activeFilter=null;highlightChip(null);renderLegend();render();};
+$('clearThr').onclick=()=>{surtModes();activeFilter=null;highlightChip(null);renderLegend();render();};
 
 function testCond(st,v,op,val){
   const x=getVal(st,v); if(x==null||isNaN(x))return false;
@@ -742,16 +743,16 @@ function countColor(frac){
     return rgb([lerp(sc[i][1][0],sc[i+1][1][0],t),lerp(sc[i][1][1],sc[i+1][1][1],t),lerp(sc[i][1][2],sc[i+1][1][2],t)]); } }
   return rgb(sc[sc.length-1][1]);
 }
-function makeCountIcon(st,n,hores){
-  const col=countColor(hores?n/hores:0), d=24, radius=(st.font==='Meteocat')?'6px':'50%';
+function makeCountIcon(st,n,denom){
+  const col=countColor(denom?n/denom:0), d=24, radius=(st.font==='Meteocat')?'6px':'50%';
   const html=`<div class="pill" style="width:${d}px;height:${d}px;border-radius:${radius};background:${col};color:${txtColor(col)};font-size:12px">${n}</div>`;
   return L.divIcon({className:'',html,iconSize:[d,d],iconAnchor:[d/2,d/2]});
 }
-function countLegHTML(hores){
-  const N=hores||1;
+function countLegHTML(denom, title){
+  const N=denom||1;
   const stops=[0,0.2,0.4,0.6,0.8,1].map(f=>countColor(f)+' '+Math.round(f*100)+'%').join(',');
   const ticks=[0,Math.round(N/2),N].map((v,i)=>'<span style="left:'+(i*50)+'%">'+v+'</span>').join('');
-  return '<div class="wl-title">Hores que compleixen (de '+N+')</div>'+
+  return '<div class="wl-title">'+(title||('Hores que compleixen (de '+N+')'))+'</div>'+
          '<div class="wl-bar" style="background:linear-gradient(90deg,'+stops+')"></div>'+
          '<div class="wl-ticks">'+ticks+'</div>';
 }
@@ -770,22 +771,29 @@ function streakTooltip(st,s){
     <span class="muted">Ara: ${fmt(v,getVal(st,v))} ${u} · ${st.actual.n_hores||0} h disponibles</span></div>`;
 }
 function renderStreak(){
-  const {v,op,val}=streakMode; let shown=0,maxs=0;
+  const {v,op,val}=streakMode;
+  const items=[];
   DATA.estacions.forEach(st=>{
     if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
     const s=streakHores(st,v,op,val);
-    if(v==='hr' && s===0) return;
-    const col=colorFor(v,getVal(st,v));
-    const m=L.marker([st.lat,st.lon],{icon:makeStreakIcon(st,s,col)});
-    m.setOpacity((v==='ta' && s===0)?0.35:1);
-    m.setZIndexOffset(s*10);
+    if(v==='hr' && s===0) return;               // humitat: amaga els que no compleixen gens
+    items.push([st,s]);
+  });
+  let maxs=0; items.forEach(o=>{ if(o[1]>maxs)maxs=o[1]; });
+  const REF=Math.max(6,maxs); streakMode.ref=REF;   // escala de calor 0..REF (s'adapta al màxim)
+  let shown=0;
+  items.forEach(([st,s])=>{
+    const m=L.marker([st.lat,st.lon],{icon:makeCountIcon(st,s,REF)});
+    m.setOpacity(s===0?0.5:1);
+    m.setZIndexOffset(1000+s*10);
     m.bindTooltip(streakTooltip(st,s),{direction:'top',opacity:.97,offset:[0,-6]});
     m.on('click',()=>{m.bindPopup(popupHTML(st,v),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st,v),60);});
-    m.addTo(map); markers.push(m); shown++; if(s>maxs)maxs=s;
+    m.addTo(map); markers.push(m); shown++;
   });
+  mapLeg(countLegHTML(REF,'Hores consecutives'));
   const cond = v==='ta'?`Temp &gt; ${val} °C`:`Humitat &lt; ${val} %`;
   $('status').innerHTML=`Ratxa consecutiva · <b>${cond}</b><br>Estacions mostrades: <b>${shown}</b> · màx ratxa: <b>${maxs} h</b>`;
-  $('legend').innerHTML='<div class="muted">Mida i número = hores consecutives · color = valor actual</div>';
+  $('legend').innerHTML='<div class="muted">Color i número = hores consecutives (des d\'ara cap arrere)</div>';
 }
 
 function countTooltip(st,n,tot){
@@ -968,7 +976,7 @@ function specWithThr(sp){
   if(sp.k!=='streak') return sp;
   let val = sp.v==='hr' ? parseFloat($('thrHr').value) : parseFloat($('thrTa').value);
   if(isNaN(val)) val=30;
-  return Object.assign({},sp,{val,hide0:sp.op==='<'});
+  return Object.assign({},sp,{val,hide0:sp.op==='<',ref:12});
 }
 function specLabel(sp){
   let base;
@@ -990,8 +998,8 @@ function renderSpec(mapObj,arr,sp){
     if(sp.k==='streak'){
       const s=streakHores(st,sp.v,sp.op,sp.val);
       if(s===0 && sp.hide0) return;
-      const m=afegirMarker(mapObj,arr,st,makeStreakIcon(st,s,colorFor(sp.v,getVal(st,sp.v))));
-      m.setOpacity(s===0?0.35:1); return;
+      const m=afegirMarker(mapObj,arr,st,makeCountIcon(st,s,sp.ref||12));
+      m.setOpacity(s===0?0.5:1); return;
     }
     if(getVal(st,sp.v)==null) return;
     afegirMarker(mapObj,arr,st,makeIcon(st,sp.v));
@@ -1041,7 +1049,7 @@ function aplicaCombo(key){
   setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); if(flameLL) posaFlames(); if(perimLL.length) redibuixaPerim(); },260);
 }
 
-selVar.onchange=()=>{renderPresets();if(!streakMode)renderLegend();highlightChip(null);render();};
+selVar.onchange=()=>{surtModes();renderPresets();renderLegend();highlightChip(null);render();};
 ['showVal','onlyVar','fade','hideNoMatch','stale','netAemet','netMeteocat'].forEach(id=>$(id).addEventListener('change',render));
 $('staleH').addEventListener('input',render);
 document.querySelectorAll('.banda').forEach(c=>c.addEventListener('change',render));
@@ -1096,7 +1104,7 @@ map.on('zoomend',()=>{
 // ---------------- exporta imatge ----------------
 function especMapaUnic(){
   if(selVar.value==='barbes') return {k:'barbs'};
-  if(streakMode) return {k:'streak',v:streakMode.v,op:streakMode.op,val:streakMode.val,hide0:streakMode.op==='<'};
+  if(streakMode) return {k:'streak',v:streakMode.v,op:streakMode.op,val:streakMode.val,hide0:streakMode.op==='<',ref:streakMode.ref||12};
   if(countMode) return {k:'count',v:countMode.v,op:countMode.op,val:countMode.val,hores:countMode.hores};
   return {k:'var',v:selVar.value};
 }
@@ -1113,8 +1121,8 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   c.save(); c.textAlign='center'; c.textBaseline='top';
   c.fillStyle='#111'; c.font='bold '+(15*S)+'px Arial';
   c.fillText(specLabel(spec), x+w/2, y);
-  if(spec.k==='count'){                       // barra de calor 0 → N hores
-    const N=spec.hores||1, by=y+22*S, bw=w*0.82, bh=14*S, bx=x+(w-bw)/2;
+  if(spec.k==='count' || spec.k==='streak'){    // barra de calor per hores
+    const N=(spec.k==='count'?spec.hores:spec.ref)||1, by=y+22*S, bw=w*0.82, bh=14*S, bx=x+(w-bw)/2;
     const g=c.createLinearGradient(bx,0,bx+bw,0);
     [0,0.2,0.4,0.6,0.8,1].forEach(f=>g.addColorStop(f, countColor(f)));
     c.fillStyle=g; c.fillRect(bx,by,bw,bh);
@@ -1122,7 +1130,8 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
     c.fillStyle='#111'; c.font=(11*S)+'px Arial';
     [0,Math.round(N/2),N].forEach((v,i)=>c.fillText(v, bx+bw*(i/2), by+bh+3*S));
     c.fillStyle='#555'; c.font=(11*S)+'px Arial';
-    c.fillText('hores que compleixen (de les últimes '+N+' h) · número = hores', x+w/2, by+bh+18*S);
+    const lab = spec.k==='count' ? ('hores que compleixen (de les últimes '+N+' h) · número = hores') : ('hores consecutives · número = hores');
+    c.fillText(lab, x+w/2, by+bh+18*S);
     c.restore(); return;
   }
   const by=y+22*S, isBarb=spec.k==='barbs', vk=isBarb?'vv':spec.v;
