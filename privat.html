@@ -160,12 +160,24 @@
   .chpanel{position:relative;width:100%}
   #chTempWrap{height:236px} #chWindWrap{height:214px}
   #chartEmpty{color:#64748b;font-size:13px;text-align:center;padding:34px}
+  /* editor d'anotacions */
+  #chartTools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 16px;border-bottom:1px solid #e2e8f0;font-size:12px}
+  #chartTools .h{color:#64748b;font-weight:700;font-size:10px;text-transform:uppercase;margin-right:2px}
+  .tool{cursor:pointer;border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:3px 8px;font-size:13px;line-height:1}
+  .tool.on{background:#0ea5e9;border-color:#0ea5e9;color:#fff}
+  #chartTools .sep{width:1px;height:18px;background:#e2e8f0;margin:0 3px}
+  .sw{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 1px #cbd5e1;cursor:pointer;display:inline-block;vertical-align:middle;margin:0 1px}
+  .sw.on{box-shadow:0 0 0 2px #0ea5e9}
+  .wd{cursor:pointer;border:1px solid #cbd5e1;border-radius:6px;padding:2px 7px;background:#fff;font-size:11px}
+  .wd.on{border-color:#0ea5e9;background:#e0f2fe}
+  #chAnnot{position:absolute;inset:0;z-index:5;pointer-events:none}
+  #chAnnot.draw{pointer-events:auto;cursor:crosshair;touch-action:none}
   @media print{
     @page{size:landscape;margin:10mm}
     body>#app{display:none!important}
     #chartModal{display:flex!important;position:static;background:#fff;padding:0}
     #chartBox{width:100%;max-height:none;box-shadow:none;border-radius:0}
-    #chartCtl,.cbtn{display:none!important}
+    #chartCtl,#chartTools,.cbtn{display:none!important}
   }
 </style>
 </head>
@@ -393,7 +405,8 @@
   <div id="chartBox">
     <div id="chartHead">
       <h2>📊 Meteograma comparatiu</h2>
-      <button class="cbtn pri" id="chPrint">🖨 Imprimir</button>
+      <button class="cbtn pri" id="chImg">📷 Imatge</button>
+      <button class="cbtn" id="chPrint">🖨 Imprimir</button>
       <button class="cbtn" id="chClose">✕ Tancar</button>
     </div>
     <div id="chartCtl">
@@ -417,6 +430,21 @@
         </div>
       </div>
     </div>
+    <div id="chartTools">
+      <span class="h">Destacar:</span>
+      <button class="tool on" data-tool="none" title="Cursor (interactuar amb el gràfic)">🖱</button>
+      <button class="tool" data-tool="pen" title="Llapis">✏️</button>
+      <button class="tool" data-tool="line" title="Línia recta">╱</button>
+      <button class="tool" data-tool="arrow" title="Fletxa">➘</button>
+      <button class="tool" data-tool="circle" title="Cercle / el·lipse">◯</button>
+      <span class="sep"></span>
+      <span id="chSw"></span>
+      <span class="sep"></span>
+      <span id="chW3"></span>
+      <span class="sep"></span>
+      <button class="cbtn" id="chUndo">↶ Desfés</button>
+      <button class="cbtn" id="chClear">🧹 Neteja</button>
+    </div>
     <div id="chartBody">
       <div id="chartEmpty">Afig una estació per començar.</div>
       <div id="chartPanels" style="display:none">
@@ -424,6 +452,7 @@
         <div class="chpanel" id="chTempWrap"><canvas id="chTemp"></canvas></div>
         <div class="chttl">Vent: mitjà i ratxa (km/h) · fletxes = cap on bufa</div>
         <div class="chpanel" id="chWindWrap"><canvas id="chWind"></canvas></div>
+        <canvas id="chAnnot"></canvas>
       </div>
     </div>
   </div>
@@ -1472,12 +1501,21 @@ function serieDir(st,diaK){
 }
 function hexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
 function seriesList(){
-  const out=[]; let ci=0;
+  const out=[]; let ci=0; const multi=gEst.length>1;
   gEst.forEach(id=>{ const st=estPerId(id); if(!st)return;
-    gDies.forEach(k=>{ out.push({st:st,dia:k,color:GCOLORS[ci%GCOLORS.length],label:curtNom(st)+' · '+diaLabel(k)}); ci++; });
+    gDies.forEach(k=>{ out.push({st:st,dia:k,color:GCOLORS[ci%GCOLORS.length],label:(multi?curtNom(st)+' ':'')+diaLabel(k)}); ci++; });
   });
   return out;
 }
+// línia vertical "ara" (hora local actual) a tots dos panells
+const araLine={ id:'araline', afterDatasetsDraw(chart){
+  const now=new Date(), hf=now.getHours()+now.getMinutes()/60, x=chart.scales.x;
+  if(hf<x.min||hf>x.max) return;
+  const px=x.getPixelForValue(hf), a=chart.chartArea, ctx=chart.ctx;
+  ctx.save(); ctx.strokeStyle='rgba(15,23,42,.35)'; ctx.setLineDash([4,3]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(px,a.top); ctx.lineTo(px,a.bottom); ctx.stroke();
+  ctx.setLineDash([]); ctx.fillStyle='rgba(15,23,42,.6)'; ctx.font='9px Arial'; ctx.fillText('ara', px+3, a.top+9); ctx.restore();
+}};
 function activeVars(){ const o={}; document.querySelectorAll('#chVars input').forEach(c=>o[c.dataset.v]=c.checked); return o; }
 function drawArrow(ctx,cx,cy,bearingDeg,color){
   ctx.save(); ctx.translate(cx,cy); ctx.rotate(bearingDeg*Math.PI/180);
@@ -1496,7 +1534,7 @@ const chWindArrows={ id:'dirarrows', afterDatasetsDraw(chart){
 function baseX(){ return {type:'linear',min:0,max:23,grid:{color:'#eef2f7'},ticks:{stepSize:1,color:'#64748b',font:{size:10},callback:v=>v%3===0?v+'h':''}}; }
 function drawTemp(labels,ds){
   if(chT) chT.destroy();
-  chT=new Chart(document.getElementById('chTemp'),{type:'line',data:{labels:labels,datasets:ds},options:{
+  chT=new Chart(document.getElementById('chTemp'),{type:'line',data:{labels:labels,datasets:ds},plugins:[araLine],options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     plugins:{legend:{position:'top',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
     scales:{ x:baseX(),
@@ -1508,7 +1546,7 @@ function drawWind(labels,ds,dirs,showDir){
   gDirs=dirs; gShowDir=showDir;
   const rows=dirs.length, padTop=(showDir&&rows)?(10+rows*12):6;
   if(chW) chW.destroy();
-  chW=new Chart(document.getElementById('chWind'),{type:'line',data:{labels:labels,datasets:ds},plugins:[chWindArrows],options:{
+  chW=new Chart(document.getElementById('chWind'),{type:'line',data:{labels:labels,datasets:ds},plugins:[chWindArrows,araLine],options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     layout:{padding:{top:padTop,right:46}},
     plugins:{legend:{position:'top',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
@@ -1525,17 +1563,18 @@ function dibuixaGrafics(){
   const labels=[]; for(let h=0;h<24;h++) labels.push(h);
   const dsT=[];
   S.forEach(s=>{
-    if(vars.ta) dsT.push({label:s.label+' · T', data:serieHoraria(s.st,s.dia,'ta'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yT', tension:.3, pointRadius:0, borderWidth:2.2, spanGaps:true});
-    if(vars.hr) dsT.push({label:s.label+' · H', data:serieHoraria(s.st,s.dia,'hr'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yH', tension:.3, pointRadius:0, borderWidth:1.4, borderDash:[5,4], spanGaps:true});
+    if(vars.ta) dsT.push({label:s.label+' T', data:serieHoraria(s.st,s.dia,'ta'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yT', tension:.3, pointRadius:1.4, pointHoverRadius:4, borderWidth:2.2, spanGaps:true});
+    if(vars.hr) dsT.push({label:s.label+' H', data:serieHoraria(s.st,s.dia,'hr'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yH', tension:.3, pointRadius:1.4, pointHoverRadius:4, borderWidth:1.4, borderDash:[5,4], spanGaps:true});
   });
   drawTemp(labels,dsT);
   const dsW=[], dirs=[];
   S.forEach(s=>{
-    if(vars.vmax) dsW.push({label:s.label+' · ratxa', data:serieHoraria(s.st,s.dia,'vmax'), borderColor:hexA(s.color,0), backgroundColor:hexA(s.color,.15), yAxisID:'yW', fill:true, tension:.3, pointRadius:0, borderWidth:0, spanGaps:true, order:3});
-    if(vars.vv) dsW.push({label:s.label+' · mitjà', data:serieHoraria(s.st,s.dia,'vv'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yW', tension:.3, pointRadius:0, borderWidth:2.2, spanGaps:true, order:1});
+    if(vars.vmax) dsW.push({label:s.label+' ratxa', data:serieHoraria(s.st,s.dia,'vmax'), borderColor:hexA(s.color,0), backgroundColor:hexA(s.color,.15), yAxisID:'yW', fill:true, tension:.3, pointRadius:0, borderWidth:0, spanGaps:true, order:3});
+    if(vars.vv) dsW.push({label:s.label+' vent', data:serieHoraria(s.st,s.dia,'vv'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yW', tension:.3, pointRadius:1.4, pointHoverRadius:4, borderWidth:2.2, spanGaps:true, order:1});
     if(vars.dv) dirs.push({dir:serieDir(s.st,s.dia), color:s.color});
   });
   drawWind(labels,dsW,dirs,vars.dv);
+  setTimeout(setupAnnCanvas,40);   // ajusta la capa de dibuix a la mida dels panells
 }
 function omplirControls(){
   const box=document.getElementById('chEst'); box.innerHTML='';
@@ -1565,6 +1604,71 @@ document.getElementById('chDies').addEventListener('change',()=>{ gDies=Array.pr
 document.getElementById('chVars').addEventListener('change',dibuixaGrafics);
 document.getElementById('chClose').addEventListener('click',()=>{ document.getElementById('chartModal').style.display='none'; if(chT){chT.destroy();chT=null;} if(chW){chW.destroy();chW=null;} });
 document.getElementById('chPrint').addEventListener('click',()=>window.print());
+
+// ---- editor d'anotacions sobre els gràfics ----
+const annCv=document.getElementById('chAnnot');
+let annTool='none', annColor='#e11d48', annWidth=4, annShapes=[], annCur=null;
+const ANNCOLORS=['#e11d48','#2563eb','#16a34a','#eab308','#111827','#ffffff'];
+(function initAnnUI(){
+  const sw=document.getElementById('chSw');
+  ANNCOLORS.forEach((c,i)=>{ const s=document.createElement('span'); s.className='sw'+(i===0?' on':''); s.style.background=c; s.dataset.c=c; sw.appendChild(s); });
+  const w3=document.getElementById('chW3'); [['prim',2],['mig',4],['gruix',7]].forEach((p,i)=>{ const b=document.createElement('span'); b.className='wd'+(i===1?' on':''); b.dataset.w=p[1]; b.textContent=p[0]; w3.appendChild(b); });
+  sw.addEventListener('click',e=>{ if(!e.target.dataset.c)return; annColor=e.target.dataset.c; sw.querySelectorAll('.sw').forEach(x=>x.classList.remove('on')); e.target.classList.add('on'); });
+  w3.addEventListener('click',e=>{ if(!e.target.dataset.w)return; annWidth=+e.target.dataset.w; w3.querySelectorAll('.wd').forEach(x=>x.classList.remove('on')); e.target.classList.add('on'); });
+  document.querySelectorAll('#chartTools .tool').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#chartTools .tool').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    annTool=b.dataset.tool; annCv.classList.toggle('draw', annTool!=='none');
+  }));
+  document.getElementById('chUndo').addEventListener('click',()=>{ annShapes.pop(); annRedraw(); });
+  document.getElementById('chClear').addEventListener('click',()=>{ annShapes=[]; annRedraw(); });
+})();
+function drawShape(ctx,sh){
+  ctx.strokeStyle=sh.color; ctx.fillStyle=sh.color; ctx.lineWidth=sh.width; ctx.lineCap='round'; ctx.lineJoin='round';
+  if(sh.tool==='pen'){ ctx.beginPath(); sh.pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)); ctx.stroke(); }
+  else if(sh.tool==='line'){ ctx.beginPath(); ctx.moveTo(sh.x0,sh.y0); ctx.lineTo(sh.x1,sh.y1); ctx.stroke(); }
+  else if(sh.tool==='arrow'){ ctx.beginPath(); ctx.moveTo(sh.x0,sh.y0); ctx.lineTo(sh.x1,sh.y1); ctx.stroke();
+    const ang=Math.atan2(sh.y1-sh.y0,sh.x1-sh.x0), L=9+sh.width*1.6;
+    ctx.beginPath(); ctx.moveTo(sh.x1,sh.y1); ctx.lineTo(sh.x1-L*Math.cos(ang-0.42),sh.y1-L*Math.sin(ang-0.42)); ctx.lineTo(sh.x1-L*Math.cos(ang+0.42),sh.y1-L*Math.sin(ang+0.42)); ctx.closePath(); ctx.fill(); }
+  else if(sh.tool==='circle'){ const rx=Math.abs(sh.x1-sh.x0)/2, ry=Math.abs(sh.y1-sh.y0)/2, cx=(sh.x0+sh.x1)/2, cy=(sh.y0+sh.y1)/2; ctx.beginPath(); ctx.ellipse(cx,cy,Math.max(2,rx),Math.max(2,ry),0,0,2*Math.PI); ctx.stroke(); }
+}
+function annRedraw(){ const ctx=annCv.getContext('2d'); ctx.clearRect(0,0,annCv.width,annCv.height); annShapes.forEach(s=>drawShape(ctx,s)); if(annCur)drawShape(ctx,annCur); }
+function setupAnnCanvas(){ const p=document.getElementById('chartPanels'); if(!p||p.style.display==='none')return;
+  const w=p.clientWidth, h=p.clientHeight; if(w&&h&&(annCv.width!==w||annCv.height!==h)){ annCv.width=w; annCv.height=h; } annRedraw(); }
+function annXY(e){ const r=annCv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+annCv.addEventListener('pointerdown',e=>{ if(annTool==='none')return; const p=annXY(e);
+  if(annTool==='pen') annCur={tool:'pen',color:annColor,width:annWidth,pts:[p]};
+  else annCur={tool:annTool,color:annColor,width:annWidth,x0:p.x,y0:p.y,x1:p.x,y1:p.y};
+  try{annCv.setPointerCapture(e.pointerId);}catch(_){} });
+annCv.addEventListener('pointermove',e=>{ if(!annCur)return; const p=annXY(e);
+  if(annCur.tool==='pen') annCur.pts.push(p); else { annCur.x1=p.x; annCur.y1=p.y; } annRedraw(); });
+annCv.addEventListener('pointerup',()=>{ if(!annCur)return; annShapes.push(annCur); annCur=null; annRedraw(); });
+window.addEventListener('resize',()=>{ if(document.getElementById('chartModal').style.display!=='none') setupAnnCanvas(); });
+
+// ---- exportació d'imatge neta (capçalera + panells + anotacions) ----
+async function exportaGrafic(){
+  if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la captura.'); return; }
+  if(!gEst.length){ return; }
+  const btn=document.getElementById('chImg'), old=btn.textContent; btn.disabled=true; btn.textContent='…';
+  try{
+    const shot=await html2canvas(document.getElementById('chartPanels'),{backgroundColor:'#ffffff',scale:2});
+    const S=2, W=shot.width, headH=62*S, footH=30*S, pad=16*S;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=headH+shot.height+footH;
+    const c=cv.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,cv.width,cv.height);
+    c.fillStyle='#0f172a'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(20*S)+'px Arial';
+    c.fillText('Meteograma comparatiu', pad, headH*0.36);
+    const ests=gEst.map(id=>{const st=estPerId(id);return st?curtNom(st):'';}).filter(Boolean).join(' · ');
+    const dies=gDies.map(diaLabel).join(' · ');
+    c.font=(12*S)+'px Arial'; c.fillStyle='#475569';
+    c.fillText(ests+'   ·   dies: '+dies, pad, headH*0.72);
+    c.textAlign='right'; c.fillStyle='#c00000'; c.font='900 '+(17*S)+'px Arial'; c.fillText('bombers', W-pad, headH*0.40);
+    c.drawImage(shot,0,headH);
+    c.textAlign='left'; c.fillStyle='#64748b'; c.font=(11*S)+'px Arial';
+    c.fillText('Generat '+new Date().toLocaleString('ca-ES')+' · Dades AEMET i Meteocat (SMC)', pad, headH+shot.height+footH*0.5);
+    const a=document.createElement('a'); a.download='meteograma.png'; a.href=cv.toDataURL('image/png'); a.click();
+  }catch(e){ alert('No s\'ha pogut exportar: '+(e.message||e)); }
+  btn.textContent=old; btn.disabled=false;
+}
+document.getElementById('chImg').addEventListener('click',exportaGrafic);
 </script>
 </body>
 </html>
