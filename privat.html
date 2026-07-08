@@ -201,6 +201,31 @@
     </div>
 
     <div class="card coll collapsed">
+      <h2>Comptador d'hores (finestra)</h2>
+      <div class="cardbody">
+        <label>Variable</label>
+        <select id="cntVar"></select>
+        <label style="margin-top:8px">Condició</label>
+        <div class="row">
+          <select id="cntOp" style="flex:0 0 70px">
+            <option value="&gt;">&gt;</option>
+            <option value="&gt;=">&ge;</option>
+            <option value="&lt;">&lt;</option>
+            <option value="&lt;=">&le;</option>
+          </select>
+          <input type="number" id="cntVal" placeholder="llindar" step="any">
+        </div>
+        <label style="margin-top:8px">Finestra: últimes <span id="cntHL">8</span> h</label>
+        <input type="range" id="cntHores" min="1" max="48" step="1" value="8">
+        <div class="row" style="margin-top:8px">
+          <button class="btn small primary" id="cntApply">Comptar</button>
+          <button class="btn small" id="cntOff">Desactivar</button>
+        </div>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">El número del cercle = quantes hores (de les últimes N) compleixen el llindar, encara que no siguen seguides. Ix a l'exportació.</p>
+      </div>
+    </div>
+
+    <div class="card coll collapsed">
       <h2>Altitud</h2>
       <div class="cardbody">
         <label class="switch"><input type="checkbox" class="banda" value="plana" checked> Plana / interior (&lt;300 m)</label>
@@ -361,6 +386,27 @@ function streakHores(st,vk,op,val){
   }
   return s;
 }
+// compta quantes HORES (de les últimes N, des de la generació de dades) compleixen
+// el llindar, encara que no siguen seguides. Agrupa per hora (mitjana dins l'hora).
+function comptaHores(st,vk,op,val,hores){
+  const h=st.historic||[];
+  let refD=toDate(DATA&&DATA.generat);
+  if(!refD){ for(let i=h.length-1;i>=0;i--){const t=toDate(h[i].t);if(t){refD=t;break;}} }
+  if(!refD||!h.length) return {n:0,tot:0};
+  const ref=refD.getTime(), from=ref-hores*3600000;
+  const b={};
+  for(let i=0;i<h.length;i++){
+    const t=toDate(h[i].t); if(!t) continue;
+    const tm=t.getTime(); if(tm<=from || tm>ref+1800000) continue;
+    const x=h[i][vk]; if(x==null||isNaN(x)) continue;
+    const k=Math.floor(tm/3600000); if(!b[k])b[k]={s:0,c:0}; b[k].s+=x; b[k].c++;
+  }
+  let n=0,tot=0;
+  for(const k in b){ const avg=b[k].s/b[k].c; tot++;
+    const ok=op==='>'?avg>val:op==='>='?avg>=val:op==='<'?avg<val:op==='<='?avg<=val:false;
+    if(ok)n++; }
+  return {n,tot};
+}
 const STALE_H=3;
 function toDate(iso){
   if(!iso) return null;
@@ -381,7 +427,7 @@ function amagaVella(st){return $('stale')&&$('stale').checked && esVella(st);}
 
 // ------------------------------------------------------------------ estat
 let DATA=null, markers=[], activeFilter=null;
-let streakMode=null;
+let streakMode=null, countMode=null;
 const map=L.map('map',{zoomControl:true}).setView([41.75,1.75],8);
 const BASEMAPS={
   icgc:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
@@ -658,6 +704,32 @@ function renderStreak(){
   $('legend').innerHTML='<div class="muted">Mida i número = hores consecutives · color = valor actual</div>';
 }
 
+function countTooltip(st,n,tot){
+  const {v,op,val,hores}=countMode, u=VARS[v].unit;
+  const ops=op.replace('>','&gt;').replace('<','&lt;');
+  return `<div class="lp-tt"><b>${st.nom}</b> <span class="muted">(${st.font} · ${st.provincia})</span><br>
+    <span class="big">${n} h</span> ${ops} ${val} ${u} <span class="muted">de les últimes ${hores} h</span><br>
+    <span class="muted">${tot} h amb dada · ara: ${fmt(v,getVal(st,v))} ${u}</span></div>`;
+}
+function renderCount(){
+  const {v,op,val,hores}=countMode; let shown=0,maxn=0;
+  DATA.estacions.forEach(st=>{
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
+    const {n,tot}=comptaHores(st,v,op,val,hores);
+    if(tot===0) return;                       // sense dada a la finestra
+    const col=colorFor(v,getVal(st,v));
+    const m=L.marker([st.lat,st.lon],{icon:makeStreakIcon(st,n,col)});
+    m.setOpacity(n===0?0.4:1);
+    m.setZIndexOffset(n*10);
+    m.bindTooltip(countTooltip(st,n,tot),{direction:'top',opacity:.97,offset:[0,-6]});
+    m.on('click',()=>{m.bindPopup(popupHTML(st,v),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st,v),60);});
+    m.addTo(map); markers.push(m); shown++; if(n>maxn)maxn=n;
+  });
+  const ops=op.replace('>','&gt;').replace('<','&lt;');
+  $('status').innerHTML=`Comptador d'hores · <b>${VARS[v].label} ${ops} ${val}${VARS[v].unit}</b> · últimes <b>${hores} h</b><br>Estacions: <b>${shown}</b> · màxim: <b>${maxn} h</b>`;
+  $('legend').innerHTML='<div class="muted">Número = hores que compleixen (de les últimes '+hores+' h) · color = valor actual</div>';
+}
+
 let chart=null;
 function popupHTML(st,vk){
   vk=vk||selVar.value;
@@ -712,6 +784,7 @@ function render(){
   markers.forEach(m=>map.removeLayer(m)); markers=[];
   if(!DATA)return;
   if(streakMode){ renderStreak(); return; }
+  if(countMode){ renderCount(); return; }
   const vk=selVar.value, barbMode=(vk==='barbes');
   const filtering=!!activeFilter; let nOk=0, shown=0;
   DATA.estacions.forEach(st=>{
@@ -764,6 +837,7 @@ function specLabel(sp){
   let base;
   if(sp.k==='barbs') base='Barbes de vent';
   else if(sp.k==='streak') base = sp.v==='hr' ? ('Hores humitat < '+sp.val+'%') : ('Hores temp > '+sp.val+'°');
+  else if(sp.k==='count') base = 'Hores '+VARS[sp.v].label+' '+sp.op+' '+sp.val+(VARS[sp.v].unit||'')+' · últimes '+sp.hores+' h';
   else base=VARS[sp.v].label;
   return base + (sp.altnom ? (' · '+sp.altnom) : '');
 }
@@ -813,6 +887,7 @@ function renderCombinat(){
 }
 function aplicaCombo(key){
   comboActive = key ? COMBOS[key] : null;
+  if(comboActive){ countMode=null; clearStreak(); }
   const app=$('app');
   if(!comboActive){
     app.classList.remove('combinat');
@@ -844,7 +919,7 @@ function renderStreakPresets(){
     const c=document.createElement('div'); c.className='chip';
     c.textContent=(op==='>'?'>':'<')+val+(v==='ta'?'°':'%');
     c.onclick=()=>{
-      streakMode={v,op,val}; activeFilter=null; highlightChip(null);
+      streakMode={v,op,val}; countMode=null; activeFilter=null; highlightChip(null);
       document.querySelectorAll('#streakPresets .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on');
       render();
     };
@@ -853,6 +928,19 @@ function renderStreakPresets(){
 }
 selStreakVar.onchange=renderStreakPresets;
 $('streakOff').onclick=()=>{clearStreak();renderLegend();render();};
+
+// comptador d'hores (finestra)
+const selCntVar=$('cntVar');
+ORDER.filter(k=>k!=='barbes').forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':'');selCntVar.appendChild(o);});
+selCntVar.value='hr';
+$('cntHores').addEventListener('input',()=>{$('cntHL').textContent=$('cntHores').value;});
+$('cntApply').onclick=()=>{
+  const v=selCntVar.value, op=$('cntOp').value, val=parseFloat($('cntVal').value), hores=parseInt($('cntHores').value,10)||8;
+  if(isNaN(val)){ $('cntVal').focus(); return; }
+  countMode={v,op,val,hores}; clearStreak(); activeFilter=null; highlightChip(null);
+  if(comboActive){ $('combo').value=''; aplicaCombo(''); } else { render(); }
+};
+$('cntOff').onclick=()=>{ countMode=null; renderLegend(); render(); };
 $('basemap').onchange=e=>setBase(e.target.value);
 $('combo').addEventListener('change',e=>aplicaCombo(e.target.value));
 ['thrHr','thrTa'].forEach(id=>$(id).addEventListener('input',()=>{ if(comboActive) renderCombinat(); }));
@@ -866,6 +954,7 @@ map.on('zoomend',()=>{
 function especMapaUnic(){
   if(selVar.value==='barbes') return {k:'barbs'};
   if(streakMode) return {k:'streak',v:streakMode.v,op:streakMode.op,val:streakMode.val,hide0:streakMode.op==='<'};
+  if(countMode) return {k:'count',v:countMode.v,op:countMode.op,val:countMode.val,hores:countMode.hores};
   return {k:'var',v:selVar.value};
 }
 function dibuixaLogoBombers(c,x,y,h){
@@ -893,12 +982,13 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   for(let i=0;i<=6;i++) c.fillText(Math.round(min+span*i/6), bx+bw*i/6, by+bh+3*S);
   c.fillStyle='#555'; c.font=(11*S)+'px Arial';
   const unit=isBarb?'km/h':VARS[vk].unit;
-  const extra=isBarb?(unit+' · número al cercle = ratxa última hora'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):unit);
+  const extra=isBarb?(unit+' · número al cercle = ratxa última hora'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):(spec.k==='count'?(unit+' · número = hores (de les últimes '+spec.hores+' h)'):unit));
   c.fillText(extra, x+w/2, by+bh+18*S);
   c.restore();
 }
 function descripcioFiltres(){
   const parts=[];
+  if(countMode){ const v=countMode.v; parts.push('Hores amb '+VARS[v].label+' '+countMode.op+' '+countMode.val+(VARS[v].unit?(' '+VARS[v].unit):'')+' · finestra últimes '+countMode.hores+' h'); }
   if(activeFilter){
     if(activeFilter.type==='single'){ const v=activeFilter.v; parts.push(VARS[v].label+' '+activeFilter.op+' '+activeFilter.val+(VARS[v].unit?(' '+VARS[v].unit):'')); }
     else parts.push(activeFilter.cs.map(c=>VARS[c.v].label+' '+c.op+' '+c.val).join(' i '));
