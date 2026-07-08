@@ -790,8 +790,8 @@ function makeIcon(st,vk){
     return L.divIcon({className:'',html,iconSize:[d,d],iconAnchor:[d/2,d/2]});
   }
   const txt=fmt(vk,v);
-  const w=Math.round(txt.length*6.8)+11, h=17;
-  const html=`<div class="pill" style="width:${w}px;height:${h}px;background:${col};color:${txtColor(col)};border-radius:${radius}">${txt}</div>`;
+  const fs=13, h=21, w=Math.round(txt.length*7.6)+14;
+  const html=`<div class="pill" style="width:${w}px;height:${h}px;background:${col};color:${txtColor(col)};border-radius:${radius};font-size:${fs}px">${txt}</div>`;
   return L.divIcon({className:'',html,iconSize:[w,h],iconAnchor:[w/2,h/2]});
 }
 
