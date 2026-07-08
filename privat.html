@@ -137,6 +137,36 @@
   .wl-bar{height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.45)}
   .wl-ticks{position:relative;height:13px;margin-top:1px}
   .wl-ticks span{position:absolute;transform:translateX(-50%);font-size:9px;color:var(--muted)}
+  /* modal de gràfics (meteograma) — fons clar, imprimible */
+  #chartModal{position:fixed;inset:0;z-index:4000;background:rgba(8,12,22,.72);display:none;align-items:stretch;justify-content:center;padding:18px}
+  #chartBox{background:#fff;color:#1e293b;border-radius:14px;width:min(1080px,100%);max-height:100%;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  #chartHead{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid #e2e8f0}
+  #chartHead h2{margin:0;font-size:15px;flex:1;color:#0f172a}
+  .cbtn{cursor:pointer;border:1px solid #cbd5e1;background:#f1f5f9;color:#1e293b;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600}
+  .cbtn:hover{border-color:#38bdf8}
+  .cbtn.pri{background:#0ea5e9;border-color:#0ea5e9;color:#fff}
+  #chartCtl{display:flex;flex-wrap:wrap;gap:18px;padding:10px 16px;border-bottom:1px solid #e2e8f0;font-size:12px;align-items:flex-start}
+  #chartCtl .grp{display:flex;flex-direction:column;gap:5px}
+  #chartCtl .grp>.h{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+  #chartCtl .chks{display:flex;flex-wrap:wrap;gap:4px 12px;max-width:430px}
+  #chartCtl label{display:flex;align-items:center;gap:5px;margin:0;color:#1e293b;font-size:12px;cursor:pointer}
+  #chartCtl select{background:#fff;color:#1e293b;border:1px solid #cbd5e1;border-radius:7px;padding:5px 7px;font-size:12px;max-width:200px}
+  #chEst{display:flex;flex-wrap:wrap;gap:5px}
+  .estchip{display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:999px;padding:3px 9px;font-size:11px}
+  .estchip .x{cursor:pointer;color:#94a3b8;font-weight:700}
+  .estchip .x:hover{color:#ef4444}
+  #chartBody{padding:6px 16px 14px;overflow:auto;background:#fff}
+  .chttl{font-size:11px;font-weight:700;color:#334155;margin:9px 2px 2px}
+  .chpanel{position:relative;width:100%}
+  #chTempWrap{height:236px} #chWindWrap{height:214px}
+  #chartEmpty{color:#64748b;font-size:13px;text-align:center;padding:34px}
+  @media print{
+    @page{size:landscape;margin:10mm}
+    body>#app{display:none!important}
+    #chartModal{display:flex!important;position:static;background:#fff;padding:0}
+    #chartBox{width:100%;max-height:none;box-shadow:none;border-radius:0}
+    #chartCtl,.cbtn{display:none!important}
+  }
 </style>
 </head>
 <body>
@@ -357,6 +387,46 @@
     <button class="tb-btn" id="tbNow" title="Tornar a l'actual">⏱ Ara</button>
   </div>
   <div id="windleg"></div>
+</div>
+
+<div id="chartModal">
+  <div id="chartBox">
+    <div id="chartHead">
+      <h2>📊 Meteograma comparatiu</h2>
+      <button class="cbtn pri" id="chPrint">🖨 Imprimir</button>
+      <button class="cbtn" id="chClose">✕ Tancar</button>
+    </div>
+    <div id="chartCtl">
+      <div class="grp">
+        <span class="h">Estacions (fins a 3)</span>
+        <div id="chEst"></div>
+        <select id="chAddEst"><option value="">+ afegir estació…</option></select>
+      </div>
+      <div class="grp">
+        <span class="h">Dies (00–24 h)</span>
+        <div class="chks" id="chDies"></div>
+      </div>
+      <div class="grp">
+        <span class="h">Variables</span>
+        <div class="chks" id="chVars">
+          <label><input type="checkbox" data-v="ta" checked> Temperatura</label>
+          <label><input type="checkbox" data-v="hr" checked> Humitat</label>
+          <label><input type="checkbox" data-v="vv" checked> Vent mitjà</label>
+          <label><input type="checkbox" data-v="vmax" checked> Ratxa (àrea)</label>
+          <label><input type="checkbox" data-v="dv" checked> Direcció (fletxes)</label>
+        </div>
+      </div>
+    </div>
+    <div id="chartBody">
+      <div id="chartEmpty">Afig una estació per començar.</div>
+      <div id="chartPanels" style="display:none">
+        <div class="chttl">Temperatura (°C) i humitat (%)</div>
+        <div class="chpanel" id="chTempWrap"><canvas id="chTemp"></canvas></div>
+        <div class="chttl">Vent: mitjà i ratxa (km/h) · fletxes = cap on bufa</div>
+        <div class="chpanel" id="chWindWrap"><canvas id="chWind"></canvas></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -827,7 +897,8 @@ function popupHTML(st,vk){
   vk=vk||selVar.value;
   return `<div><b>${st.nom}</b> <span class="muted">${st.font} · ${st.provincia}</span><br>
     <span class="muted" style="font-size:11px">Evolució 24 h · <span id="cvk">${VARS[vk].label}</span></span>
-    <div class="chartbox"><canvas id="chart_${st.idema}"></canvas></div></div>`;
+    <div class="chartbox"><canvas id="chart_${st.idema}"></canvas></div>
+    <button class="btn small" style="width:100%;margin-top:6px" onclick="obreGrafic('${st.idema}')">📊 Meteograma comparatiu</button></div>`;
 }
 function drawChart(st,vk){
   vk=vk||selVar.value;
@@ -1376,6 +1447,124 @@ $('actualitzar').addEventListener('click',actualitzar);
 document.querySelectorAll('.card.coll>h2').forEach(hh=>hh.addEventListener('click',()=>hh.parentElement.classList.toggle('collapsed')));
 
 renderPresets(); renderStreakPresets(); renderLegend();
+
+// ================= METEOGRAMA COMPARATIU (modal) =================
+let gEst=[], gDies=[], chT=null, chW=null, gDirs=[], gShowDir=true;
+const GCOLORS=['#e11d48','#2563eb','#16a34a','#d97706','#7c3aed','#0891b2','#db2777','#4b5563'];
+function diaKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function diaLabel(k){ const p=k.split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]); return d.toLocaleDateString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit'}); }
+function estPerId(id){ return DATA?DATA.estacions.find(e=>String(e.idema)===String(id)):null; }
+function curtNom(st){ let n=st.nom||('Est '+st.idema); return n.length>18?n.slice(0,17)+'…':n; }
+function diesDisponibles(){
+  const set=new Set();
+  (DATA?DATA.estacions:[]).forEach(st=>(st.historic||[]).forEach(h=>{const d=toDate(h.t); if(d)set.add(diaKey(d));}));
+  return Array.from(set).sort().reverse();
+}
+function serieHoraria(st,diaK,vk){
+  const sum=new Array(24).fill(0),cnt=new Array(24).fill(0);
+  (st.historic||[]).forEach(h=>{ const d=toDate(h.t); if(!d||diaKey(d)!==diaK)return; const x=h[vk]; if(x==null||isNaN(x))return; const hh=d.getHours(); sum[hh]+=x; cnt[hh]++; });
+  return sum.map((s,i)=>cnt[i]?s/cnt[i]:null);
+}
+function serieDir(st,diaK){
+  const sx=new Array(24).fill(0),sy=new Array(24).fill(0),cnt=new Array(24).fill(0);
+  (st.historic||[]).forEach(h=>{ const d=toDate(h.t); if(!d||diaKey(d)!==diaK)return; const dv=h.dv; if(dv==null||isNaN(dv))return; const r=dv*Math.PI/180, hh=d.getHours(); sx[hh]+=Math.cos(r); sy[hh]+=Math.sin(r); cnt[hh]++; });
+  return sx.map((x,i)=>{ if(!cnt[i])return null; let a=Math.atan2(sy[i],sx[i])*180/Math.PI; if(a<0)a+=360; return a; });
+}
+function hexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+function seriesList(){
+  const out=[]; let ci=0;
+  gEst.forEach(id=>{ const st=estPerId(id); if(!st)return;
+    gDies.forEach(k=>{ out.push({st:st,dia:k,color:GCOLORS[ci%GCOLORS.length],label:curtNom(st)+' · '+diaLabel(k)}); ci++; });
+  });
+  return out;
+}
+function activeVars(){ const o={}; document.querySelectorAll('#chVars input').forEach(c=>o[c.dataset.v]=c.checked); return o; }
+function drawArrow(ctx,cx,cy,bearingDeg,color){
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(bearingDeg*Math.PI/180);
+  ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(0,5); ctx.lineTo(0,-4.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,-6.5); ctx.lineTo(-2.7,-2.2); ctx.lineTo(2.7,-2.2); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+const chWindArrows={ id:'dirarrows', afterDatasetsDraw(chart){
+  if(!gShowDir||!gDirs.length) return;
+  const ctx=chart.ctx, area=chart.chartArea, x=chart.scales.x;
+  gDirs.forEach((s,si)=>{ const y=area.top-6-si*12;
+    for(let h=0;h<24;h++){ const b=s.dir[h]; if(b==null)continue; drawArrow(ctx,x.getPixelForValue(h),y,b+180,s.color); }
+  });
+}};
+function baseX(){ return {type:'linear',min:0,max:23,grid:{color:'#eef2f7'},ticks:{stepSize:1,color:'#64748b',font:{size:10},callback:v=>v%3===0?v+'h':''}}; }
+function drawTemp(labels,ds){
+  if(chT) chT.destroy();
+  chT=new Chart(document.getElementById('chTemp'),{type:'line',data:{labels:labels,datasets:ds},options:{
+    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{position:'top',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
+    scales:{ x:baseX(),
+      yT:{position:'left',afterFit:s=>{s.width=50;},title:{display:true,text:'°C',color:'#64748b'},grid:{color:'#eef2f7'},ticks:{color:'#64748b',font:{size:10}}},
+      yH:{position:'right',afterFit:s=>{s.width=46;},min:0,max:100,title:{display:true,text:'%',color:'#64748b'},grid:{drawOnChartArea:false},ticks:{color:'#64748b',font:{size:10}}}
+    }}});
+}
+function drawWind(labels,ds,dirs,showDir){
+  gDirs=dirs; gShowDir=showDir;
+  const rows=dirs.length, padTop=(showDir&&rows)?(10+rows*12):6;
+  if(chW) chW.destroy();
+  chW=new Chart(document.getElementById('chWind'),{type:'line',data:{labels:labels,datasets:ds},plugins:[chWindArrows],options:{
+    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    layout:{padding:{top:padTop,right:46}},
+    plugins:{legend:{position:'top',labels:{boxWidth:14,font:{size:10},color:'#334155'}}},
+    scales:{ x:baseX(),
+      yW:{position:'left',afterFit:s=>{s.width=50;},min:0,title:{display:true,text:'km/h',color:'#64748b'},grid:{color:'#eef2f7'},ticks:{color:'#64748b',font:{size:10}}}
+    }}});
+}
+function dibuixaGrafics(){
+  if(!DATA) return;
+  const vars=activeVars(), S=seriesList();
+  const empty=document.getElementById('chartEmpty'), panels=document.getElementById('chartPanels');
+  if(!S.length){ empty.style.display='block'; panels.style.display='none'; if(chT){chT.destroy();chT=null;} if(chW){chW.destroy();chW=null;} return; }
+  empty.style.display='none'; panels.style.display='block';
+  const labels=[]; for(let h=0;h<24;h++) labels.push(h);
+  const dsT=[];
+  S.forEach(s=>{
+    if(vars.ta) dsT.push({label:s.label+' · T', data:serieHoraria(s.st,s.dia,'ta'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yT', tension:.3, pointRadius:0, borderWidth:2.2, spanGaps:true});
+    if(vars.hr) dsT.push({label:s.label+' · H', data:serieHoraria(s.st,s.dia,'hr'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yH', tension:.3, pointRadius:0, borderWidth:1.4, borderDash:[5,4], spanGaps:true});
+  });
+  drawTemp(labels,dsT);
+  const dsW=[], dirs=[];
+  S.forEach(s=>{
+    if(vars.vmax) dsW.push({label:s.label+' · ratxa', data:serieHoraria(s.st,s.dia,'vmax'), borderColor:hexA(s.color,0), backgroundColor:hexA(s.color,.15), yAxisID:'yW', fill:true, tension:.3, pointRadius:0, borderWidth:0, spanGaps:true, order:3});
+    if(vars.vv) dsW.push({label:s.label+' · mitjà', data:serieHoraria(s.st,s.dia,'vv'), borderColor:s.color, backgroundColor:s.color, yAxisID:'yW', tension:.3, pointRadius:0, borderWidth:2.2, spanGaps:true, order:1});
+    if(vars.dv) dirs.push({dir:serieDir(s.st,s.dia), color:s.color});
+  });
+  drawWind(labels,dsW,dirs,vars.dv);
+}
+function omplirControls(){
+  const box=document.getElementById('chEst'); box.innerHTML='';
+  gEst.forEach(id=>{ const st=estPerId(id); if(!st)return;
+    const chip=document.createElement('span'); chip.className='estchip';
+    chip.innerHTML=curtNom(st)+' <span class="x" data-id="'+id+'">✕</span>'; box.appendChild(chip); });
+  const sel=document.getElementById('chAddEst'); sel.innerHTML='<option value="">+ afegir estació…</option>';
+  (DATA?DATA.estacions.slice():[]).filter(e=>e.lat!=null).sort((a,b)=>(a.nom||'').localeCompare(b.nom||'')).forEach(e=>{
+    if(gEst.indexOf(String(e.idema))>=0) return;
+    const o=document.createElement('option'); o.value=e.idema; o.textContent=(e.nom||e.idema)+' ('+e.font+')'; sel.appendChild(o); });
+  const db=document.getElementById('chDies'); db.innerHTML='';
+  diesDisponibles().forEach(k=>{ const lab=document.createElement('label');
+    lab.innerHTML='<input type="checkbox" value="'+k+'"'+(gDies.indexOf(k)>=0?' checked':'')+'> '+diaLabel(k); db.appendChild(lab); });
+}
+function obreGrafic(idema){
+  if(!DATA) return;
+  if(gDies.length===0) gDies=diesDisponibles().slice(0,2);   // avui + ahir per defecte
+  if(gEst.indexOf(String(idema))<0){ if(gEst.length<3) gEst.push(String(idema)); else alert('Màxim 3 estacions.'); }
+  document.getElementById('chartModal').style.display='flex';
+  omplirControls(); setTimeout(dibuixaGrafics,30);
+}
+document.getElementById('chAddEst').addEventListener('change',e=>{ const id=e.target.value; if(!id)return;
+  if(gEst.length>=3){ alert('Màxim 3 estacions.'); e.target.value=''; return; }
+  if(gEst.indexOf(id)<0) gEst.push(id); omplirControls(); dibuixaGrafics(); });
+document.getElementById('chEst').addEventListener('click',e=>{ if(e.target.classList.contains('x')){ const id=e.target.dataset.id; gEst=gEst.filter(x=>x!==id); omplirControls(); dibuixaGrafics(); } });
+document.getElementById('chDies').addEventListener('change',()=>{ gDies=Array.prototype.slice.call(document.querySelectorAll('#chDies input:checked')).map(c=>c.value); dibuixaGrafics(); });
+document.getElementById('chVars').addEventListener('change',dibuixaGrafics);
+document.getElementById('chClose').addEventListener('click',()=>{ document.getElementById('chartModal').style.display='none'; if(chT){chT.destroy();chT=null;} if(chW){chW.destroy();chW=null;} });
+document.getElementById('chPrint').addEventListener('click',()=>window.print());
 </script>
 </body>
 </html>
