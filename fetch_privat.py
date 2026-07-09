@@ -9,9 +9,11 @@ Variables d'entorn (a la Action venen de secrets; en local usa els valors per de
     METEOCAT_KEY    clau de Meteocat
     MAPA_PASS       contrasenya del mapa privat
 
-Meteocat: per respectar el límit (750 consultes/mes) es baixen 5 variables
-(1 consulta cadascuna) i les coordenades es guarden en 'meteocat_estacions.json'
-(només es descarreguen el primer cop). ~5 consultes per execució.
+Meteocat: límit 750 consultes/mes. Es baixen 11 variables (1 consulta cadascuna):
+T, HR i el vent (velocitat/direcció/ratxa) a 2 m, 6 m i 10 m, perquè cada estació
+mesura el vent a una altura diferent. ~11 consultes per execució -> amb 2
+actualitzacions automàtiques/dia són ~660/mes (queda marge per a les manuals).
+Les coordenades es guarden en 'meteocat_estacions.json' (només el primer cop).
 """
 
 import base64
@@ -48,7 +50,17 @@ ITER = 200000
 EST_FILE = "meteocat_estacions.json"
 
 # variables Meteocat: codi -> (camp, factor)  (factor 3.6 = m/s -> km/h)
-MC_VARS = {32: ("ta", 1.0), 33: ("hr", 1.0), 30: ("vv", 3.6), 31: ("dv", 1.0), 50: ("vmax", 3.6)}
+# El vent es mesura a 2/6/10 m segons l'estació, i cada altura té codis diferents.
+# Baixem les TRES altures i les fusionem al mateix camp (vv/dv/vmax): així cada estació
+# omple el vent amb l'altura que tinga. L'ordre posa 10 m l'ÚLTIM perquè, si una estació
+# tingués més d'una altura al mateix instant, preval el de 10 m (s'escriu després).
+#   10 m: 30/31/50 · 6 m: 48/49/53 · 2 m: 46/47/56  (font: metadades XEMA, Meteocat)
+MC_VARS = {
+    32: ("ta", 1.0), 33: ("hr", 1.0),
+    46: ("vv", 3.6), 47: ("dv", 1.0), 56: ("vmax", 3.6),   # vent a 2 m
+    48: ("vv", 3.6), 49: ("dv", 1.0), 53: ("vmax", 3.6),   # vent a 6 m
+    30: ("vv", 3.6), 31: ("dv", 1.0), 50: ("vmax", 3.6),   # vent a 10 m (preferent)
+}
 
 _SSL = ssl.create_default_context()
 
