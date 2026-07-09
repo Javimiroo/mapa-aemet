@@ -157,7 +157,8 @@ function getVal(st,vk){
 }
 function toDate(iso){
   if(!iso) return null;
-  const s=String(iso).replace(/([+-]\d{2})(\d{2})$/,'$1:$2');
+  let s=String(iso).replace(/([+-]\d{2})(\d{2})$/,'$1:$2');   // +0000 -> +00:00
+  if(!/(Z|[+-]\d{2}:\d{2})$/.test(s)) s+='Z';                 // sense zona = UTC (blindatge)
   const d=new Date(s); return isNaN(d)?null:d;
 }
 function dataLoc(iso){const d=toDate(iso);return d?d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}
