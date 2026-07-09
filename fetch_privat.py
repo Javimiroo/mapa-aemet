@@ -25,6 +25,7 @@ import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo   # per arxivar per DIA LOCAL (com ho veu l'equip)
 
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -338,6 +339,75 @@ def acumula(estacions, previ):
         e["actual"]["n_hores"] = len(rows)
 
 
+# ============================ arxiu històric (per dia, congelat) ============================
+TZ_LOCAL = ZoneInfo("Europe/Madrid")
+ARXIU_DIR = "arxiu"
+
+
+def _dia_local(t):
+    """Data LOCAL (Europe/Madrid) d'un timestamp, com AAAA-MM-DD (o None)."""
+    d = _parse_t(t)
+    return d.astimezone(TZ_LOCAL).date().isoformat() if d else None
+
+
+def arxiva(estacions):
+    """Escriu un fitxer xifrat per cada DIA LOCAL ja tancat (>=2 dies) que encara no
+    estiga arxivat. Cada dia es guarda UNA sola vegada (es congela) i s'actualitza
+    l'índex. Així conservem tot l'històric sense carregar-ho a l'operativa diària."""
+    os.makedirs(ARXIU_DIR, exist_ok=True)
+    avui = datetime.now(timezone.utc).astimezone(TZ_LOCAL).date()
+    limit = avui - timedelta(days=1)      # només dies < ahir (>=2 dies): segur que estan complets
+
+    dies = set()
+    for e in estacions:
+        for r in e.get("historic", []):
+            dk = _dia_local(r.get("t"))
+            if dk:
+                dies.add(dk)
+
+    nous = 0
+    for dk in sorted(dies):
+        try:
+            d_date = datetime.fromisoformat(dk).date()
+        except ValueError:
+            continue
+        if d_date >= limit:               # massa recent (encara operatiu / pot canviar)
+            continue
+        path = os.path.join(ARXIU_DIR, dk + ".enc")
+        if os.path.exists(path):          # ja arxivat -> es congela, no es reescriu
+            continue
+        ests = []
+        for e in estacions:
+            rows = [r for r in e.get("historic", []) if _dia_local(r.get("t")) == dk]
+            if not rows:
+                continue
+            ests.append({
+                "idema": e["idema"], "nom": e.get("nom"), "provincia": e.get("provincia"),
+                "font": e.get("font"), "lat": e.get("lat"), "lon": e.get("lon"), "alt": e.get("alt"),
+                "historic": rows,
+            })
+        if not ests:
+            continue
+        dia_obj = {
+            "dia": dk,
+            "generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "n_estacions": len(ests), "estacions": ests,
+        }
+        blob = xifrar(json.dumps(dia_obj, ensure_ascii=False, separators=(",", ":")), PASSWORD)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(blob, f)
+        nous += 1
+        print("  arxivat %s (%d estacions)" % (dk, len(ests)))
+
+    # índex (llista de dies disponibles) -> pla, per poblar el calendari
+    disponibles = sorted(fn[:-4] for fn in os.listdir(ARXIU_DIR) if fn.endswith(".enc"))
+    with open(os.path.join(ARXIU_DIR, "index.json"), "w", encoding="utf-8") as f:
+        json.dump({"dies": disponibles,
+                   "actualitzat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")},
+                  f, ensure_ascii=False)
+    print("  arxiu: %d dies nous · %d dies en total" % (nous, len(disponibles)))
+
+
 # ============================ principal ============================
 def main():
     print("Baixant AEMET...")
@@ -363,7 +433,12 @@ def main():
     with open("dades_privat.enc", "w", encoding="utf-8") as f:
         json.dump(blob, f)
     print("OK -> dades_privat.enc  (%d estacions: %d AEMET + %d Meteocat)" % (len(estacions), len(a), len(m)))
-    print("Contrasenya usada:", PASSWORD)
+
+    print("Arxivant històric per dies...")
+    try:
+        arxiva(estacions)
+    except Exception as ex:  # l'arxiu no ha de bloquejar mai l'actualització operativa
+        print("  avis: arxiu no completat (%s)" % ex)
 
 
 if __name__ == "__main__":
