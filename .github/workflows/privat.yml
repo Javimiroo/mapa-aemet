@@ -3,10 +3,12 @@ name: Actualitza mapa privat (AEMET + Meteocat)
 on:
   workflow_dispatch: {}   # manual (des del botó del mapa o des de la pestanya Actions)
   schedule:
-    # 4 actualitzacions automàtiques al dia (hora UTC). La de 23:35 UTC = 01:35 local
-    # captura la matinada (00:00–02:00 local) i evita el forat que trencava el comptador.
-    # Meteocat: 4 baixades/dia x 5 consultes = ~600/mes (deixa marge per a les manuals).
-    - cron: "35 23,3 * * *"
+    # 2 actualitzacions automàtiques al dia (hora UTC). Amb 11 variables Meteocat
+    # (vent a 2/6/10 m), 2 baixades/dia x 11 = ~660/mes (marge per a les manuals).
+    # La de 23:35 UTC = 01:35 local captura la matinada (00:00–02:00 local) i evita
+    # el forat que trencava el comptador. Meteocat baixa el dia sencer, així que 2
+    # execucions ja deixen l'històric complet; el botó manual dona la frescor puntual.
+    - cron: "35 11,23 * * *"
 
 permissions:
   contents: write
