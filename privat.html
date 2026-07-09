@@ -1717,7 +1717,10 @@ function drawShape(ctx,sh){
 const ANNR=2;   // resolució 2× perquè el dibuix isca nítid en exportar
 function annRedraw(){ const ctx=annCv.getContext('2d'); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,annCv.width,annCv.height); ctx.setTransform(ANNR,0,0,ANNR,0,0); annShapes.forEach(s=>drawShape(ctx,s)); if(annCur)drawShape(ctx,annCur); }
 function setupAnnCanvas(){ const p=document.getElementById('chartPanels'); if(!p||p.style.display==='none')return;
-  const w=p.clientWidth, h=p.clientHeight; if(w&&h&&(annCv.width!==w*ANNR||annCv.height!==h*ANNR)){ annCv.width=w*ANNR; annCv.height=h*ANNR; } annRedraw(); }
+  const w=p.clientWidth, h=p.clientHeight; if(!w||!h) return;
+  if(annCv.width!==w*ANNR||annCv.height!==h*ANNR){ annCv.width=w*ANNR; annCv.height=h*ANNR; }
+  annCv.style.width=w+'px'; annCv.style.height=h+'px';   // mida de VISUALITZACIÓ = px CSS (el backing va a 2x per nitidesa)
+  annRedraw(); }
 function annXY(e){ const r=annCv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
 annCv.addEventListener('pointerdown',e=>{ if(annTool==='none')return; const p=annXY(e);
   if(annTool==='pen') annCur={tool:'pen',color:annColor,width:annWidth,pts:[p]};
