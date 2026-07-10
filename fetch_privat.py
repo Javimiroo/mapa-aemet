@@ -9,11 +9,15 @@ Variables d'entorn (a la Action venen de secrets; en local usa els valors per de
     METEOCAT_KEY    clau de Meteocat
     MAPA_PASS       contrasenya del mapa privat
 
-Meteocat: límit 750 consultes/mes. Es baixen 11 variables (1 consulta cadascuna):
-T, HR i el vent (velocitat/direcció/ratxa) a 2 m, 6 m i 10 m, perquè cada estació
-mesura el vent a una altura diferent. ~11 consultes per execució -> amb 2
-actualitzacions automàtiques/dia són ~660/mes (queda marge per a les manuals).
-Les coordenades es guarden en 'meteocat_estacions.json' (només el primer cop).
+Meteocat: límit 750 consultes/mes. Es baixen 11 variables (T, HR i vent
+velocitat/direcció/ratxa a 2/6/10 m). Cost per actualització:
+  - normalment 11 consultes (només HUI).
+  - 22 consultes NOMÉS el primer cop del dia (baixa també AHIR per tancar la
+    frontera de dia UTC; després ja el tenim i no es repeteix).
+Així la majoria d'actualitzacions (incloses les manuals) costen la meitat. Amb ~1
+actualització automàtica/dia queda marge per a manuals dins de la quota. Les
+coordenades es guarden en 'meteocat_estacions.json' (1r cop). IMPORTANT: 750/mes és
+molt just; si es puja (Meteocat institucional per a Bombers), es pot pujar la freq.
 """
 
 import base64
@@ -190,29 +194,35 @@ def meteocat_metadades():
     return meta
 
 
-def estacions_meteocat():
+def estacions_meteocat(baixa_ahir=True):
     meta = meteocat_metadades()
-    hui = datetime.now(timezone.utc)
+    ara = datetime.now(timezone.utc)
+    # HUI es baixa sempre. AHIR (UTC) només si encara NO en tenim la nit: així es
+    # tanca la frontera de dia una sola volta i la resta d'actualitzacions costen
+    # la meitat de consultes (només hui). Meteocat serveix per dia UTC i la vesprada
+    # local (20-24h) cau al dia UTC anterior; per això cal cobrir-lo el 1r cop.
+    dates = [ara - timedelta(days=1), ara] if baixa_ahir else [ara]
 
     # acumulem per estació: camp -> llista de (data, valor)
     dat = {}   # codi -> {camp: [(data,valor)]}
     for code, (camp, factor) in MC_VARS.items():
-        try:
-            resp = mc_get("/xema/v1/variables/mesurades/%d/%04d/%02d/%02d"
-                          % (code, hui.year, hui.month, hui.day))
-        except Exception as ex:  # noqa
-            print("  avis: variable %d no baixada (%s)" % (code, ex))
-            continue
-        for el in resp:
-            st = el.get("codi")
-            vs = el.get("variables") or []
-            if not vs:
+        for dref in dates:
+            try:
+                resp = mc_get("/xema/v1/variables/mesurades/%d/%04d/%02d/%02d"
+                              % (code, dref.year, dref.month, dref.day))
+            except Exception as ex:  # noqa
+                print("  avis: variable %d dia %s no baixada (%s)" % (code, dref.date(), ex))
                 continue
-            for lect in (vs[0].get("lectures") or []):
-                v = lect.get("valor")
-                if v is None:
+            for el in resp:
+                st = el.get("codi")
+                vs = el.get("variables") or []
+                if not vs:
                     continue
-                dat.setdefault(st, {}).setdefault(camp, []).append((lect.get("data"), _num(v, factor)))
+                for lect in (vs[0].get("lectures") or []):
+                    v = lect.get("valor")
+                    if v is None:
+                        continue
+                    dat.setdefault(st, {}).setdefault(camp, []).append((lect.get("data"), _num(v, factor)))
 
     out = []
     for st, camps in dat.items():
@@ -309,6 +319,21 @@ def carrega_historic_previ():
     except Exception as ex:  # noqa
         print("  avis: no s'ha pogut llegir l'històric previ (%s)" % ex)
         return {}
+
+
+def te_ahir_complet(previ):
+    """True si l'històric previ ja té la NIT d'ahir (UTC) de Meteocat coberta (hi ha
+    alguna lectura d'ahir a les 23 h UTC o més). Si és així, NO cal tornar a baixar
+    ahir: així la majoria d'actualitzacions només baixen hui (la meitat de consultes)."""
+    ahir = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+    for idema, rows in previ.items():
+        if not str(idema).startswith("MC_"):        # només mirem estacions Meteocat
+            continue
+        for r in rows:
+            d = _parse_t(r.get("t"))
+            if d and d.date() == ahir and d.hour >= 23:
+                return True
+    return False
 
 
 def acumula(estacions, previ):
@@ -413,13 +438,15 @@ def main():
     print("Baixant AEMET...")
     a = estacions_aemet()
     print("  AEMET:", len(a), "estacions")
-    print("Baixant Meteocat (XEMA)...")
-    m = estacions_meteocat()
+    previ = carrega_historic_previ()
+    baixa_ahir = not te_ahir_complet(previ)
+    print("Baixant Meteocat (XEMA) [%s]..." % ("ahir+hui" if baixa_ahir else "només hui"))
+    m = estacions_meteocat(baixa_ahir=baixa_ahir)
     print("  Meteocat:", len(m), "estacions")
 
     estacions = sorted(a + m, key=lambda e: e["nom"])
     print("Acumulant històric (fins a %d dies)..." % DIES_HISTORIC)
-    acumula(estacions, carrega_historic_previ())
+    acumula(estacions, previ)
     nh = [e["actual"]["n_hores"] for e in estacions] or [0]
     print("  hores/estació -> min %d · màx %d · mitjana %d" % (min(nh), max(nh), sum(nh)//len(nh)))
     dades = {
