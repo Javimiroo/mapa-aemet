@@ -537,13 +537,17 @@ function comptaHores(st,vk,op,val,hores){
   let refD=refNow();
   if(!refD){ for(let i=h.length-1;i>=0;i--){const t=toDate(h[i].t);if(t){refD=t;break;}} }
   if(!refD||!h.length) return {n:0,tot:0};
-  const ref=refD.getTime(), from=ref-hores*3600000;
+  // Exactament les N últimes franges horàries: [refHour-(N-1) .. refHour]. Abans es feia
+  // amb una finestra lliscant per temps + agrupació per hora, i podia comptar N+1 franges
+  // (s'esmunyia una hora de més i inflava el resultat en +1).
+  const refHour=Math.floor(refD.getTime()/3600000), minHour=refHour-(hores-1);
   const b={};
   for(let i=0;i<h.length;i++){
     const t=toDate(h[i].t); if(!t) continue;
-    const tm=t.getTime(); if(tm<=from || tm>ref+1800000) continue;
+    const k=Math.floor(t.getTime()/3600000);
+    if(k<minHour || k>refHour) continue;
     const x=h[i][vk]; if(x==null||isNaN(x)) continue;
-    const k=Math.floor(tm/3600000); if(!b[k])b[k]={s:0,c:0}; b[k].s+=x; b[k].c++;
+    if(!b[k])b[k]={s:0,c:0}; b[k].s+=x; b[k].c++;
   }
   let n=0,tot=0;
   for(const k in b){ const avg=b[k].s/b[k].c; tot++;
