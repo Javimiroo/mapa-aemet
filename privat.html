@@ -963,9 +963,9 @@ let chart=null;
 function popupHTML(st,vk){
   vk=vk||selVar.value;
   return `<div><b>${st.nom}</b> <span class="muted">${st.font} · ${st.provincia}</span><br>
-    <span class="muted" style="font-size:11px">Evolució 24 h · <span id="cvk">${VARS[vk].label}</span></span>
+    <span class="muted" style="font-size:11px">Evolució últimes hores · <span id="cvk">${VARS[vk].label}</span></span>
     <div class="chartbox"><canvas id="chart_${st.idema}"></canvas></div>
-    <button class="btn small" style="width:100%;margin-top:6px" onclick="obreGrafic('${st.idema}')">📊 Meteograma comparatiu</button></div>`;
+    <button class="btn small" style="width:100%;margin-top:6px" onclick="obreGrafic('${st.idema}')"> Meteograma comparatiu</button></div>`;
 }
 function drawChart(st,vk){
   vk=vk||selVar.value;
