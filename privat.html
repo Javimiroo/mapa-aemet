@@ -1058,6 +1058,7 @@ function fmtTemps(T){ return new Date(T).toLocaleString('ca-ES',{weekday:'short'
 function setTimeT(T){
   timeT=T;
   const bar=$('timebar');
+  const nb=$('tbNow'); if(nb){ nb.textContent=reviewMode?'⏱ Final':'⏱ Ara'; nb.title=reviewMode?'Últim registre del dia':'Tornar a l\'actual'; }
   if(T==null){
     if(reviewMode){ if(bar)bar.classList.add('tt'); const g=toDate(DATA&&DATA.generat); $('tbLabel').textContent='🕘 '+(g?fmtTemps(g.getTime()):diaLabelLlarg(reviewMode)); }
     else { if(bar)bar.classList.remove('tt'); $('tbLabel').textContent='Ara (en directe)'; }
@@ -1478,7 +1479,7 @@ async function carregar(pass){
   reviewMode=null; timeT=null;                 // tornar sempre a directe en carregar dades vives
   const rb=$('reviewBar'); if(rb) rb.style.display='none';
   if(calMes) renderCalArxiu();
-  setUpdated(); render();
+  setUpdated(); setTimeT(null);
 }
 // ---------------- visor de dies antics (arxiu) ----------------
 const ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/arxiu/';
@@ -1534,7 +1535,7 @@ async function carregaDiaArxiu(dia){
     // pre-omplim 'actual' amb el snapshot de final de dia perquè el mapa mostre l'últim estat
     const T=tEnd||Date.now();
     DATA.estacions.forEach(st=>{ st._act0=null; st.actual=snapshotAt(st,T); });
-    setUpdated(); render();
+    setUpdated(); setTimeT(null);
     $('reviewTxt').textContent='REVISANT: '+diaLabelLlarg(dia);
     $('reviewBar').style.display='flex';
     renderCalArxiu();
