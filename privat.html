@@ -143,7 +143,19 @@
              padding:6px 13px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.45)}
   #reviewBar button{cursor:pointer;background:#fff;color:#b45309;border:none;border-radius:7px;padding:4px 10px;font-size:12px;font-weight:700}
   #reviewBar button:hover{background:#fde68a}
-  #diaArxiu{width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px}
+  #calArxiu{user-select:none}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .cal-title{font-size:12px;font-weight:600;color:var(--txt);text-transform:capitalize}
+  .cal-nav{cursor:pointer;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;width:26px;height:24px;font-size:15px;line-height:1;padding:0;display:flex;align-items:center;justify-content:center}
+  .cal-nav:hover{border-color:var(--accent);color:var(--accent)}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+  .cal-dow{font-size:9px;color:var(--muted);text-align:center;padding:2px 0;text-transform:uppercase;letter-spacing:.3px}
+  .cal-cell{font-size:11px;text-align:center;padding:4px 0;border-radius:5px;color:#475569}
+  .cal-cell.empty{visibility:hidden}
+  .cal-cell.has{background:#16a34a;color:#fff;font-weight:700;cursor:pointer}
+  .cal-cell.has:hover{background:#15803d}
+  .cal-cell.sel{outline:2px solid #f59e0b;outline-offset:-2px}
+  .cal-cell.avui{box-shadow:inset 0 0 0 1px var(--muted)}
   /* modal de gràfics (meteograma) — fons clar, imprimible */
   #chartModal{position:fixed;inset:0;z-index:4000;background:rgba(8,12,22,.72);display:none;align-items:stretch;justify-content:center;padding:18px}
   #chartBox{background:#fff;color:#1e293b;border-radius:14px;width:min(1080px,100%);max-height:100%;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
@@ -220,9 +232,8 @@
     <div class="card coll collapsed">
       <h2>📅 Dia històric (arxiu)</h2>
       <div class="cardbody">
-        <label>Revisa un dia guardat</label>
-        <select id="diaArxiu"><option value="">— dades en directe —</option></select>
-        <p class="muted" style="font-size:11px;margin:6px 0 0">Carrega un dia de l'arxiu i navega'l amb la màquina del temps i el meteograma. Es guarden fins a l'inici del registre.</p>
+        <div id="calArxiu"></div>
+        <p class="muted" style="font-size:11px;margin:7px 0 0">Els dies en <b style="color:#16a34a">verd</b> tenen dades guardades. Clica'n un per revisar-lo amb la màquina del temps i el meteograma.</p>
       </div>
     </div>
 
@@ -1466,18 +1477,47 @@ async function carregar(pass){
   DATA=await desxifra(blob,pass);
   reviewMode=null; timeT=null;                 // tornar sempre a directe en carregar dades vives
   const rb=$('reviewBar'); if(rb) rb.style.display='none';
-  const dsel=$('diaArxiu'); if(dsel) dsel.value='';
+  if(calMes) renderCalArxiu();
   setUpdated(); render();
 }
 // ---------------- visor de dies antics (arxiu) ----------------
 const ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/arxiu/';
+let arxiuDies=new Set(), calMes=null;   // dies amb dades + mes mostrat al calendari {y,m}
 function diaLabelLlarg(k){ const p=String(k).split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]); return d.toLocaleDateString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}); }
+function claDia(y,m,d){ return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+function renderCalArxiu(){
+  const box=$('calArxiu'); if(!box||!calMes) return;
+  const y=calMes.y, m=calMes.m;
+  const first=new Date(y,m,1);
+  const startDow=(first.getDay()+6)%7;               // 0 = dilluns
+  const ndays=new Date(y,m+1,0).getDate();
+  const titol=first.toLocaleDateString('ca-ES',{month:'long',year:'numeric'});
+  const avui=new Date(); const claAvui=claDia(avui.getFullYear(),avui.getMonth(),avui.getDate());
+  let h='<div class="cal-head"><button class="cal-nav" data-d="-1" title="Mes anterior">‹</button>'
+      +'<span class="cal-title">'+titol+'</span>'
+      +'<button class="cal-nav" data-d="1" title="Mes següent">›</button></div>';
+  h+='<div class="cal-grid">';
+  ['dl','dt','dc','dj','dv','ds','dg'].forEach(w=>h+='<span class="cal-dow">'+w+'</span>');
+  for(let i=0;i<startDow;i++) h+='<span class="cal-cell empty"></span>';
+  for(let d=1;d<=ndays;d++){
+    const k=claDia(y,m,d);
+    const has=arxiuDies.has(k);
+    let cls='cal-cell'+(has?' has':'')+(reviewMode===k?' sel':'')+(k===claAvui?' avui':'');
+    h+='<span class="'+cls+'"'+(has?(' data-k="'+k+'" title="'+diaLabelLlarg(k)+'"'):'')+'>'+d+'</span>';
+  }
+  h+='</div>';
+  box.innerHTML=h;
+}
 async function carregaIndexArxiu(){
   try{
     const r=await fetch(ARXIU_URL+'index.json?_='+Date.now(),{cache:'no-store'}); if(!r.ok) return;
-    const idx=await r.json(); const sel=$('diaArxiu'); if(!sel) return;
-    sel.innerHTML='<option value="">— dades en directe —</option>';
-    (idx.dies||[]).slice().reverse().forEach(dk=>{ const o=document.createElement('option'); o.value=dk; o.textContent=diaLabelLlarg(dk); sel.appendChild(o); });
+    const idx=await r.json();
+    arxiuDies=new Set(idx.dies||[]);
+    const dies=(idx.dies||[]).slice().sort();
+    let ref=new Date();
+    if(dies.length){ const p=dies[dies.length-1].split('-'); ref=new Date(+p[0],+p[1]-1,+p[2]); }
+    calMes={y:ref.getFullYear(), m:ref.getMonth()};
+    renderCalArxiu();
   }catch(e){}
 }
 async function carregaDiaArxiu(dia){
@@ -1497,15 +1537,16 @@ async function carregaDiaArxiu(dia){
     setUpdated(); render();
     $('reviewTxt').textContent='REVISANT: '+diaLabelLlarg(dia);
     $('reviewBar').style.display='flex';
+    renderCalArxiu();
   }catch(e){
     alert('No s\'ha pogut carregar el dia '+dia+' de l\'arxiu.');
-    const s=$('diaArxiu'); if(s) s.value = reviewMode||'';
+    renderCalArxiu();
   }
 }
 async function tornaDirecte(){
-  const s=$('diaArxiu'); if(s) s.value='';
   const rb=$('reviewBar'); if(rb) rb.style.display='none';
   reviewMode=null; timeT=null;
+  renderCalArxiu();
   try{ await carregar(PASS); }catch(e){}
 }
 async function provaEntrar(){
@@ -1523,7 +1564,12 @@ async function provaEntrar(){
 }
 $('enter').onclick=provaEntrar;
 $('pass').addEventListener('keydown',e=>{if(e.key==='Enter')provaEntrar();});
-$('diaArxiu').addEventListener('change',e=>carregaDiaArxiu(e.target.value));
+$('calArxiu').addEventListener('click',e=>{
+  const nav=e.target.closest('.cal-nav');
+  if(nav){ calMes.m+=(+nav.dataset.d); if(calMes.m<0){calMes.m=11;calMes.y--;} if(calMes.m>11){calMes.m=0;calMes.y++;} renderCalArxiu(); return; }
+  const cell=e.target.closest('.cal-cell.has');
+  if(cell&&cell.dataset.k) carregaDiaArxiu(cell.dataset.k);
+});
 $('reviewExit').addEventListener('click',tornaDirecte);
 $('refresh').onclick=async()=>{
   const b=$('refresh'); b.disabled=true; b.textContent='↻ Recarregant…';
