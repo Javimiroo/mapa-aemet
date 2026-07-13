@@ -137,6 +137,13 @@
   .wl-bar{height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.45)}
   .wl-ticks{position:relative;height:13px;margin-top:1px}
   .wl-ticks span{position:absolute;transform:translateX(-50%);font-size:9px;color:var(--muted)}
+  /* barra de mode revisió (dia històric de l'arxiu) */
+  #reviewBar{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1250;display:none;
+             align-items:center;gap:12px;background:#b45309;color:#fff;border:1px solid #92400e;border-radius:10px;
+             padding:6px 13px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.45)}
+  #reviewBar button{cursor:pointer;background:#fff;color:#b45309;border:none;border-radius:7px;padding:4px 10px;font-size:12px;font-weight:700}
+  #reviewBar button:hover{background:#fde68a}
+  #diaArxiu{width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px}
   /* modal de gràfics (meteograma) — fons clar, imprimible */
   #chartModal{position:fixed;inset:0;z-index:4000;background:rgba(8,12,22,.72);display:none;align-items:stretch;justify-content:center;padding:18px}
   #chartBox{background:#fff;color:#1e293b;border-radius:14px;width:min(1080px,100%);max-height:100%;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
@@ -208,6 +215,15 @@
         <div id="cercaLlista"></div>
       </div>
       <div class="muted" style="font-size:10px;margin-top:5px">Topònims de l'ICGC · clica un resultat per centrar-hi el mapa</div>
+    </div>
+
+    <div class="card coll collapsed">
+      <h2>📅 Dia històric (arxiu)</h2>
+      <div class="cardbody">
+        <label>Revisa un dia guardat</label>
+        <select id="diaArxiu"><option value="">— dades en directe —</option></select>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">Carrega un dia de l'arxiu i navega'l amb la màquina del temps i el meteograma. Es guarden fins a l'inici del registre.</p>
+      </div>
     </div>
 
     <div class="card">
@@ -402,6 +418,7 @@
     <button class="tb-btn" id="tbNow" title="Tornar a l'actual">⏱ Ara</button>
   </div>
   <div id="windleg"></div>
+  <div id="reviewBar"><span>🕐 <b id="reviewTxt"></b></span><button id="reviewExit">↩ Tornar al directe</button></div>
 </div>
 
 <div id="chartModal">
@@ -583,6 +600,7 @@ function amagaVella(st){return $('stale')&&$('stale').checked && esVella(st);}
 let DATA=null, markers=[], activeFilter=null;
 let streakMode=null, countMode=null;
 let timeT=null, tDomain=null;   // màquina del temps (timeT=null → en directe)
+let reviewMode=null;            // dia de l'arxiu que s'està revisant (null → dades en directe)
 const map=L.map('map',{zoomControl:true}).setView([41.75,1.75],8);
 const BASEMAPS={
   icgc:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
@@ -1416,7 +1434,9 @@ function infoXarxa(font){
 }
 function setUpdated(){
   if(!DATA)return;
-  $('updated').textContent='Baixat: '+dataLoc(DATA.generat)+' (hora local)  ·  '+(DATA.n_estacions||0)+' estacions';
+  $('updated').textContent = reviewMode
+    ? ('📅 Arxiu històric · '+diaLabelLlarg(reviewMode)+'  ·  '+(DATA.n_estacions||0)+' estacions')
+    : ('Baixat: '+dataLoc(DATA.generat)+' (hora local)  ·  '+(DATA.n_estacions||0)+' estacions');
   $('fontline').textContent=DATA.font||'Observació en temps real';
   const ia=$('infoAemet'), im=$('infoMeteocat');
   if(ia) ia.textContent=infoXarxa('AEMET');
@@ -1441,7 +1461,49 @@ async function carregar(pass){
   if(!r||!r.ok) throw new Error('no-data');
   const blob=await r.json();
   DATA=await desxifra(blob,pass);
+  reviewMode=null; timeT=null;                 // tornar sempre a directe en carregar dades vives
+  const rb=$('reviewBar'); if(rb) rb.style.display='none';
+  const dsel=$('diaArxiu'); if(dsel) dsel.value='';
   setUpdated(); render();
+}
+// ---------------- visor de dies antics (arxiu) ----------------
+const ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/arxiu/';
+function diaLabelLlarg(k){ const p=String(k).split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]); return d.toLocaleDateString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}); }
+async function carregaIndexArxiu(){
+  try{
+    const r=await fetch(ARXIU_URL+'index.json?_='+Date.now(),{cache:'no-store'}); if(!r.ok) return;
+    const idx=await r.json(); const sel=$('diaArxiu'); if(!sel) return;
+    sel.innerHTML='<option value="">— dades en directe —</option>';
+    (idx.dies||[]).slice().reverse().forEach(dk=>{ const o=document.createElement('option'); o.value=dk; o.textContent=diaLabelLlarg(dk); sel.appendChild(o); });
+  }catch(e){}
+}
+async function carregaDiaArxiu(dia){
+  if(!dia){ tornaDirecte(); return; }
+  try{
+    const r=await fetch(ARXIU_URL+dia+'.enc?_='+Date.now(),{cache:'no-store'});
+    if(!r||!r.ok) throw new Error('no-data');
+    const d=await desxifra(await r.json(), PASS);
+    // final del dia = darrer timestamp de l'històric (per acotar la màquina del temps)
+    let tEnd=0; (d.estacions||[]).forEach(st=>(st.historic||[]).forEach(h=>{const t=toDate(h.t); if(t&&t.getTime()>tEnd)tEnd=t.getTime();}));
+    if(tEnd) d.generat=new Date(tEnd).toISOString();
+    d.n_estacions=(d.estacions||[]).length;
+    reviewMode=dia; timeT=null; DATA=d;
+    // pre-omplim 'actual' amb el snapshot de final de dia perquè el mapa mostre l'últim estat
+    const T=tEnd||Date.now();
+    DATA.estacions.forEach(st=>{ st._act0=null; st.actual=snapshotAt(st,T); });
+    setUpdated(); render();
+    $('reviewTxt').textContent='REVISANT: '+diaLabelLlarg(dia);
+    $('reviewBar').style.display='flex';
+  }catch(e){
+    alert('No s\'ha pogut carregar el dia '+dia+' de l\'arxiu.');
+    const s=$('diaArxiu'); if(s) s.value = reviewMode||'';
+  }
+}
+async function tornaDirecte(){
+  const s=$('diaArxiu'); if(s) s.value='';
+  const rb=$('reviewBar'); if(rb) rb.style.display='none';
+  reviewMode=null; timeT=null;
+  try{ await carregar(PASS); }catch(e){}
 }
 async function provaEntrar(){
   const p=$('pass').value; if(!p)return;
@@ -1449,6 +1511,7 @@ async function provaEntrar(){
   try{
     await carregar(p);
     PASS=p; $('gate').style.display='none';
+    carregaIndexArxiu();
     setTimeout(()=>map.invalidateSize(),150);
   }catch(e){
     $('gateerr').textContent=(e&&e.message==='no-data')?'Encara no hi ha dades publicades. Torna en uns minuts.':'Contrasenya incorrecta.';
@@ -1457,6 +1520,8 @@ async function provaEntrar(){
 }
 $('enter').onclick=provaEntrar;
 $('pass').addEventListener('keydown',e=>{if(e.key==='Enter')provaEntrar();});
+$('diaArxiu').addEventListener('change',e=>carregaDiaArxiu(e.target.value));
+$('reviewExit').addEventListener('click',tornaDirecte);
 $('refresh').onclick=async()=>{
   const b=$('refresh'); b.disabled=true; b.textContent='↻ Recarregant…';
   try{ await carregar(PASS); }
