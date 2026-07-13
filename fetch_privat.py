@@ -92,6 +92,7 @@ def punt_rosada(ta, hr):
 
 
 def _get(url, headers, tries=5):
+    last = None
     for i in range(tries):
         try:
             req = urllib.request.Request(url, headers=headers)
@@ -101,10 +102,15 @@ def _get(url, headers, tries=5):
             except UnicodeDecodeError:
                 return json.loads(raw.decode("latin-1"))
         except urllib.error.HTTPError as e:
+            last = e
             if e.code == 429:
-                time.sleep(20); continue
-            raise
-    raise RuntimeError("massa reintents (429): " + url)
+                time.sleep(20); continue          # límit de peticions
+            if 500 <= e.code < 600:
+                time.sleep(5); continue           # error temporal del servidor (AEMET peta sovint)
+            raise                                 # 4xx "de veritat" (401/403/404...): no insistim
+        except urllib.error.URLError as e:
+            last = e; time.sleep(5); continue     # problema de xarxa/temps d'espera
+    raise RuntimeError("massa reintents (%s): %s" % (last, url))
 
 
 # ============================ AEMET ============================
@@ -321,6 +327,20 @@ def carrega_historic_previ():
         return {}
 
 
+def carrega_estacions_previ():
+    """{idema: estació completa} de l'execució anterior. Serveix per REUTILITZAR les
+    estacions d'una font (AEMET o Meteocat) si eixa font falla, i que no desapareguen."""
+    if not os.path.exists(OUT_FILE):
+        return {}
+    try:
+        with open(OUT_FILE, encoding="utf-8") as f:
+            prev = desxifrar(json.load(f), PASSWORD)
+        return {e["idema"]: e for e in prev.get("estacions", [])}
+    except Exception as ex:  # noqa
+        print("  avis: no s'ha pogut llegir l'anterior complet (%s)" % ex)
+        return {}
+
+
 def te_ahir_complet(previ):
     """True si l'històric previ ja té la NIT d'ahir (UTC) de Meteocat coberta (hi ha
     alguna lectura d'ahir a les 23 h UTC o més). Si és així, NO cal tornar a baixar
@@ -437,14 +457,40 @@ def arxiva(estacions):
 
 # ============================ principal ============================
 def main():
+    # Carreguem l'anterior una sola volta (per reutilitzar dades si una font falla).
+    prev_full = carrega_estacions_previ()
+    previ = {k: v.get("historic", []) for k, v in prev_full.items()}
+
+    aemet_prev = [v for v in prev_full.values() if v.get("font") == "AEMET"]
+    mc_prev    = [v for v in prev_full.values() if v.get("font") == "Meteocat"]
+
     print("Baixant AEMET...")
-    a = estacions_aemet()
-    print("  AEMET:", len(a), "estacions")
-    previ = carrega_historic_previ()
+    try:
+        a = estacions_aemet()
+    except Exception as ex:  # AEMET és inestable: si falla, no estavellem tot
+        a = None
+        print("  AVÍS: AEMET ha fallat (%s)." % str(ex)[:90])
+    if not a:                # excepció o resposta buida -> mantenim les d'abans
+        a = aemet_prev
+        print("  AEMET: %d estacions%s" % (len(a), "  (anteriors, no actualitzat)" if aemet_prev else ""))
+    else:
+        print("  AEMET: %d estacions" % len(a))
+
     baixa_ahir = not te_ahir_complet(previ)
     print("Baixant Meteocat (XEMA) [%s]..." % ("ahir+hui" if baixa_ahir else "només hui"))
-    m = estacions_meteocat(baixa_ahir=baixa_ahir)
-    print("  Meteocat:", len(m), "estacions")
+    try:
+        m = estacions_meteocat(baixa_ahir=baixa_ahir)
+    except Exception as ex:  # el mateix per a Meteocat
+        m = None
+        print("  AVÍS: Meteocat ha fallat (%s)." % str(ex)[:90])
+    if not m:
+        m = mc_prev
+        print("  Meteocat: %d estacions%s" % (len(m), "  (anteriors, no actualitzat)" if mc_prev else ""))
+    else:
+        print("  Meteocat: %d estacions" % len(m))
+
+    if not a and not m:
+        raise SystemExit("Cap font ha respost i no hi ha dades prèvies; no s'escriu res.")
 
     estacions = sorted(a + m, key=lambda e: e["nom"])
     print("Acumulant històric (fins a %d dies)..." % DIES_HISTORIC)
