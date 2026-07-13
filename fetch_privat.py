@@ -381,7 +381,9 @@ def arxiva(estacions):
     l'índex. Així conservem tot l'històric sense carregar-ho a l'operativa diària."""
     os.makedirs(ARXIU_DIR, exist_ok=True)
     avui = datetime.now(timezone.utc).astimezone(TZ_LOCAL).date()
-    limit = avui - timedelta(days=1)      # només dies < ahir (>=2 dies): segur que estan complets
+    # Arxivem dies < HUI (ahir i anteriors). Ahir ja és complet perquè cada execució
+    # baixa ahir+hui de Meteocat, així que es pot congelar sense esperar 2 dies.
+    limit = avui
 
     dies = set()
     for e in estacions:
