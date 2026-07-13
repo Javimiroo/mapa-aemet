@@ -1047,7 +1047,10 @@ function fmtTemps(T){ return new Date(T).toLocaleString('ca-ES',{weekday:'short'
 function setTimeT(T){
   timeT=T;
   const bar=$('timebar');
-  if(T==null){ if(bar)bar.classList.remove('tt'); $('tbLabel').textContent='Ara (en directe)'; }
+  if(T==null){
+    if(reviewMode){ if(bar)bar.classList.add('tt'); const g=toDate(DATA&&DATA.generat); $('tbLabel').textContent='🕘 '+(g?fmtTemps(g.getTime()):diaLabelLlarg(reviewMode)); }
+    else { if(bar)bar.classList.remove('tt'); $('tbLabel').textContent='Ara (en directe)'; }
+  }
   else { if(bar)bar.classList.add('tt'); $('tbLabel').textContent='🕘 '+fmtTemps(T); }
   render();
 }
