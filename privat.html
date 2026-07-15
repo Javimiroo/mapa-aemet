@@ -1607,12 +1607,14 @@ const VentLayer=L.Layer.extend({
       const lat=B[3]-j*dlat,lon=B[0]+i*dlon,p=m.latLngToContainerPoint([lat,lon]);
       if(p.x<-20||p.y<-20||p.x>s.x+20||p.y>s.y+20)continue;
       const u=W.u[k],v=W.v[k],sp=Math.hypot(u,v);if(sp<0.05)continue;
-      const sx=u/sp,sy=-v/sp,x1=p.x+sx*LN/2,y1=p.y+sy*LN/2;
-      ctx.strokeStyle=ctx.fillStyle=ventColor(sp);ctx.lineWidth=1.6;
-      ctx.beginPath();ctx.moveTo(p.x-sx*LN/2,p.y-sy*LN/2);ctx.lineTo(x1,y1);ctx.stroke();
-      const ah=4.5,an=Math.atan2(sy,sx);ctx.beginPath();ctx.moveTo(x1,y1);
-      ctx.lineTo(x1-ah*Math.cos(an-.5),y1-ah*Math.sin(an-.5));ctx.lineTo(x1-ah*Math.cos(an+.5),y1-ah*Math.sin(an+.5));
-      ctx.closePath();ctx.fill();}}
+      const sx=u/sp,sy=-v/sp,x0=p.x-sx*LN/2,y0=p.y-sy*LN/2,x1=p.x+sx*LN/2,y1=p.y+sy*LN/2;
+      const ah=5.0,an=Math.atan2(sy,sx);
+      ctx.lineCap='round';ctx.lineJoin='round';
+      const drawA=()=>{ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x1-ah*Math.cos(an-.5),y1-ah*Math.sin(an-.5));ctx.lineTo(x1-ah*Math.cos(an+.5),y1-ah*Math.sin(an+.5));ctx.closePath();ctx.fill();};
+      ctx.strokeStyle=ctx.fillStyle='rgba(255,255,255,.95)';ctx.lineWidth=4.2;drawA();   // halo blanc
+      const col=ventColor(sp);ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=1.9;drawA();  // fletxa de color
+      }}
 });
 function ventCardinal(d){return['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'][Math.round(d/22.5)%16];}
 $('ventOn').addEventListener('change',e=>{
