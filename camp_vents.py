@@ -9,7 +9,7 @@ vents observats de les estacions. Reutilitza la graella de terreny precalculada
     from camp_vents import escriu_vent
     escriu_vent(estacions, PASSWORD)
 """
-import os, math, json, base64
+import os, re, math, json, base64
 from datetime import datetime, timezone
 import numpy as np
 from scipy.fft import dctn, idctn
@@ -79,6 +79,19 @@ def genera_camp(winds, grid_path=None, nxT=160, nyT=120):
         phi = _poisson(np.gradient(U, xm, axis=1) + np.gradient(V, ym, axis=0), dx, dy)
         U -= np.gradient(phi, xm, axis=1); V -= np.gradient(phi, ym, axis=0)
 
+    # correcció d'observacions (Barnes): la malla s'ajusta estació per estació
+    gi = np.clip(np.round(sx / dx).astype(int), 0, nx - 1)
+    gj = np.clip(np.round(sy / dy).astype(int), 0, ny - 1)
+    R = 6000.0
+    for _ in range(2):
+        du = su - U[gj, gi]; dv = sv - V[gj, gi]
+        cu = np.zeros((ny, nx)); cv = np.zeros((ny, nx)); wt = np.zeros((ny, nx))
+        for i in range(len(W)):
+            d2 = (xm[None, :] - sx[i]) ** 2 + (ym[:, None] - sy[i]) ** 2
+            w = np.exp(-d2 / R ** 2)
+            cu += w * du[i]; cv += w * dv[i]; wt += w
+        U += cu / (wt + 1e-9); V += cv / (wt + 1e-9)
+
     # downsample a la graella de visualització (nord primer)
     us = []; vs = []; se = []
     for j2 in range(nyT):
@@ -106,10 +119,26 @@ def _winds_de_estacions(estacions):
     return out
 
 
+def _iso(s):
+    if not s:
+        return None
+    s = s.strip().replace("Z", "+00:00")
+    s = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", s)
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
 def escriu_vent(estacions, password, out_file="vent_privat.enc", grid_path=None):
     winds = _winds_de_estacions(estacions)
     camp = genera_camp(winds, grid_path)
-    camp["generat"] = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    # hora de l'OBSERVACIÓ (fint més recent de les estacions amb vent), no de càlcul
+    times = [_iso((e.get("actual") or {}).get("fint")) for e in estacions
+             if (e.get("actual") or {}).get("vv") is not None and (e.get("actual") or {}).get("dv") is not None]
+    times = [t for t in times if t]
+    camp["generat"] = (max(times).isoformat() if times
+                       else datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"))
     blob = xifrar(json.dumps(camp, separators=(",", ":")), password)
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(blob, f)
