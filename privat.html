@@ -229,6 +229,17 @@
       <div class="muted" style="font-size:10px;margin-top:5px">Topònims de l'ICGC · clica un resultat per centrar-hi el mapa</div>
     </div>
 
+    <div class="card">
+      <h2>🌬️ Camp de vents</h2>
+      <div class="cardbody">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="ventOn"> Mostra el camp de vents (fletxes)
+        </label>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">Camp diagnòstic sobre el relleu a partir de les observacions. <b>Clica el mapa</b> per veure el vent d'un punt. <span id="ventInfo"></span></p>
+        <div id="ventLeg" style="display:none;margin-top:7px;font-size:11px"></div>
+      </div>
+    </div>
+
     <div class="card coll collapsed">
       <h2>📅 Dia històric (arxiu)</h2>
       <div class="cardbody">
@@ -1557,12 +1568,73 @@ async function provaEntrar(){
     await carregar(p);
     PASS=p; $('gate').style.display='none';
     carregaIndexArxiu();
+    carregaVent();
     setTimeout(()=>map.invalidateSize(),150);
   }catch(e){
     $('gateerr').textContent=(e&&e.message==='no-data')?'Encara no hi ha dades publicades. Torna en uns minuts.':'Contrasenya incorrecta.';
     $('pass').select();
   }
 }
+// ---------------- capa de camp de vents (fletxes + vent al clic) ----------------
+const VENT_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/vent_privat.enc';
+let ventData=null, ventLayer=null, ventClickOn=false;
+async function carregaVent(){
+  try{
+    let r=await fetch(VENT_URL+'?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+    if(!r||!r.ok) r=await fetch('vent_privat.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+    if(!r||!r.ok) return;
+    ventData=await desxifra(await r.json(), PASS);
+    const inf=$('ventInfo'); if(inf&&ventData.generat){const d=toDate(ventData.generat); if(d) inf.textContent='· '+fmtTemps(d.getTime());}
+    if(ventLayer&&ventClickOn) ventLayer.redraw();
+  }catch(e){}
+}
+function ventColor(s){const st=[[0,[40,70,170]],[2,[0,150,255]],[4,[0,200,120]],[6,[190,220,0]],[8,[255,140,0]],[10,[200,0,0]]];
+  if(s<=0)return'rgb(40,70,170)'; if(s>=10)return'rgb(200,0,0)';
+  for(let m=1;m<st.length;m++){if(s<=st[m][0]){const a=st[m-1],b=st[m],t=(s-a[0])/(b[0]-a[0]);const c=a[1].map((v,q)=>Math.round(v+(b[1][q]-v)*t));return'rgb('+c[0]+','+c[1]+','+c[2]+')';}}return'rgb(200,0,0)';}
+const VentLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','vent-cv');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);
+    L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    if(!ventData)return; const W=ventData,nx=W.nx,ny=W.ny,B=W.bbox,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
+    const p0=m.latLngToContainerPoint([B[3],B[0]]),p1=m.latLngToContainerPoint([B[3],B[0]+dlon]);
+    const cell=Math.max(.001,Math.abs(p1.x-p0.x)),step=Math.max(1,Math.round(24/cell)),LN=14;
+    for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){const k=j*nx+i;if(W.sea[k])continue;
+      const lat=B[3]-j*dlat,lon=B[0]+i*dlon,p=m.latLngToContainerPoint([lat,lon]);
+      if(p.x<-20||p.y<-20||p.x>s.x+20||p.y>s.y+20)continue;
+      const u=W.u[k],v=W.v[k],sp=Math.hypot(u,v);if(sp<0.05)continue;
+      const sx=u/sp,sy=-v/sp,x1=p.x+sx*LN/2,y1=p.y+sy*LN/2;
+      ctx.strokeStyle=ctx.fillStyle=ventColor(sp);ctx.lineWidth=1.6;
+      ctx.beginPath();ctx.moveTo(p.x-sx*LN/2,p.y-sy*LN/2);ctx.lineTo(x1,y1);ctx.stroke();
+      const ah=4.5,an=Math.atan2(sy,sx);ctx.beginPath();ctx.moveTo(x1,y1);
+      ctx.lineTo(x1-ah*Math.cos(an-.5),y1-ah*Math.sin(an-.5));ctx.lineTo(x1-ah*Math.cos(an+.5),y1-ah*Math.sin(an+.5));
+      ctx.closePath();ctx.fill();}}
+});
+function ventCardinal(d){return['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'][Math.round(d/22.5)%16];}
+$('ventOn').addEventListener('change',e=>{
+  ventClickOn=e.target.checked;
+  if(ventClickOn){
+    if(!ventData) carregaVent();
+    if(!ventLayer) ventLayer=new VentLayer(); ventLayer.addTo(map);
+    const bins=[[1,'&lt; 7'],[3,'7–14'],[5,'14–22'],[7,'22–29'],[9,'&gt; 29']];
+    $('ventLeg').style.display='block';
+    $('ventLeg').innerHTML='<b>km/h</b>'+bins.map(b=>'<span style="display:inline-block;width:13px;height:9px;background:'+ventColor(b[0])+';margin:0 3px 0 9px;vertical-align:middle"></span>'+b[1]).join('');
+  } else { if(ventLayer) map.removeLayer(ventLayer); $('ventLeg').style.display='none'; }
+});
+map.on('click',e=>{
+  if(!ventClickOn||!ventData) return;
+  const W=ventData,B=W.bbox,dlon=(B[1]-B[0])/(W.nx-1),dlat=(B[3]-B[2])/(W.ny-1);
+  const i=Math.round((e.latlng.lng-B[0])/dlon),j=Math.round((B[3]-e.latlng.lat)/dlat);
+  if(i<0||i>=W.nx||j<0||j>=W.ny) return; const k=j*W.nx+i;
+  let h; if(W.sea[k]) h='🌊 Mar (sense dada)';
+  else{const u=W.u[k],v=W.v[k],sp=Math.hypot(u,v),df=(Math.atan2(-u,-v)*180/Math.PI+360)%360;
+    h='<b>Vent</b>: '+(sp*3.6).toFixed(1)+' km/h<br><b>Direcció</b>: '+Math.round(df)+'° ('+ventCardinal(df)+')';}
+  L.popup().setLatLng(e.latlng).setContent(h).openOn(map);
+});
 $('enter').onclick=provaEntrar;
 $('pass').addEventListener('keydown',e=>{if(e.key==='Enter')provaEntrar();});
 $('calArxiu').addEventListener('click',e=>{

@@ -509,6 +509,14 @@ def main():
         json.dump(blob, f)
     print("OK -> dades_privat.enc  (%d estacions: %d AEMET + %d Meteocat)" % (len(estacions), len(a), len(m)))
 
+    # --- camp de vents diagnòstic (capa privada) ---
+    try:
+        from camp_vents import escriu_vent
+        nv = escriu_vent(estacions, PASSWORD)
+        print("OK -> vent_privat.enc  (camp de vents, %d estacions amb vent)" % nv)
+    except Exception as ex:  # mai ha de bloquejar l'actualització operativa
+        print("  AVIS: camp de vents no generat (%s)" % str(ex)[:120])
+
     print("Arxivant històric per dies...")
     try:
         arxiva(estacions)
