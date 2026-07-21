@@ -41,7 +41,11 @@ jobs:
         run: |
           git config user.name "aemet-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add dades_privat.enc vent_privat.enc meteocat_estacions.json arxiu
+          for f in dades_privat.enc vent_privat.enc meteocat_estacions.json; do
+            [ -f "$f" ] && git add "$f" || echo "avis: $f no existeix, no s'afig"
+          done
+          [ -d arxiu ] && git add arxiu || echo "avis: sense carpeta arxiu"
+          [ -d arxiu-vent ] && git add arxiu-vent || echo "avis: sense carpeta arxiu-vent"
           git commit -m "Actualitza mapa privat (AEMET+Meteocat)" || echo "sense canvis"
           for i in 1 2 3; do
             git pull --rebase --autostash origin main && git push && break || sleep 6
