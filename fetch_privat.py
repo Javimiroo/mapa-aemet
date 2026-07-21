@@ -523,6 +523,13 @@ def main():
     except Exception as ex:  # l'arxiu no ha de bloquejar mai l'actualització operativa
         print("  avis: arxiu no completat (%s)" % ex)
 
+    # --- arxiu HORARI del camp de vents dels dies ja tancats ---
+    try:
+        from arxiu_vent import backfill
+        backfill(PASSWORD, max_dies=3)
+    except Exception as ex:
+        print("  avis: arxiu de vent no completat (%s)" % str(ex)[:100])
+
 
 if __name__ == "__main__":
     main()
