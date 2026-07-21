@@ -108,22 +108,41 @@ def genera_camp(winds, grid_path=None, nxT=160, nyT=120):
     return {"bbox": [LON0, LON1, LAT0, LAT1], "nx": nxT, "ny": nyT, "u": us, "v": vs, "sea": se}
 
 
-def winds_per_hora(estacions):
-    """{t_iso: [{lat,lon,alt,u,v}, ...]} a partir de l'històric HORARI de les estacions."""
+def winds_per_hora(estacions, inclou_actual=True):
+    """{t_iso: [{lat,lon,alt,u,v}, ...]} a partir de l'històric de les estacions.
+
+    IMPORTANT: l'històric només guarda les lectures en punt (:00), però la lectura
+    'actual' (la que pinta la barba al mapa) sol ser la de :30. Si no l'afegíem,
+    el camp de vents quedava mitja hora endarrerit respecte de les barbes i no
+    coincidien (fins a 130° de diferència de direcció). Per això s'afig com a
+    fotograma propi, amb la seua hora.
+    """
     d = {}
     for e in estacions:
         lat, lon = e.get("lat"), e.get("lon")
         if lat is None or lon is None:
             continue
         alt = e.get("alt") or 0.0
-        for row in (e.get("historic") or []):
-            t, vv, dv = row.get("t"), row.get("vv"), row.get("dv")
-            if not t or vv is None or dv is None:
-                continue
+
+        def _afig(t, vv, dv):
             sp = vv / 3.6            # km/h -> m/s
             r = math.radians(dv)
             d.setdefault(t, []).append({"lat": lat, "lon": lon, "alt": alt,
                                         "u": -sp * math.sin(r), "v": -sp * math.cos(r)})
+
+        vistos = set()
+        for row in (e.get("historic") or []):
+            t, vv, dv = row.get("t"), row.get("vv"), row.get("dv")
+            if not t or vv is None or dv is None:
+                continue
+            vistos.add(t)
+            _afig(t, vv, dv)
+
+        if inclou_actual:
+            a = e.get("actual") or {}
+            t, vv, dv = a.get("fint"), a.get("vv"), a.get("dv")
+            if t and t not in vistos and vv is not None and dv is not None:
+                _afig(t, vv, dv)
     return d
 
 
