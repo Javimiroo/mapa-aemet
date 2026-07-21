@@ -3,12 +3,12 @@ name: Actualitza mapa privat (AEMET + Meteocat)
 on:
   workflow_dispatch: {}   # manual (des del botó del mapa o des de la pestanya Actions)
   schedule:
-    # 1 actualització automàtica al dia (hora UTC). Ara Meteocat baixa AHIR+HUI amb
-    # 11 variables = 22 consultes/execució; 1/dia = ~660/mes (marge per a les manuals,
-    # dins del límit de 750/mes). Com que baixem ahir+hui, l'històric queda SEMPRE
-    # complet passe el que passe amb els horaris; la frescor puntual la dona el botó
-    # manual. NOTA: si es puja la quota de Meteocat, es pot tornar a 2-4/dia.
-    - cron: "35 11 * * *"
+    # HORÀRIA. Des que XEMA es baixa per Dades Obertes (sense quota mensual) la
+    # freqüència ja no la limita Meteocat: el portal publica per blocs ~horaris amb
+    # 30-90 min de retard, així que actualitzar cada hora és l'òptim (més sovint
+    # seria rebaixar les mateixes dades). El repo no creix perquè les dades vives
+    # van a la branca 'dades' amb force-push; a 'main' només hi va l'arxiu (1/dia).
+    - cron: "10 * * * *"
 
 permissions:
   contents: write
@@ -37,16 +37,37 @@ jobs:
           MAPA_PASS: ${{ secrets.MAPA_PASS }}
         run: python fetch_privat.py
 
-      - name: Publica (dades xifrades + coordenades)
+      # 1) ARXIU: historial normal a 'main' (només canvia quan es tanca un dia)
+      - name: Publica l'arxiu (main)
         run: |
           git config user.name "aemet-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in dades_privat.enc vent_privat.enc meteocat_estacions.json; do
-            [ -f "$f" ] && git add "$f" || echo "avis: $f no existeix, no s'afig"
+          [ -f meteocat_estacions.json ] && git add meteocat_estacions.json || true
+          [ -d arxiu ] && git add arxiu || true
+          [ -d arxiu-vent ] && git add arxiu-vent || true
+          if git commit -m "Arxiu (AEMET+Meteocat)"; then
+            for i in 1 2 3; do
+              git pull --rebase --autostash origin main && git push && break || sleep 6
+            done
+          else
+            echo "sense canvis a l'arxiu"
+          fi
+
+      # 2) DADES VIVES: branca 'dades' SENSE historial (força-push d'un únic commit).
+      #    Així el repo no creix encara que actualitzem cada hora, i no dispara Pages.
+      - name: Publica les dades vives (branca 'dades')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PUB=$(mktemp -d)
+          for f in dades_privat.enc vent_privat.enc; do
+            [ -f "$f" ] && cp "$f" "$PUB/" || echo "avis: $f no existeix"
           done
-          [ -d arxiu ] && git add arxiu || echo "avis: sense carpeta arxiu"
-          [ -d arxiu-vent ] && git add arxiu-vent || echo "avis: sense carpeta arxiu-vent"
-          git commit -m "Actualitza mapa privat (AEMET+Meteocat)" || echo "sense canvis"
-          for i in 1 2 3; do
-            git pull --rebase --autostash origin main && git push && break || sleep 6
-          done
+          if [ -z "$(ls -A "$PUB")" ]; then echo "res a publicar"; exit 0; fi
+          cd "$PUB"
+          git init -q -b dades
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "dades $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dades
+          echo "publicat a la branca 'dades' ($(ls | tr '\n' ' '))"
