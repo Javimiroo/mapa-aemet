@@ -425,7 +425,22 @@
       <div class="updated" id="updated"></div>
       <button class="btn primary" id="actualitzar" style="width:100%;margin-top:9px">⬇ Actualitzar (baixa dades noves)</button>
       <button class="btn" id="refresh" style="width:100%;margin-top:6px">↻ Recarregar (sense baixar)</button>
-      <div class="muted" style="font-size:11px;margin-top:8px">Actualització MANUAL: «Actualitzar» baixa dades noves d'AEMET/Meteocat (màx. 1 cop/hora). «Recarregar» torna a llegir les últimes publicades. Dades de Meteocat © Servei Meteorològic de Catalunya.</div>
+      <div id="rateInfo" style="display:none;font-size:11px;margin-top:8px;padding:7px 9px;border-radius:7px;
+           background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.45);color:#fbbf24"></div>
+      <div class="muted" style="font-size:11px;margin-top:8px;line-height:1.55">
+        <b style="color:var(--txt)">🕐 S'actualitza sol cada hora.</b> La font (Meteocat) publica les dades
+        per blocs aproximadament horaris i amb 30–90 min de retard, així que demanar-les més sovint
+        <b>no en dona de més fresques</b>.
+        <div style="margin-top:7px">
+          <b style="color:var(--txt)">↻ Recarregar</b> — instantani i sense límit. Torna a llegir l'última
+          publicació sense molestar la font. <b>És el que has de fer servir normalment.</b>
+        </div>
+        <div style="margin-top:5px">
+          <b style="color:var(--txt)">⬇ Actualitzar</b> — força una baixada nova de la font. Només cal si
+          l'automàtica va tard. Com que és compartit per tot l'equip, està limitat a 1 cop cada 30 min.
+        </div>
+        <div style="margin-top:7px">Dades de Meteocat © Servei Meteorològic de Catalunya.</div>
+      </div>
     </div>
   </div>
   <div id="map"></div>
@@ -1733,6 +1748,20 @@ $('refresh').onclick=async()=>{
 const WORKER_URL='https://actualitza-mapa.javiermiroo.workers.dev';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function appPass(){ try{return localStorage.getItem('app_pass')||'';}catch(e){return '';} }
+let rateTimer=null;
+function mostraEspera(mins){          // compte enrere visible sota els botons
+  const el=$('rateInfo'); if(!el) return;
+  const fi=Date.now()+(parseInt(mins,10)||0)*60000;
+  const pinta=()=>{
+    const q=Math.ceil((fi-Date.now())/60000);
+    if(q<=0){ el.style.display='none'; el.textContent=''; clearInterval(rateTimer); rateTimer=null; return; }
+    el.style.display='block';
+    el.innerHTML='⏳ Pròxima <b>actualització manual</b> disponible d\'ací a <b>'+q+' min</b>.'
+                +'<br>Mentrestant, «↻ Recarregar» et dona l\'última publicació.';
+  };
+  if(rateTimer) clearInterval(rateTimer);
+  pinta(); rateTimer=setInterval(pinta,20000);
+}
 async function actualitzar(){
   if(!WORKER_URL){ alert('Cal configurar WORKER_URL al codi (la URL del teu Worker de Cloudflare).'); return; }
   let p=appPass();
@@ -1744,7 +1773,14 @@ async function actualitzar(){
     const r=await fetch(WORKER_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pass:p})});
     try{ d=await r.json(); }catch(e){}
     if(r.status===403||d.error==='password'){ try{localStorage.removeItem('app_pass');}catch(e){} alert('Contrasenya incorrecta.'); b.disabled=false;b.textContent=old; return; }
-    if(d.error==='rate'){ alert('Ja s\'ha actualitzat fa poc (és compartit per tot l\'equip).\nTorna d\'ací a '+(d.wait||'?')+' min.'); b.disabled=false;b.textContent=old; return; }
+    if(d.error==='rate'){
+      mostraEspera(d.wait);
+      alert('No fa falta actualitzar ara mateix.\n\n'
+           +'Les dades ja s\'actualitzen soles cada hora, i la font (Meteocat) publica per blocs\n'
+           +'aproximadament horaris amb 30-90 min de retard: ara mateix no n\'hi ha de més fresques.\n\n'
+           +'Podràs forçar una baixada nova d\'ací a '+(d.wait||'?')+' min.\n'
+           +'Mentrestant, prem «↻ Recarregar» per llegir l\'última publicació.');
+      b.disabled=false;b.textContent=old; return; }
     if(d.error==='running'){ alert('Ja hi ha una actualització en marxa; espera que acabe.'); b.disabled=false;b.textContent=old; return; }
     if(!(r.ok && d.ok)){ throw new Error(d.error||('HTTP '+r.status)); }
     const abans=DATA&&DATA.generat;
