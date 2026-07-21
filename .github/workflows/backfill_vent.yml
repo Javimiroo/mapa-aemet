@@ -1,0 +1,49 @@
+name: Backfill arxiu de vent (manual)
+
+# Recalcula el camp de vent HORARI de tots els dies ja arxivats que encara no el
+# tinguen, i el publica a arxiu-vent/. S'executa a mà quan calga (normalment
+# una sola vegada, per completar l'arxiu). El dia a dia ja el manté privat.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_dies:
+        description: "Màxim de dies a processar (0 = sense límit)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: privat
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instal·la dependències
+        run: pip install cryptography tzdata numpy scipy
+
+      - name: Genera l'arxiu de vent
+        env:
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: python arxiu_vent.py ${{ github.event.inputs.max_dies }}
+
+      - name: Publica
+        run: |
+          git config user.name "aemet-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          [ -d arxiu-vent ] && git add arxiu-vent || echo "avis: sense carpeta arxiu-vent"
+          git commit -m "Backfill arxiu de vent horari" || echo "sense canvis"
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin main && git push && break || sleep 6
+          done
