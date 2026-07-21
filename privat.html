@@ -229,6 +229,29 @@
       <div class="muted" style="font-size:10px;margin-top:5px">Topònims de l'ICGC · clica un resultat per centrar-hi el mapa</div>
     </div>
 
+    <div class="card coll collapsed">
+      <h2>🔥 Incendi</h2>
+      <div class="cardbody">
+        <label>Nom / lloc</label>
+        <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
+        <button class="btn" id="flama" style="width:100%;margin-top:8px">🔥 Situar incendi al mapa</button>
+        <div class="row" style="margin-top:8px">
+          <button class="btn small" id="perimBtn" style="flex:1">✏️ Dibuixar perímetre</button>
+          <button class="btn small" id="perimClear" style="flex:0 0 auto" title="Esborrar perímetre">🗑</button>
+        </div>
+        <p class="muted" id="perimHint" style="font-size:11px;margin:4px 0 0;display:none">Fes clic al mapa per marcar el contorn. Prem "Acabar" quan estiga.</p>
+        <label class="btn small" style="display:block;width:100%;margin-top:8px;text-align:center;cursor:pointer">📁 Importar perímetre (KML / GeoJSON)
+          <input type="file" id="perimFile" accept=".kml,.json,.geojson" style="display:none">
+        </label>
+        <div class="row" style="margin-top:10px;gap:6px">
+          <button class="btn primary" id="focGuarda" style="flex:1">💾 Guardar este incendi</button>
+          <button class="btn small" id="focSync" style="flex:0 0 auto" title="Refrescar la llista de l'equip">↻</button>
+        </div>
+        <div id="focList" style="margin-top:8px"></div>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>5 últims</b> (nom, flama i perímetre) i els veu <b>tot l'equip</b>. Clica'n un per tornar-lo a situar al mapa.</p>
+      </div>
+    </div>
+
     <div class="card">
       <h2>🌬️ Camp de vents</h2>
       <div class="cardbody">
@@ -389,21 +412,6 @@
       </div>
     </div>
 
-    <div class="card coll collapsed">
-      <h2>Exporta imatge</h2>
-      <div class="cardbody">
-        <label>Nom / lloc de l'incendi</label>
-        <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
-        <button class="btn" id="flama" style="width:100%;margin-top:8px">🔥 Situar incendi al mapa</button>
-        <div class="row" style="margin-top:8px">
-          <button class="btn small" id="perimBtn" style="flex:1">✏️ Dibuixar perímetre</button>
-          <button class="btn small" id="perimClear" style="flex:0 0 auto" title="Esborrar perímetre">🗑</button>
-        </div>
-        <p class="muted" id="perimHint" style="font-size:11px;margin:4px 0 0;display:none">Fes clic al mapa per marcar el contorn. Prem "Acabar" quan estiga.</p>
-        <button class="btn primary" id="exportar" style="width:100%;margin-top:8px">📷 Generar imatge</button>
-        <p class="muted" style="font-size:11px;margin:8px 0 0">Crea un PNG amb el/els mapes actuals, la marca Bombers, el nom de l'incendi, les llegendes i l'hora d'actualització.</p>
-      </div>
-    </div>
 
     <div class="card">
       <h2>Opcions</h2>
@@ -441,6 +449,11 @@
         </div>
         <div style="margin-top:7px">Dades de Meteocat © Servei Meteorològic de Catalunya.</div>
       </div>
+    </div>
+
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <button class="btn primary" id="exportar" style="width:100%">📷 Generar imatge</button>
+      <p class="muted" style="font-size:11px;margin:7px 0 0">PNG amb el/els mapes actuals, la marca Bombers, el nom i perímetre de l'incendi, les llegendes i l'hora.</p>
     </div>
   </div>
   <div id="map"></div>
@@ -1379,18 +1392,20 @@ async function generarImatge(){
     let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
-      if(ventClickOn && ventData && p.mapObj){        // fletxes de vent a la captura
-        const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight, VD=ventData, B=VD.bbox;
+      const VCexp = ventClickOn ? ventCtx() : null;
+      if(VCexp && p.mapObj){                          // fletxes de vent a la captura
+        const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight, VD=VCexp.W, B=VD.bbox;
         const dlon=(B[1]-B[0])/(VD.nx-1), dlat=(B[3]-B[2])/(VD.ny-1);
         const q0=p.mapObj.latLngToContainerPoint([B[3],B[0]]), q1=p.mapObj.latLngToContainerPoint([B[3],B[0]+dlon]);
         const cellpx=Math.max(.001,Math.abs(q1.x-q0.x))*sxp, stp=Math.max(1,Math.round(24*S/cellpx)), LN=13*S, ah=5.6*S, SPR=.62;
         c.lineCap='round'; c.lineJoin='round';
         c.shadowColor='rgba(0,0,0,.9)'; c.shadowBlur=3*S; c.shadowOffsetX=.8*S; c.shadowOffsetY=1*S;
-        for(let j=0;j<VD.ny;j+=stp)for(let i=0;i<VD.nx;i+=stp){ const k=j*VD.nx+i; if(VD.sea[k])continue;
+        for(let j=0;j<VD.ny;j+=stp)for(let i=0;i<VD.nx;i+=stp){ const k=j*VD.nx+i;
+          const uv=ventUV(VCexp,k); if(!uv)continue;
           const lat=B[3]-j*dlat, lon=B[0]+i*dlon, pt=p.mapObj.latLngToContainerPoint([lat,lon]);
           const X=x+pt.x*sxp, Y=mapY+pt.y*syp;
           if(X<x-30||Y<mapY-30||X>x+mapW+30||Y>mapY+mapH+30)continue;
-          const u=VD.u[k],v=VD.v[k],sp=Math.hypot(u,v); if(sp<0.05)continue;
+          const u=uv[0],v=uv[1],sp=Math.hypot(u,v); if(sp<0.05)continue;
           const ux=u/sp,uy=-v/sp,X0=X-ux*LN/2,Y0=Y-uy*LN/2,X1=X+ux*LN/2,Y1=Y+uy*LN/2,an=Math.atan2(uy,ux);
           const col=ventColor(sp);c.strokeStyle=col;c.fillStyle=col;c.lineWidth=1.8*S;
           c.beginPath();c.moveTo(X0,Y0);c.lineTo(X1,Y1);c.stroke();
@@ -1614,6 +1629,128 @@ async function provaEntrar(){
     $('pass').select();
   }
 }
+// ---------------- incendis: importar perímetre i guardar els 5 últims ----------------
+function importaPerim(txt, nomFitxer){
+  let pts=[];
+  if(/^\s*[\{\[]/.test(txt)){                       // GeoJSON
+    const g=JSON.parse(txt);
+    const rec=o=>{ if(!o) return;
+      if(o.type==='FeatureCollection') (o.features||[]).forEach(rec);
+      else if(o.type==='Feature') rec(o.geometry);
+      else if(o.type==='GeometryCollection') (o.geometries||[]).forEach(rec);
+      else if(o.type==='Polygon') ((o.coordinates||[])[0]||[]).forEach(c=>pts.push([c[1],c[0]]));
+      else if(o.type==='MultiPolygon') ((((o.coordinates||[])[0]||[])[0])||[]).forEach(c=>pts.push([c[1],c[0]]));
+      else if(o.type==='LineString') (o.coordinates||[]).forEach(c=>pts.push([c[1],c[0]]));
+    };
+    rec(g);
+  } else {                                          // KML
+    const doc=new DOMParser().parseFromString(txt,'text/xml');
+    const co=doc.getElementsByTagName('coordinates');
+    for(let n=0;n<co.length && pts.length<3;n++){
+      pts=[];
+      (co[n].textContent||'').trim().split(/\s+/).forEach(s=>{
+        const p=s.split(','); if(p.length>=2){ const lo=parseFloat(p[0]), la=parseFloat(p[1]);
+          if(isFinite(lo)&&isFinite(la)) pts.push([la,lo]); }
+      });
+    }
+  }
+  if(pts.length<3){ alert('No s\'ha trobat cap perímetre al fitxer.\n\nSi és un KMZ, descomprimeix-lo i puja el .kml de dins.'); return; }
+  perimLL=pts.map(p=>L.latLng(p[0],p[1])); redibuixaPerim();
+  map.fitBounds(L.latLngBounds(perimLL).pad(0.3));
+  if(nomFitxer && !$('incident').value.trim()) $('incident').value=nomFitxer.replace(/\.[^.]+$/,'');
+}
+$('perimFile').addEventListener('change',e=>{
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ try{ importaPerim(String(r.result), f.name); }
+                 catch(ex){ alert('No s\'ha pogut llegir el fitxer: '+(ex.message||ex)); } };
+  r.readAsText(f); e.target.value='';
+});
+
+// Es desen al Worker (KV) perquè els veja TOT l'equip. La còpia local només és
+// una reserva per si el Worker no respon (així mai et quedes sense veure'ls).
+const FOC_KEY='graf_focs';
+function focsLocal(){ try{ return JSON.parse(localStorage.getItem(FOC_KEY)||'[]'); }catch(e){ return []; } }
+function focsLocalDesa(a){ try{ localStorage.setItem(FOC_KEY, JSON.stringify(a.slice(0,5))); }catch(e){} }
+let focsCache=focsLocal();
+
+function passEquip(dem){
+  let p=null; try{ p=localStorage.getItem('app_pass'); }catch(e){}
+  if(!p && dem){ const t=prompt('Contrasenya de l\'equip (la mateixa que per actualitzar dades):');
+    if(!t) return null; p=t.trim(); try{ localStorage.setItem('app_pass',p); }catch(e){} }
+  return p;
+}
+async function focsAPI(accio,extra,dem){
+  const p=passEquip(dem!==false); if(!p) return null;
+  try{
+    const r=await fetch(WORKER_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({pass:p,accio:accio},extra||{}))});
+    const d=await r.json().catch(()=>({}));
+    if(d && d.ok && Array.isArray(d.focs)) return d.focs;
+    if(d && d.error==='password'){ try{localStorage.removeItem('app_pass');}catch(e){}
+      alert('Contrasenya de l\'equip incorrecta.'); }
+    else if(d && d.error==='kv') alert('Al Worker li falta el magatzem KV (binding «FOCS»).');
+  }catch(e){}
+  return null;
+}
+async function focsSync(nomesSiPass){
+  if(nomesSiPass && !passEquip(false)){ focsRender(); return; }
+  const a=await focsAPI('llista',null,!nomesSiPass);
+  if(a){ focsCache=a; focsLocalDesa(a); }
+  focsRender();
+}
+function focsRender(){
+  const el=$('focList'); if(!el) return;
+  if(!focsCache.length){ el.innerHTML='<div class="muted" style="font-size:11px">Encara no n\'hi ha cap de guardat.</div>'; return; }
+  el.innerHTML=focsCache.map(f=>{
+    const d=new Date(f.ts||Date.now());
+    const q=d.toLocaleDateString('ca-ES',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
+    const np=(f.perim&&f.perim.length>=3)?(' · perímetre '+f.perim.length+' pts'):'';
+    return '<div class="row" style="align-items:stretch;gap:5px;margin-top:5px">'
+      +'<button class="btn small focL" data-id="'+f.id+'" style="flex:1;text-align:left;line-height:1.3">🔥 '
+      +(f.nom||'(sense nom)')+'<br><span class="muted" style="font-size:10px">'+q+np+'</span></button>'
+      +'<button class="btn small focD" data-id="'+f.id+'" title="Esborrar per a tothom">🗑</button></div>';
+  }).join('');
+}
+async function focGuarda(){
+  if(!flameLL && perimLL.length<3){ alert('Situa la flama o dibuixa/importa un perímetre abans de guardar.'); return; }
+  const b=$('focGuarda'), old=b.textContent; b.disabled=true; b.textContent='Guardant…';
+  const foc={ nom:($('incident').value||'').trim()||'Incendi', ts:Date.now(),
+              flama: flameLL?{lat:flameLL.lat,lng:flameLL.lng}:null,
+              perim: perimLL.map(p=>({lat:+p.lat.toFixed(5),lng:+p.lng.toFixed(5)})) };
+  const a=await focsAPI('guarda',{foc});
+  if(a){ focsCache=a; focsLocalDesa(a); b.textContent='✓ Guardat'; }
+  else { foc.id='local'+Date.now(); focsCache=[foc].concat(focsCache).slice(0,5); focsLocalDesa(focsCache);
+         b.textContent='✓ Guardat (només ací)'; }
+  focsRender(); setTimeout(()=>{ b.textContent=old; b.disabled=false; },1800);
+}
+function focCarrega(id){
+  const f=focsCache.find(x=>String(x.id)===String(id)); if(!f) return;
+  $('incident').value=f.nom||'';
+  flameLL = f.flama ? L.latLng(f.flama.lat,f.flama.lng) : null;
+  posaFlames();
+  $('flama').textContent = flameLL ? '🔥 Llevar incendi del mapa' : '🔥 Situar incendi al mapa';
+  perimLL = (f.perim||[]).map(p=>L.latLng(p.lat,p.lng));
+  redibuixaPerim();
+  const pts=perimLL.slice(); if(flameLL) pts.push(flameLL);
+  if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.35));
+}
+$('focGuarda').addEventListener('click',focGuarda);
+$('focSync').addEventListener('click',()=>focsSync(false));
+$('focList').addEventListener('click',async e=>{
+  const bl=e.target.closest('.focL'), bd=e.target.closest('.focD');
+  if(bl) focCarrega(bl.dataset.id);
+  else if(bd){
+    if(!confirm('Esborrar este incendi per a tot l\'equip?')) return;
+    const a=await focsAPI('esborra',{id:bd.dataset.id});
+    if(a){ focsCache=a; focsLocalDesa(a); }
+    else { focsCache=focsCache.filter(x=>String(x.id)!==String(bd.dataset.id)); focsLocalDesa(focsCache); }
+    focsRender();
+  }
+});
+// ajornat: WORKER_URL es declara més avall, cal que el script haja acabat de carregar
+setTimeout(()=>focsSync(true),0);   // si ja hi ha contrasenya guardada, sincronitza sense preguntar
+
 // ---------------- capa de camp de vents (fletxes + vent al clic) ----------------
 const VENT_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/vent_privat.enc';
 let ventData=null, ventLayer=null, ventClickOn=false;
