@@ -1503,7 +1503,7 @@ async function desxifra(blob,pass){
 }
 // Llegim les dades directament de raw (l'últim commit), evitant el desplegament
 // de Pages, que és inestable. Si raw falla, provem el fitxer publicat per Pages.
-const DADES_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/dades_privat.enc';
+const DADES_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/dades_privat.enc';
 async function carregar(pass){
   let r=await fetch(DADES_URL+'?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
   if(!r||!r.ok) r=await fetch('dades_privat.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
@@ -1600,7 +1600,7 @@ async function provaEntrar(){
   }
 }
 // ---------------- capa de camp de vents (fletxes + vent al clic) ----------------
-const VENT_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/vent_privat.enc';
+const VENT_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/vent_privat.enc';
 let ventData=null, ventLayer=null, ventClickOn=false;
 // --- arxiu horari del camp de vents (mode revisió) ---
 const VENT_ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/arxiu-vent/';
