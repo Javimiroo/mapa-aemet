@@ -1505,7 +1505,7 @@ async function carregar(pass){
   if(!r||!r.ok) throw new Error('no-data');
   const blob=await r.json();
   DATA=await desxifra(blob,pass);
-  reviewMode=null; timeT=null; ventArxiu=null; // tornar sempre a directe en carregar dades vives
+  reviewMode=null; timeT=null; ventArxiu=null; ventArxiuDia=null; // tornar sempre a directe
   const rb=$('reviewBar'); if(rb) rb.style.display='none';
   if(calMes) renderCalArxiu();
   setUpdated(); setTimeT(null);
@@ -1576,7 +1576,7 @@ async function carregaDiaArxiu(dia){
 }
 async function tornaDirecte(){
   const rb=$('reviewBar'); if(rb) rb.style.display='none';
-  reviewMode=null; timeT=null; ventArxiu=null;
+  reviewMode=null; timeT=null; ventArxiu=null; ventArxiuDia=null;
   renderCalArxiu();
   try{ await carregar(PASS); }catch(e){}
 }
@@ -1599,34 +1599,43 @@ const VENT_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/vent
 let ventData=null, ventLayer=null, ventClickOn=false;
 // --- arxiu horari del camp de vents (mode revisió) ---
 const VENT_ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/arxiu-vent/';
-let ventArxiu=null;
+let ventArxiu=null, ventArxiuDia=null;
 function _b64u8(s){const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
-function decodeVentArxiu(p){
+function decodeVentHores(p){        // format horari compacte (directe i arxiu)
   const nx=p.nx,ny=p.ny,tot=nx*ny,mb=_b64u8(p.mask);
   const landPos=new Int32Array(tot).fill(-1); let n=0;
   for(let k=0;k<tot;k++) if((mb[k>>3]>>(7-(k&7)))&1) landPos[k]=n++;
   return {bbox:p.bbox,nx:nx,ny:ny,esc:p.esc,t:p.t,n:p.n,landPos:landPos,buf:new Int8Array(_b64u8(p.d).buffer)};
 }
+function diaKeyLocal(ms){const d=new Date(ms),p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
 async function carregaVentArxiu(dia){
-  ventArxiu=null;
+  if(ventArxiuDia===dia) return;          // ja carregat (o ja provat i no hi és)
+  ventArxiuDia=dia; ventArxiu=null;
   try{
     const r=await fetch(VENT_ARXIU_URL+dia+'.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
-    if(r&&r.ok) ventArxiu=decodeVentArxiu(await desxifra(await r.json(), PASS));
+    if(r&&r.ok) ventArxiu=decodeVentHores(await desxifra(await r.json(), PASS));
   }catch(e){ ventArxiu=null; }
   if(ventLayer&&ventClickOn) ventLayer.redraw();
 }
-function ventCtx(){                       // quin camp toca ara: arxiu (revisió) o directe
-  if(reviewMode && ventArxiu && ventArxiu.t.length){
-    const T=(typeof timeT!=='undefined'&&timeT!=null)?timeT:ventArxiu.t[ventArxiu.t.length-1];
-    let hi=0,best=Infinity;
-    for(let i=0;i<ventArxiu.t.length;i++){const d=Math.abs(ventArxiu.t[i]-T); if(d<best){best=d;hi=i;}}
-    return {W:ventArxiu,hi:hi,arx:true};
+function _frame(W,T){let hi=0,best=Infinity;
+  for(let i=0;i<W.t.length;i++){const d=Math.abs(W.t[i]-T);if(d<best){best=d;hi=i;}}
+  return {hi:hi,dist:best};}
+function ventCtx(){                       // fotograma que toca segons l'hora de la barra
+  const T=(typeof timeT!=='undefined'&&timeT!=null)?timeT
+        :(ventData&&ventData.t&&ventData.t.length?ventData.t[ventData.t.length-1]:Date.now());
+  if(ventData&&ventData.t&&ventData.t.length){          // 1) fitxer en directe (hores d'avui)
+    const f=_frame(ventData,T);
+    if(f.dist<=5400000) return {W:ventData,hi:f.hi,arx:false};
   }
-  if(!reviewMode && ventData) return {W:ventData,arx:false};
+  const dia=diaKeyLocal(T);                             // 2) arxiu horari d'eixe dia
+  if(ventArxiu&&ventArxiuDia===dia&&ventArxiu.t.length){
+    const f=_frame(ventArxiu,T); return {W:ventArxiu,hi:f.hi,arx:true};
+  }
+  if(ventClickOn&&ventArxiuDia!==dia) carregaVentArxiu(dia);
   return null;
 }
 function ventUV(C,k){
-  if(!C.arx){ const W=C.W; return W.sea[k]?null:[W.u[k],W.v[k]]; }
   const W=C.W,j=W.landPos[k]; if(j<0) return null;
   const o=(C.hi*W.n+j)*2; return [W.buf[o]*W.esc, W.buf[o+1]*W.esc];
 }
@@ -1635,8 +1644,9 @@ async function carregaVent(){
     let r=await fetch(VENT_URL+'?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
     if(!r||!r.ok) r=await fetch('vent_privat.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
     if(!r||!r.ok) return;
-    ventData=await desxifra(await r.json(), PASS);
-    const inf=$('ventInfo'); if(inf&&ventData.generat){const d=toDate(ventData.generat); if(d) inf.textContent='· '+fmtTemps(d.getTime());}
+    ventData=decodeVentHores(await desxifra(await r.json(), PASS));
+    const inf=$('ventInfo');
+    if(inf&&ventData.t.length) inf.textContent='· '+ventData.t.length+' h, fins '+fmtTemps(ventData.t[ventData.t.length-1]);
     if(ventLayer&&ventClickOn) ventLayer.redraw();
   }catch(e){}
 }
@@ -1654,18 +1664,18 @@ const VentLayer=L.Layer.extend({
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
     const VC=ventCtx(); if(!VC)return; const W=VC.W,nx=W.nx,ny=W.ny,B=W.bbox,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
     const p0=m.latLngToContainerPoint([B[3],B[0]]),p1=m.latLngToContainerPoint([B[3],B[0]+dlon]);
-    const cell=Math.max(.001,Math.abs(p1.x-p0.x)),step=Math.max(1,Math.round(26/cell)),LN=17;
+    const cell=Math.max(.001,Math.abs(p1.x-p0.x)),step=Math.max(1,Math.round(24/cell)),LN=12;
     for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){const k=j*nx+i;const uv=ventUV(VC,k);if(!uv)continue;
       const lat=B[3]-j*dlat,lon=B[0]+i*dlon,p=m.latLngToContainerPoint([lat,lon]);
       if(p.x<-20||p.y<-20||p.x>s.x+20||p.y>s.y+20)continue;
       const u=uv[0],v=uv[1],sp=Math.hypot(u,v);if(sp<0.05)continue;
       const sx=u/sp,sy=-v/sp,x0=p.x-sx*LN/2,y0=p.y-sy*LN/2,x1=p.x+sx*LN/2,y1=p.y+sy*LN/2;
-      const ah=6.0,an=Math.atan2(sy,sx);
+      const ah=3.8,an=Math.atan2(sy,sx);
       ctx.lineCap='round';ctx.lineJoin='round';
       const drawA=()=>{ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();
         ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x1-ah*Math.cos(an-.5),y1-ah*Math.sin(an-.5));ctx.lineTo(x1-ah*Math.cos(an+.5),y1-ah*Math.sin(an+.5));ctx.closePath();ctx.fill();};
-      ctx.strokeStyle=ctx.fillStyle='rgba(15,23,42,.85)';ctx.lineWidth=5.0;drawA();   // contorn fosc (visible sobre qualsevol fons)
-      const col=ventColor(sp);ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=2.4;drawA();  // fletxa de color
+      ctx.strokeStyle=ctx.fillStyle='rgba(255,255,255,.75)';ctx.lineWidth=2.6;drawA();   // halo suau
+      const col=ventColor(sp);ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=1.2;drawA();  // fletxa fina
       }}
 });
 function ventCardinal(d){return['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'][Math.round(d/22.5)%16];}
@@ -1689,7 +1699,7 @@ map.on('click',e=>{
   let h; if(!uv) h='🌊 Mar (sense dada)';
   else{const u=uv[0],v=uv[1],sp=Math.hypot(u,v),df=(Math.atan2(-u,-v)*180/Math.PI+360)%360;
     h='<b>Vent</b>: '+(sp*3.6).toFixed(1)+' km/h<br><b>Direcció</b>: '+Math.round(df)+'° ('+ventCardinal(df)+')'
-      +(VC.arx?'<br><small>arxiu · '+fmtTemps(W.t[VC.hi])+'</small>':'');}
+      +'<br><small>'+fmtTemps(W.t[VC.hi])+(VC.arx?' · arxiu':'')+'</small>';}
   L.popup().setLatLng(e.latlng).setContent(h).openOn(map);
 });
 $('enter').onclick=provaEntrar;

@@ -25,9 +25,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from camp_vents import genera_camp, xifrar, ITER
+from camp_vents import genera_camp, xifrar, ITER, ESC, winds_per_hora, empaqueta_hores
 
-ESC = 0.25          # m/s per unitat int8  (±31,75 m/s)
 ARXIU_DIR = "arxiu"
 OUT_DIR = "arxiu-vent"
 
@@ -50,63 +49,13 @@ def _iso(s):
         return None
 
 
-def winds_per_hora(estacions):
-    """{t_iso: [ {lat,lon,alt,u,v}, ... ]} a partir de l'històric de les estacions."""
-    d = {}
-    for e in estacions:
-        lat, lon = e.get("lat"), e.get("lon")
-        if lat is None or lon is None:
-            continue
-        alt = e.get("alt") or 0.0
-        for row in (e.get("historic") or []):
-            t, vv, dv = row.get("t"), row.get("vv"), row.get("dv")
-            if not t or vv is None or dv is None:
-                continue
-            sp = vv / 3.6            # km/h -> m/s
-            r = math.radians(dv)
-            d.setdefault(t, []).append({"lat": lat, "lon": lon, "alt": alt,
-                                        "u": -sp * math.sin(r), "v": -sp * math.cos(r)})
-    return d
-
-
 def genera_dia(dades_dia, grid_path=None):
-    """Retorna el payload compacte d'un dia, o None si no hi ha prou dades."""
+    """Payload compacte amb TOTES les hores d'un dia arxivat, o None."""
     perh = winds_per_hora(dades_dia.get("estacions") or [])
     hores = sorted(t for t, w in perh.items() if len(w) >= 5)
     if not hores:
         return None
-    camps = []
-    base = None
-    for t in hores:
-        try:
-            c = genera_camp(perh[t], grid_path)
-        except Exception:
-            continue
-        if base is None:
-            base = c
-        camps.append((t, c["u"], c["v"]))
-    if not camps or base is None:
-        return None
-
-    sea = np.array(base["sea"], dtype=bool)
-    land = ~sea
-    land_idx = np.nonzero(land)[0]
-    n = int(land_idx.size)
-    buf = np.zeros((len(camps), n, 2), dtype=np.int8)
-    ts = []
-    for h, (t, u, v) in enumerate(camps):
-        ua = np.asarray(u, dtype=float)[land_idx]
-        va = np.asarray(v, dtype=float)[land_idx]
-        buf[h, :, 0] = np.clip(np.round(ua / ESC), -127, 127).astype(np.int8)
-        buf[h, :, 1] = np.clip(np.round(va / ESC), -127, 127).astype(np.int8)
-        dt = _iso(t)
-        ts.append(int(dt.timestamp() * 1000) if dt else 0)
-    return {
-        "bbox": base["bbox"], "nx": base["nx"], "ny": base["ny"], "esc": ESC,
-        "mask": base64.b64encode(np.packbits(land.astype(np.uint8)).tobytes()).decode(),
-        "t": ts, "n": n,
-        "d": base64.b64encode(buf.tobytes()).decode(),
-    }
+    return empaqueta_hores(perh, hores, grid_path)
 
 
 def dies_arxiu(arxiu_dir=ARXIU_DIR):

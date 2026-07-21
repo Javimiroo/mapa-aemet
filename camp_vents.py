@@ -11,6 +11,7 @@ vents observats de les estacions. Reutilitza la graella de terreny precalculada
 """
 import os, re, math, json, base64
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import numpy as np
 from scipy.fft import dctn, idctn
 from scipy.ndimage import gaussian_filter
@@ -19,6 +20,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ITER = 200000
+ESC = 0.25                      # m/s per unitat int8 (quantització)
+TZ_LOCAL = ZoneInfo("Europe/Madrid")
 _HERE = os.path.dirname(os.path.abspath(__file__))
 GRID_DEFAULT = os.path.join(_HERE, "vent_grid.npz")
 
@@ -105,18 +108,50 @@ def genera_camp(winds, grid_path=None, nxT=160, nyT=120):
     return {"bbox": [LON0, LON1, LAT0, LAT1], "nx": nxT, "ny": nyT, "u": us, "v": vs, "sea": se}
 
 
-def _winds_de_estacions(estacions):
-    out = []
+def winds_per_hora(estacions):
+    """{t_iso: [{lat,lon,alt,u,v}, ...]} a partir de l'històric HORARI de les estacions."""
+    d = {}
     for e in estacions:
-        a = e.get("actual") or {}
-        vv = a.get("vv"); dv = a.get("dv")
-        if vv is None or dv is None or e.get("lat") is None or e.get("lon") is None:
+        lat, lon = e.get("lat"), e.get("lon")
+        if lat is None or lon is None:
             continue
-        sp = vv / 3.6  # km/h -> m/s
-        r = math.radians(dv)
-        out.append({"lat": e["lat"], "lon": e["lon"], "alt": e.get("alt") or 0.0,
-                    "u": -sp * math.sin(r), "v": -sp * math.cos(r)})
-    return out
+        alt = e.get("alt") or 0.0
+        for row in (e.get("historic") or []):
+            t, vv, dv = row.get("t"), row.get("vv"), row.get("dv")
+            if not t or vv is None or dv is None:
+                continue
+            sp = vv / 3.6            # km/h -> m/s
+            r = math.radians(dv)
+            d.setdefault(t, []).append({"lat": lat, "lon": lon, "alt": alt,
+                                        "u": -sp * math.sin(r), "v": -sp * math.cos(r)})
+    return d
+
+
+def empaqueta_hores(perh, hores, grid_path=None):
+    """Genera els camps de les hores donades i els empaqueta (int8, només terra)."""
+    camps = []; base = None
+    for t in hores:
+        try:
+            c = genera_camp(perh[t], grid_path)
+        except Exception:
+            continue
+        if base is None:
+            base = c
+        camps.append((t, c["u"], c["v"]))
+    if not camps or base is None:
+        return None
+    sea = np.array(base["sea"], dtype=bool); land = ~sea
+    land_idx = np.nonzero(land)[0]; n = int(land_idx.size)
+    buf = np.zeros((len(camps), n, 2), dtype=np.int8); ts = []
+    for h, (t, u, v) in enumerate(camps):
+        ua = np.asarray(u, dtype=float)[land_idx]; va = np.asarray(v, dtype=float)[land_idx]
+        buf[h, :, 0] = np.clip(np.round(ua / ESC), -127, 127).astype(np.int8)
+        buf[h, :, 1] = np.clip(np.round(va / ESC), -127, 127).astype(np.int8)
+        dt = _iso(t); ts.append(int(dt.timestamp() * 1000) if dt else 0)
+    return {"bbox": base["bbox"], "nx": base["nx"], "ny": base["ny"], "esc": ESC,
+            "mask": base64.b64encode(np.packbits(land.astype(np.uint8)).tobytes()).decode(),
+            "t": ts, "n": n,
+            "d": base64.b64encode(buf.tobytes()).decode()}
 
 
 def _iso(s):
@@ -130,19 +165,26 @@ def _iso(s):
         return None
 
 
-def escriu_vent(estacions, password, out_file="vent_privat.enc", grid_path=None):
-    winds = _winds_de_estacions(estacions)
-    camp = genera_camp(winds, grid_path)
-    # hora de l'OBSERVACIÓ (fint més recent de les estacions amb vent), no de càlcul
-    times = [_iso((e.get("actual") or {}).get("fint")) for e in estacions
-             if (e.get("actual") or {}).get("vv") is not None and (e.get("actual") or {}).get("dv") is not None]
-    times = [t for t in times if t]
-    camp["generat"] = (max(times).isoformat() if times
-                       else datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"))
-    blob = xifrar(json.dumps(camp, separators=(",", ":")), password)
+def escriu_vent(estacions, password, out_file="vent_privat.enc", grid_path=None, max_hores=26):
+    """Camp de vent HORARI del dia d'avui (fitxer en directe). Els dies tancats
+    els cobreix arxiu-vent/. Així la màquina del temps té camp a cada hora."""
+    perh = winds_per_hora(estacions)
+    disp = sorted(t for t, w in perh.items() if len(w) >= 5)
+    if not disp:
+        raise RuntimeError("sense hores amb vent")
+    avui = datetime.now(TZ_LOCAL).date()
+    hores = [t for t in disp if (_iso(t) or datetime.now(timezone.utc)).astimezone(TZ_LOCAL).date() == avui]
+    if not hores:                       # just després de mitjanit: agafem les últimes
+        hores = disp[-6:]
+    hores = hores[-max_hores:]
+    payload = empaqueta_hores(perh, hores, grid_path)
+    if not payload:
+        raise RuntimeError("no s'ha pogut generar cap camp")
+    payload["generat"] = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    blob = xifrar(json.dumps(payload, separators=(",", ":")), password)
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(blob, f)
-    return len(winds)
+    return len(payload["t"])
 
 
 if __name__ == "__main__":
