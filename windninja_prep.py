@@ -68,24 +68,32 @@ def baixa_dem(bbox, zoom=12):
 
 
 def escriu_dem_utm(big, transform, bbox, path, res_m=50):
-    """Reprojecta a UTM (zona automàtica) i retalla al bbox."""
+    """Reprojecta a UTM (zona automàtica) RETALLANT exactament al bbox demanat.
+
+    Important: el mosaic de tessel·les és més gran que el bbox (les tessel·les no
+    quadren amb la caixa). Si no es retalla, WindNinja treballa sobre un domini
+    molt més gran del necessari i tarda de més.
+    """
+    from rasterio.warp import transform_bounds
     lon0, lat0, lon1, lat1 = bbox
     zona = int(math.floor((0.5 * (lon0 + lon1) + 180) / 6) + 1)
     epsg = 32600 + zona if 0.5 * (lat0 + lat1) >= 0 else 32700 + zona
     src_crs = CRS.from_epsg(3857)
     dst_crs = CRS.from_epsg(epsg)
-    H, W = big.shape
-    l, t = transform.c, transform.f
-    r, b = l + W * transform.a, t + H * transform.e
-    dt, dw, dh = calculate_default_transform(src_crs, dst_crs, W, H, l, b, r, t, resolution=res_m)
-    dem = np.empty((dh, dw), "float32")
+    xmin, ymin, xmax, ymax = transform_bounds("EPSG:4326", dst_crs, lon0, lat0, lon1, lat1)
+    dw = max(2, int((xmax - xmin) / res_m))
+    dh = max(2, int((ymax - ymin) / res_m))
+    dt = Affine(res_m, 0, xmin, 0, -res_m, ymax)
+    dem = np.full((dh, dw), -9999.0, "float32")
     reproject(big, dem, src_transform=transform, src_crs=src_crs,
-              dst_transform=dt, dst_crs=dst_crs, resampling=Resampling.bilinear)
+              dst_transform=dt, dst_crs=dst_crs, resampling=Resampling.bilinear,
+              dst_nodata=-9999.0)
     with rasterio.open(path, "w", driver="GTiff", height=dh, width=dw, count=1,
                        dtype="float32", crs=dst_crs, transform=dt, nodata=-9999,
                        compress="deflate") as ds:
         ds.write(dem, 1)
-    print("  DEM UTM%d: %s  (%dx%d, %g m)" % (zona, path, dw, dh, res_m))
+    print("  DEM UTM%d: %s  (%dx%d, %g m -> %.1f x %.1f km)"
+          % (zona, path, dw, dh, res_m, dw * res_m / 1000.0, dh * res_m / 1000.0))
     return epsg
 
 
@@ -223,6 +231,35 @@ def escriu_proves(out, mesh, dem_src, n_est, dtiso):
     return proves
 
 
+def cfg_punts(dtiso):
+    """Bloc de configuració per a inicialització amb estacions (mode sèrie temporal)."""
+    d = datetime.strptime(dtiso[:16], "%Y-%m-%dT%H:%M")
+    t = (d.year, d.month, d.day, d.hour, d.minute)
+    return ("initialization_method = pointInitialization\n"
+            "wx_station_filename = /data/estacions\n"
+            "time_zone = UTC\n"
+            "start_year = %d\nstart_month = %d\nstart_day = %d\nstart_hour = %d\nstart_minute = %d\n"
+            "stop_year = %d\nstop_month = %d\nstop_day = %d\nstop_hour = %d\nstop_minute = %d\n"
+            "number_time_steps = 1\n" % (t + t))
+
+
+def escriu_zona(out, mesh, dem_src, n_est, dtiso):
+    """Mode producció: una sola carpeta llesta per a WindNinja amb estacions reals."""
+    if not n_est or not dtiso:
+        raise SystemExit("cal almenys una estació amb vent dins de la caixa")
+    d = os.path.join(out, "zona")
+    os.makedirs(d, exist_ok=True)
+    shutil.copy(dem_src, os.path.join(d, "dem.tif"))
+    est = os.path.join(d, "estacions")
+    if os.path.isdir(est):
+        shutil.rmtree(est)
+    shutil.copytree(os.path.join(out, "estacions"), est)
+    with open(os.path.join(d, "run.cfg"), "w", encoding="utf-8") as f:
+        f.write(BASE_CFG.format(mesh=mesh) + cfg_punts(dtiso))
+    print("  zona preparada: %s (%d estacions, obs. %s)" % (d, n_est, dtiso))
+    return d
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", default="0.68,41.08,1.18,41.45", help="lon0,lat0,lon1,lat1")
@@ -230,6 +267,8 @@ def main():
     ap.add_argument("--zoom", type=int, default=12)
     ap.add_argument("--res", type=float, default=50.0, help="resolució del DEM (m)")
     ap.add_argument("--mesh", type=float, default=100.0, help="mesh_resolution de WindNinja (m)")
+    ap.add_argument("--zona", action="store_true",
+                    help="mode producció: una sola execució amb estacions reals")
     a = ap.parse_args()
     bbox = tuple(float(x) for x in a.bbox.split(","))
     os.makedirs(a.out, exist_ok=True)
@@ -238,7 +277,10 @@ def main():
     dem = os.path.join(a.out, "dem.tif")
     escriu_dem_utm(big, tr, bbox, dem, a.res)
     n, dtiso = estacions_csv(bbox, os.path.join(a.out, "estacions"))
-    escriu_proves(a.out, a.mesh, dem, n, dtiso)
+    if a.zona:
+        escriu_zona(a.out, a.mesh, dem, n, dtiso)
+    else:
+        escriu_proves(a.out, a.mesh, dem, n, dtiso)
     print("Fet.")
 
 
