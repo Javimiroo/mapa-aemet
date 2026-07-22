@@ -247,8 +247,6 @@
           <button class="btn primary" id="focGuarda" style="flex:1">💾 Guardar este incendi</button>
           <button class="btn small" id="focSync" style="flex:0 0 auto" title="Refrescar la llista de l'equip">↻</button>
         </div>
-        <button class="btn" id="zonaCalc" style="width:100%;margin-top:8px">🌬️ Camp de vent fi d'aquesta zona</button>
-        <div id="zonaCalcInfo" class="muted" style="font-size:11px;margin-top:4px">Calcula amb WindNinja el vent d'alta resolució en una caixa de ~14 km al voltant de l'incendi (tarda un parell de minuts).</div>
         <div id="focList" style="margin-top:8px"></div>
         <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>5 últims</b> (nom, flama i perímetre) i els veu <b>tot l'equip</b>. Clica'n un per tornar-lo a situar al mapa.</p>
       </div>
@@ -262,7 +260,9 @@
         </label>
         <p class="muted" style="font-size:11px;margin:6px 0 0">Camp diagnòstic sobre el relleu a partir de les observacions. <b>Clica el mapa</b> per veure el vent d'un punt. <span id="ventInfo"></span></p>
         <div id="ventLeg" style="display:none;margin-top:7px;font-size:11px"></div>
-        <div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--line)">
+        <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
+          <button class="btn" id="zonaCalc" style="width:100%">🌬️ Calcular camp fi (WindNinja)</button>
+          <div id="zonaCalcInfo" class="muted" style="font-size:11px;margin:5px 0 10px">Calcularà el camp de vent de la zona de l'incendi seleccionat.</div>
           <label class="switch"><input type="checkbox" id="zonaOn"> Camp fi de zona (WindNinja)</label>
           <div id="zonaInfo" class="muted" style="font-size:11px;margin-top:4px">—</div>
           <p class="muted" style="font-size:11px;margin:6px 0 0">Camp d'alta resolució sobre la caixa d'un incendi, calculat amb WindNinja a partir del relleu i les estacions. Es genera des d'Actions i es dibuixa per damunt del camp general.</p>
