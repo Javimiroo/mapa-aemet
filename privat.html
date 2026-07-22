@@ -284,6 +284,7 @@
             <span class="muted" style="font-size:11px">Opacitat</span>
             <input type="range" id="radarOpac" min="20" max="100" value="88" style="flex:1;accent-color:var(--accent)">
           </div>
+          <button class="btn small" id="estBtn" style="width:100%;margin-top:8px">📊 Estudi d'àrea (alçada màx)</button>
         </div>
         <p class="muted" style="font-size:11px;margin:8px 0 0">La capa <b>segueix la màquina del temps</b> (mou la barra i es mouen alhora meteo i radar). Els botons <b>◀ ▶</b> i <b>Animar</b> passen l'echotop del dia frame a frame i <b>amaguen les dades meteo</b> per veure'l net; <b>mou la barra del temps per tornar</b>. Radar/echotop d'AEMET (tota la península).</p>
       </div>
@@ -495,6 +496,22 @@
   </div>
   <div id="windleg"></div>
   <div id="reviewBar"><span>🕐 <b id="reviewTxt"></b></span><button id="reviewExit">↩ Tornar al directe</button></div>
+</div>
+
+<div id="estModal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
+  <div style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:12px;padding:16px;max-width:min(780px,95vw);width:780px;box-shadow:0 12px 44px rgba(0,0,0,.55)">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <b id="estTitol">📊 Estudi d'àrea — alçada màxima del tope</b>
+      <button class="btn small" id="estClose">✕</button>
+    </div>
+    <canvas id="estCanvas" width="740" height="320" style="width:100%;margin-top:10px;background:#0b1220;border-radius:8px"></canvas>
+    <div id="estResum" style="font-size:12px;margin-top:8px;color:#cbd5e1"></div>
+    <div id="estProg" style="font-size:12px;margin-top:6px;color:#94a3b8"></div>
+    <div class="row" style="gap:8px;margin-top:10px">
+      <button class="btn small" id="estRefer" style="flex:1">↺ Nova selecció</button>
+      <button class="btn small" id="estPNG">💾 Desar gràfica</button>
+    </div>
+  </div>
 </div>
 
 <div id="chartModal">
@@ -1840,9 +1857,11 @@ function radNearest(T){
 }
 function radShowFrame(i){
   if(i<0){ if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} radLast=-1;
-    const inf=$('radarInfo'); if(inf) inf.textContent='sense dada a esta hora'; return; }
+    const inf=$('radarInfo'); if(inf) inf.textContent='sense dada a esta hora'; radAltLoaded=false; return; }
+  const f=radFrames[i];
+  if(radModeOn){ if($('radarProd').value!=='composit') radCarregaAlt(f.path); else radAltLoaded=false; }
   if(i===radLast && radOverlay) return;
-  radLast=i; const f=radFrames[i], tok=++radTok;
+  radLast=i; const tok=++radTok;
   radUrl(f.path,url=>{ if(tok!==radTok) return;
     const nou=L.imageOverlay(url,RAD_BOUNDS,{opacity:($('radarOpac').value/100),zIndex:350}).addTo(map);
     if(radOverlay) map.removeLayer(radOverlay); radOverlay=nou; });
@@ -1868,7 +1887,7 @@ function radModeEnter(){            // entra en mode echotop: amaga meteo i posa
   const near=radNearest(radRefT()); radModeK=radModeIdx.indexOf(near); if(radModeK<0) radModeK=radModeIdx.length-1;
   radShowFrame(radModeIdx[radModeK]); return true;
 }
-function radModeExit(){ radAturaAnim(); if(radModeOn){ radModeOn=false; radMeteoHide(false); radSync(); } }
+function radModeExit(){ radAturaAnim(); if(radModeOn){ radModeOn=false; radMeteoHide(false); radSync(); } radAltHide(); }
 function radModeStep(d){ radAturaAnim(); if(!radModeEnter()) return;
   radModeK=(radModeK+d+radModeIdx.length)%radModeIdx.length; radShowFrame(radModeIdx[radModeK]); }
 function radAnimaToggle(){
@@ -1877,13 +1896,114 @@ function radAnimaToggle(){
   $('radarPlay').textContent='⏸ Aturar';
   radAnim=setInterval(()=>{ radModeK=(radModeK+1)%radModeIdx.length; radShowFrame(radModeIdx[radModeK]); },650);
 }
-function radLleva(){ radAturaAnim(); radModeOn=false; radMeteoHide(false); if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} $('radarBar').style.display='none'; radLast=-1; }
+function radLleva(){ radAturaAnim(); radModeOn=false; radMeteoHide(false); radAltHide(); if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} $('radarBar').style.display='none'; radLast=-1; }
 $('radarOn').addEventListener('change',e=>{ if(e.target.checked){ if(!radManifest) radCarregaManifest(); else radConstrueixFrames(); } else radLleva(); });
 $('radarProd').addEventListener('change',()=>{ if($('radarOn').checked){ radModeExit(); radConstrueixFrames(); } });
 $('radarPrev').addEventListener('click',()=>radModeStep(-1));
 $('radarNext').addEventListener('click',()=>radModeStep(1));
 $('radarPlay').addEventListener('click',radAnimaToggle);
 $('radarOpac').addEventListener('input',()=>{ if(radOverlay) radOverlay.setOpacity($('radarOpac').value/100); });
+
+// ── alçada del tope al cursor (NOMÉS en mode echotop) ──
+const RAD_ALT={1:'1–2 km',2:'2–3 km',3:'3–4 km',4:'4–5 km',5:'5–6 km',6:'6–7 km',7:'7–8 km',8:'8–10 km',9:'10–12 km',10:'12–14 km',11:'14–16 km',12:'16–20 km',13:'>20 km'};
+let _radAltCv=null,_radAltCtx=null,radAltLoaded=false;
+function radCarregaAlt(path){
+  radAltLoaded=false;
+  if(!_radAltCv){ _radAltCv=document.createElement('canvas'); _radAltCv.width=1400; _radAltCv.height=850; _radAltCtx=_radAltCv.getContext('2d',{willReadFrequently:true}); }
+  const altUrl=(RADAR_BASE+path).replace(/\.png(\?.*)?$/,'_alt.png');
+  const img=new Image(); img.crossOrigin='anonymous';
+  img.onload=()=>{ try{ _radAltCtx.clearRect(0,0,1400,850); _radAltCtx.drawImage(img,0,0,1400,850); radAltLoaded=true; }catch(e){ radAltLoaded=false; } };
+  img.onerror=()=>{ radAltLoaded=false; };
+  img.src=altUrl;
+}
+function radAltTipEl(){ let t=document.getElementById('radAltTip'); if(!t){ t=document.createElement('div'); t.id='radAltTip';
+  t.style.cssText='position:fixed;z-index:5000;pointer-events:none;display:none;background:rgba(15,23,42,.9);color:#fff;padding:3px 8px;border-radius:6px;font:12px system-ui;border:1px solid rgba(255,255,255,.25)'; document.body.appendChild(t); } return t; }
+function radAltHide(){ radAltLoaded=false; const t=document.getElementById('radAltTip'); if(t) t.style.display='none'; }
+function radAltAt(latlng){          // classe d'alçada (1-13) o 0 en el punt donat
+  if(!radAltLoaded||!_radAltCtx) return 0;
+  const px=Math.floor((latlng.lng+9.5)*100), py=Math.floor((44.0-latlng.lat)*100);
+  if(px<0||px>=1400||py<0||py>=850) return 0;
+  try{ return _radAltCtx.getImageData(px,py,1,1).data[0]||0; }catch(e){ return 0; }
+}
+map.on('mousemove',e=>{
+  const t=radAltTipEl();
+  if(!radModeOn||!radAltLoaded){ t.style.display='none'; return; }
+  const cls=radAltAt(e.latlng), lab=RAD_ALT[cls];
+  if(!lab){ t.style.display='none'; return; }
+  t.style.display='block'; t.style.left=(e.originalEvent.clientX+14)+'px'; t.style.top=(e.originalEvent.clientY-10)+'px';
+  t.textContent='☁ tope '+lab;
+});
+map.on('mouseout',()=>{ const t=document.getElementById('radAltTip'); if(t) t.style.display='none'; });
+
+// ── Estudi d'àrea: alçada màxima del tope frame a frame (només echotop) ──
+const EST_KM={1:1.5,2:2.5,3:3.5,4:4.5,5:5.5,6:6.5,7:7.5,8:9,9:11,10:13,11:15,12:18,13:22};
+let estSel=false, estP0=null, estRect=null, estBusy=false, estSerie=[], estBounds=null;
+function estInicia(){
+  if(!radFrames.length){ alert('Activa la capa Echotop primer.'); return; }
+  if($('radarProd').value==='composit'){ alert('L\'estudi d\'alçada només va amb el producte Echotop.'); return; }
+  if(!radIdxDia().length){ alert('No hi ha frames d\'echotop d\'este dia a l\'arxiu.'); return; }
+  if(!radModeOn) radModeEnter();
+  estSel=true; estP0=null; if(estRect){ map.removeLayer(estRect); estRect=null; }
+  map.dragging.disable(); map.getContainer().style.cursor='crosshair';
+  const inf=$('radarInfo'); if(inf) inf.textContent='🖱 dibuixa un rectangle sobre la zona…';
+}
+map.on('mousedown',e=>{ if(!estSel) return; estP0=e.latlng;
+  estRect=L.rectangle(L.latLngBounds(estP0,estP0),{color:'#e67e22',weight:2,fillOpacity:.08,dashArray:'4',zIndex:600}).addTo(map); });
+map.on('mousemove',e=>{ if(estSel&&estP0&&estRect) estRect.setBounds(L.latLngBounds(estP0,e.latlng)); });
+map.on('mouseup',e=>{ if(!estSel||!estP0) return; estSel=false; map.dragging.enable(); map.getContainer().style.cursor='';
+  const b=L.latLngBounds(estP0,e.latlng); estP0=null;
+  if(b.getNorth()-b.getSouth()<0.02 || b.getEast()-b.getWest()<0.02){ alert('Rectangle massa xicotet, torna-ho a provar.'); return; }
+  estBounds=b; estCalcula(b);
+});
+function estMaxClasse(path,cx,px0,py0,w,h){
+  return new Promise(res=>{
+    const altUrl=(RADAR_BASE+path).replace(/\.png(\?.*)?$/,'_alt.png');
+    const img=new Image(); img.crossOrigin='anonymous';
+    img.onload=()=>{ let mx=0; try{ cx.clearRect(0,0,1400,850); cx.drawImage(img,0,0,1400,850);
+      const d=cx.getImageData(px0,py0,w,h).data; for(let k=0;k<d.length;k+=4){ if(d[k]>mx) mx=d[k]; } }catch(e){} res(mx); };
+    img.onerror=()=>res(0); img.src=altUrl;
+  });
+}
+async function estCalcula(b){
+  if(estBusy) return; estBusy=true;
+  const idx=radIdxDia();
+  const px0=Math.max(0,Math.floor((b.getWest()+9.5)*100)), px1=Math.min(1400,Math.ceil((b.getEast()+9.5)*100));
+  const py0=Math.max(0,Math.floor((44.0-b.getNorth())*100)), py1=Math.min(850,Math.ceil((44.0-b.getSouth())*100));
+  const w=Math.max(1,px1-px0), h=Math.max(1,py1-py0);
+  $('estModal').style.display='flex'; $('estProg').textContent='Calculant… 0/'+idx.length; estSerie=[];
+  const cv=document.createElement('canvas'); cv.width=1400; cv.height=850; const cx=cv.getContext('2d',{willReadFrequently:true});
+  for(let n=0;n<idx.length;n++){
+    const f=radFrames[idx[n]]; const cls=await estMaxClasse(f.path,cx,px0,py0,w,h);
+    estSerie.push({ts:f.ts,cls:cls,km:cls?EST_KM[cls]:0});
+    $('estProg').textContent='Calculant… '+(n+1)+'/'+idx.length;
+  }
+  $('estProg').textContent=''; estDibuixa(); estBusy=false;
+}
+function estDibuixa(){
+  const cv=$('estCanvas'), c=cv.getContext('2d'), W=cv.width, H=cv.height;
+  c.clearRect(0,0,W,H); c.fillStyle='#0b1220'; c.fillRect(0,0,W,H);
+  const S=estSerie; if(!S.length){ $('estResum').textContent='Sense dades.'; return; }
+  const pad={l:46,r:14,t:16,b:44}, gw=W-pad.l-pad.r, gh=H-pad.t-pad.b;
+  const ymax=Math.max(6,Math.ceil(Math.max.apply(null,S.map(s=>s.km))+1));
+  const X=i=>pad.l+(S.length>1?i/(S.length-1):0)*gw, Y=v=>pad.t+gh-(v/ymax)*gh;
+  c.strokeStyle='#334155'; c.fillStyle='#94a3b8'; c.font='11px system-ui'; c.lineWidth=1; c.textAlign='left';
+  for(let y=0;y<=ymax;y+=2){ const yy=Y(y); c.beginPath();c.moveTo(pad.l,yy);c.lineTo(W-pad.r,yy);c.stroke(); c.fillText(y+' km',6,yy+3); }
+  c.strokeStyle='#f59e0b'; c.lineWidth=2; c.beginPath();
+  S.forEach((s,i)=>{ i?c.lineTo(X(i),Y(s.km)):c.moveTo(X(i),Y(s.km)); }); c.stroke();
+  c.fillStyle='#fbbf24'; S.forEach((s,i)=>{ c.beginPath();c.arc(X(i),Y(s.km),2.6,0,7);c.fill(); });
+  c.fillStyle='#94a3b8'; c.textAlign='center'; const step=Math.max(1,Math.ceil(S.length/8));
+  S.forEach((s,i)=>{ if(i%step===0) c.fillText(s.ts.slice(11,16),X(i),H-pad.b+16); });
+  c.textAlign='left';
+  const peak=S.reduce((a,s)=>s.km>a.km?s:a,S[0]);
+  $('estResum').innerHTML = peak.cls
+    ? 'Pic màxim: <b>'+RAD_ALT[peak.cls]+'</b> a les <b>'+peak.ts.slice(11,16)+' UTC</b> · '+S.length+' frames analitzats'
+    : 'No s\'ha detectat cap eco dins de la zona en tot el dia.';
+}
+$('estBtn') && $('estBtn').addEventListener('click',estInicia);
+$('estClose') && $('estClose').addEventListener('click',()=>{ $('estModal').style.display='none'; });
+$('estRefer') && $('estRefer').addEventListener('click',()=>{ $('estModal').style.display='none'; estInicia(); });
+$('estPNG') && $('estPNG').addEventListener('click',()=>{ const a=document.createElement('a');
+  a.download='echotop_estudi.png'; a.href=$('estCanvas').toDataURL('image/png'); a.click(); });
 
 // ---------------- capa de camp de vents (fletxes + vent al clic) ----------------
 const VENT_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/vent_privat.enc';
