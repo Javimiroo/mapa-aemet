@@ -200,14 +200,22 @@ def escriu_proves(out, mesh, dem_src, n_est, dtiso):
 
     prep("t1_domini_massa", DOM)
     prep("t2_domini_moment", DOM + "momentum_flag = true\nnumber_of_iterations = 300\n")
-    if n_est:
+    if n_est and dtiso:
         est_dst = os.path.join(out, "t3_punts_massa", "estacions")
         os.makedirs(os.path.dirname(est_dst), exist_ok=True)
         if os.path.isdir(est_dst):
             shutil.rmtree(est_dst)
         shutil.copytree(os.path.join(out, "estacions"), est_dst)
+        # La inicialització per punts va en mode sèrie temporal: cal la finestra
+        # de temps. Com que les marques de les estacions són UTC, hi treballem.
+        d = datetime.strptime(dtiso[:16], "%Y-%m-%dT%H:%M")
+        t = (d.year, d.month, d.day, d.hour, d.minute)
         extra = ("initialization_method = pointInitialization\n"
-                 "wx_station_filename = /data/estacions\n")
+                 "wx_station_filename = /data/estacions\n"
+                 "time_zone = UTC\n"
+                 "start_year = %d\nstart_month = %d\nstart_day = %d\nstart_hour = %d\nstart_minute = %d\n"
+                 "stop_year = %d\nstop_month = %d\nstop_day = %d\nstop_hour = %d\nstop_minute = %d\n"
+                 "number_time_steps = 1\n" % (t + t))
         prep("t3_punts_massa", extra)
     with open(os.path.join(out, "PROVES.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(proves))
