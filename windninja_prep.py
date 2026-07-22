@@ -178,7 +178,6 @@ vegetation = brush
 mesh_resolution = {mesh}
 units_mesh_resolution = m
 write_ascii_output = true
-units_output_wind_speed = kph
 """
 
 DOM = """initialization_method = domainAverageInitialization
