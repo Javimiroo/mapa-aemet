@@ -247,6 +247,8 @@
           <button class="btn primary" id="focGuarda" style="flex:1">💾 Guardar este incendi</button>
           <button class="btn small" id="focSync" style="flex:0 0 auto" title="Refrescar la llista de l'equip">↻</button>
         </div>
+        <button class="btn" id="zonaCalc" style="width:100%;margin-top:8px">🌬️ Camp de vent fi d'aquesta zona</button>
+        <div id="zonaCalcInfo" class="muted" style="font-size:11px;margin-top:4px">Calcula amb WindNinja el vent d'alta resolució en una caixa de ~14 km al voltant de l'incendi (tarda un parell de minuts).</div>
         <div id="focList" style="margin-top:8px"></div>
         <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>5 últims</b> (nom, flama i perímetre) i els veu <b>tot l'equip</b>. Clica'n un per tornar-lo a situar al mapa.</p>
       </div>
@@ -1873,6 +1875,47 @@ const ZonaLayer=L.Layer.extend({
     }
     ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;}
 });
+async function zonaMostra(){          // activa la capa i enquadra la caixa
+  if(!zonaData) return;
+  $('zonaOn').checked=true;
+  if(!zonaLayer) zonaLayer=new ZonaLayer();
+  zonaLayer.addTo(map);
+  const B=zonaData.bbox; map.fitBounds([[B[2],B[0]],[B[3],B[1]]],{padding:[30,30]});
+}
+async function zonaCalcula(){         // dispara el càlcul a partir de la flama/perímetre
+  const c = flameLL || (perimLL.length>=3 ? L.latLngBounds(perimLL).getCenter() : null);
+  if(!c){ alert('Situa primer la flama al mapa (o dibuixa el perímetre) per saber quina zona s\'ha de calcular.'); return; }
+  const half=0.063, dlon=half/Math.max(0.2,Math.cos(c.lat*Math.PI/180));   // ~14 km de costat
+  const bbox=[(c.lng-dlon).toFixed(4),(c.lat-half).toFixed(4),(c.lng+dlon).toFixed(4),(c.lat+half).toFixed(4)].join(',');
+  const b=$('zonaCalc'), old=b.textContent, inf=$('zonaCalcInfo');
+  const p=passEquip(true); if(!p) return;
+  const abans=(zonaMeta&&zonaMeta.generat)||'';
+  b.disabled=true; b.textContent='Enviant…';
+  try{
+    const r=await fetch(WORKER_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pass:p,accio:'zona',bbox:bbox,nom:($('incident').value||'').trim()})});
+    const d=await r.json().catch(()=>({}));
+    if(d.error==='running'){ alert('Ja hi ha un càlcul de zona en marxa. Espera que acabe.'); b.disabled=false;b.textContent=old; return; }
+    if(!d.ok){ alert('No s\'ha pogut llançar el càlcul: '+(d.error||'?')+(d.detail?('\n'+d.detail):'')); b.disabled=false;b.textContent=old; return; }
+  }catch(e){ alert('Error de connexió amb el servei: '+(e.message||e)); b.disabled=false;b.textContent=old; return; }
+  inf.textContent='Càlcul llançat. Es descarrega WindNinja i es resol el camp; pots seguir treballant.';
+  for(let i=0;i<45;i++){
+    b.textContent='Calculant… '+(i*10)+' s';
+    await sleep(10000);
+    try{
+      const m=await fetch(ZONA_URL+'zona.json?_='+Date.now(),{cache:'no-store'}).then(x=>x.ok?x.json():null).catch(()=>null);
+      if(m&&m.generat&&m.generat!==abans){
+        zonaData=null; await carregaZona();
+        if(zonaData){ await zonaMostra(); b.textContent='✓ Camp fi llest'; inf.textContent='Camp calculat i dibuixat. Clica dins de la caixa per consultar el vent.'; }
+        else b.textContent='publicat, però no s\'ha pogut llegir';
+        setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
+      }
+    }catch(e){}
+  }
+  b.textContent='Tarda més del previst'; inf.textContent='Mira la pestanya Actions per veure si ha fallat.';
+  setTimeout(()=>{b.textContent=old;b.disabled=false;},5000);
+}
+$('zonaCalc').addEventListener('click',zonaCalcula);
 $('zonaOn').addEventListener('change',async e=>{
   if(e.target.checked){
     if(!zonaData) await carregaZona();
