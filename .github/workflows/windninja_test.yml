@@ -104,12 +104,26 @@ jobs:
       - name: T2 · solver de MASSA + MOMENT (CFD)
         continue-on-error: true
         run: |
-          set -o pipefail
+          IMG=${{ steps.img.outputs.IMG }}:latest
+          D="$PWD/wn/t2_domini_moment"
+          echo "--- com està construïda la imatge ---"
+          docker inspect -f 'ENTRYPOINT={{json .Config.Entrypoint}}  CMD={{json .Config.Cmd}}' $IMG
+          docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' $IMG | grep -iE 'foam|wm_project' | head -5
+          echo "--- blockMesh és accessible? ---"
+          docker run --rm --entrypoint sh   $IMG -c 'command -v blockMesh || echo "NO amb sh"'
+          docker run --rm --entrypoint bash $IMG -lc 'command -v blockMesh || echo "NO amb login shell"'
+          echo "=== INTENT A: entrypoint per defecte de la imatge ==="
           t0=$(date +%s)
-          /usr/bin/time -v docker run --rm -v "$PWD/wn/t2_domini_moment":/data \
-            --entrypoint ${{ steps.img.outputs.BIN }} ${{ steps.img.outputs.IMG }}:latest /data/run.cfg 2>&1 | tee wn/t2.log | tail -30
-          echo "=== T2 MOMENT: $(( $(date +%s) - t0 )) s ==="
-          ls -la wn/t2_domini_moment | head -20
+          docker run --rm -v "$D":/data $IMG WindNinja_cli /data/run.cfg 2>&1 | tee wn/t2.log | tail -20 || true
+          echo "A: $(( $(date +%s) - t0 )) s"
+          if ! ls "$D"/*.asc >/dev/null 2>&1; then
+            echo "=== INTENT B: carregant l'entorn d'OpenFOAM a mà ==="
+            t0=$(date +%s)
+            docker run --rm -v "$D":/data --entrypoint bash $IMG -lc \
+              'for f in /opt/openfoam*/etc/bashrc /opt/OpenFOAM*/etc/bashrc /usr/lib/openfoam/openfoam*/etc/bashrc; do [ -f "$f" ] && . "$f" && echo "carregat $f"; done; WindNinja_cli /data/run.cfg' 2>&1 | tee -a wn/t2.log | tail -20 || true
+            echo "B: $(( $(date +%s) - t0 )) s"
+          fi
+          echo "=== fitxers generats ==="; ls -la "$D" | head -20
 
       - name: T3 · inicialització per PUNTS (estacions reals)
         continue-on-error: true
