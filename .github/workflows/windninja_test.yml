@@ -79,7 +79,17 @@ jobs:
       - name: Opcions del CLI (per a saber els noms exactes dels paràmetres)
         continue-on-error: true
         run: |
-          docker run --rm --entrypoint ${{ steps.img.outputs.BIN }} ${{ steps.img.outputs.IMG }}:latest --help 2>&1 | tee wn/CLI_HELP.txt | head -60
+          docker run --rm --entrypoint ${{ steps.img.outputs.BIN }} ${{ steps.img.outputs.IMG }}:latest --help 2>&1 | tee wn/CLI_HELP.txt >/dev/null
+          docker run --rm --entrypoint ${{ steps.img.outputs.BIN }} ${{ steps.img.outputs.IMG }}:latest --runtime_options 2>&1 | tee wn/CLI_OPTIONS.txt >/dev/null
+          echo "opcions totals: $(grep -c -- '--' wn/CLI_OPTIONS.txt || echo 0)"
+          echo "--- les que fem servir hi són? ---"
+          for o in num_threads elevation_file initialization_method input_speed input_speed_units \
+                   input_direction input_wind_height units_input_wind_height output_wind_height \
+                   units_output_wind_height vegetation mesh_resolution units_mesh_resolution \
+                   write_ascii_output momentum_flag number_of_iterations wx_station_filename \
+                   output_path output_speed_units; do
+            grep -q -- "--$o" wn/CLI_OPTIONS.txt && echo "  OK   $o" || echo "  NO   $o"
+          done
 
       - name: T1 · solver de MASSA (vent mitjà)
         continue-on-error: true
