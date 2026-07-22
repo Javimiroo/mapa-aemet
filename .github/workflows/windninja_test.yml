@@ -1,0 +1,119 @@
+name: PROVA WindNinja en Docker (fase 2A)
+
+# Prova de viabilitat: comprova si WindNinja es pot executar al runner, quant
+# tarda cada solver i quanta memòria gasta. NO toca res del sistema en marxa:
+# els resultats es pugen com a artefactes per a descarregar-los i mirar-los.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bbox:
+        description: "Caixa lon0,lat0,lon1,lat1 (per defecte Prades–Montsant)"
+        required: false
+        default: "0.68,41.08,1.18,41.45"
+      mesh:
+        description: "Resolució de malla de WindNinja (m)"
+        required: false
+        default: "100"
+      dem_res:
+        description: "Resolució del DEM (m)"
+        required: false
+        default: "50"
+
+jobs:
+  prova:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Recursos del runner
+        run: |
+          echo "--- CPU ---";  nproc; lscpu | grep -m1 'Model name' || true
+          echo "--- RAM ---";  free -h
+          echo "--- Disc ---"; df -h / | tail -1
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Dependències
+        run: pip install numpy pillow rasterio
+
+      - name: Prepara DEM i estacions
+        run: |
+          python windninja_prep.py --bbox "${{ github.event.inputs.bbox }}" \
+            --out wn --res "${{ github.event.inputs.dem_res }}" \
+            --mesh "${{ github.event.inputs.mesh }}"
+          echo "--- contingut ---"; find wn -maxdepth 2 -type f | head -40
+          du -sh wn
+
+      - name: Descarrega la imatge de WindNinja
+        run: |
+          t0=$(date +%s)
+          docker pull firelab/windninja:latest
+          echo "PULL: $(( $(date +%s) - t0 )) s"
+          docker images firelab/windninja
+
+      - name: Opcions del CLI (per a saber els noms exactes dels paràmetres)
+        continue-on-error: true
+        run: |
+          docker run --rm firelab/windninja:latest WindNinja_cli --help 2>&1 | tee wn/CLI_HELP.txt | head -60
+
+      - name: T1 · solver de MASSA (vent mitjà)
+        continue-on-error: true
+        run: |
+          t0=$(date +%s)
+          /usr/bin/time -v docker run --rm -v "$PWD/wn/t1_domini_massa":/data \
+            firelab/windninja:latest WindNinja_cli /data/run.cfg 2>&1 | tee wn/t1.log | tail -25
+          echo "=== T1 MASSA: $(( $(date +%s) - t0 )) s ==="
+          ls -la wn/t1_domini_massa | head -20
+
+      - name: T2 · solver de MASSA + MOMENT (CFD)
+        continue-on-error: true
+        run: |
+          t0=$(date +%s)
+          /usr/bin/time -v docker run --rm -v "$PWD/wn/t2_domini_moment":/data \
+            firelab/windninja:latest WindNinja_cli /data/run.cfg 2>&1 | tee wn/t2.log | tail -30
+          echo "=== T2 MOMENT: $(( $(date +%s) - t0 )) s ==="
+          ls -la wn/t2_domini_moment | head -20
+
+      - name: T3 · inicialització per PUNTS (estacions reals)
+        continue-on-error: true
+        run: |
+          if [ -d wn/t3_punts_massa ]; then
+            t0=$(date +%s)
+            /usr/bin/time -v docker run --rm -v "$PWD/wn/t3_punts_massa":/data \
+              firelab/windninja:latest WindNinja_cli /data/run.cfg 2>&1 | tee wn/t3.log | tail -30
+            echo "=== T3 PUNTS: $(( $(date +%s) - t0 )) s ==="
+            ls -la wn/t3_punts_massa | head -20
+          else
+            echo "sense estacions: prova omesa"
+          fi
+
+      - name: Resum
+        if: always()
+        run: |
+          echo "================ RESUM ================"
+          for t in t1 t2 t3; do
+            if [ -f wn/$t.log ]; then
+              n=$(ls wn/${t}_*/*.asc 2>/dev/null | wc -l)
+              echo "$t -> $n fitxers .asc generats"
+              grep -iE "error|exception|fail" wn/$t.log | head -3 || true
+            fi
+          done
+          du -sh wn 2>/dev/null || true
+
+      - name: Puja els resultats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windninja-prova
+          retention-days: 14
+          path: |
+            wn/**/*.asc
+            wn/**/*.prj
+            wn/*.log
+            wn/CLI_HELP.txt
+            wn/**/run.cfg
+            wn/estacions/*.csv
