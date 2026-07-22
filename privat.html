@@ -274,19 +274,16 @@
           </select>
         </label>
         <div id="radarBar" style="display:none;margin-top:9px">
-          <div class="row" style="gap:5px;align-items:center">
-            <button class="btn small" id="radarPrev" title="Frame anterior">◀</button>
-            <button class="btn small" id="radarPlay" title="Reproduir">▶</button>
-            <button class="btn small" id="radarNext" title="Frame següent">▶▐</button>
+          <div class="row" style="gap:6px;align-items:center">
+            <button class="btn small" id="radarPlay" style="flex:1">▶ Animar echotop (dia)</button>
             <span id="radarInfo" class="muted" style="font-size:11px;flex:1;text-align:right">—</span>
           </div>
-          <input type="range" id="radarTl" min="0" max="0" value="0" style="width:100%;margin-top:7px;accent-color:var(--accent)">
-          <div class="row" style="gap:6px;align-items:center;margin-top:5px">
+          <div class="row" style="gap:6px;align-items:center;margin-top:7px">
             <span class="muted" style="font-size:11px">Opacitat</span>
             <input type="range" id="radarOpac" min="20" max="100" value="88" style="flex:1;accent-color:var(--accent)">
           </div>
         </div>
-        <p class="muted" style="font-size:11px;margin:8px 0 0">Radar i echotop d'AEMET (tota la península). Se centra a Catalunya; fes zoom out per veure la resta.</p>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">La capa <b>segueix la màquina del temps</b>: mou la barra de baix i es mouen alhora les dades meteo i el radar. El botó anima <b>només l'echotop</b> del dia seleccionat. Radar/echotop d'AEMET (tota la península).</p>
       </div>
     </div>
 
@@ -1131,6 +1128,7 @@ function setTimeT(T){
   }
   else { if(bar)bar.classList.add('tt'); $('tbLabel').textContent='🕘 '+fmtTemps(T); }
   if(ventClickOn&&ventLayer) ventLayer.redraw();   // el camp de vent segueix l'hora
+  if(typeof radSync==='function') radSync();        // el radar/echotop també
   render();
 }
 function tbStep(d){
@@ -1783,7 +1781,7 @@ const RADAR_BASE='https://javimiroo.github.io/radar-arxiu/';
 const RAD_BOUNDS=[[35.5,-9.5],[44.0,4.5]];
 function _radMercY(lat){return Math.log(Math.tan(Math.PI/4+lat*Math.PI/360));}
 const _RMN=_radMercY(44.0), _RMS=_radMercY(35.5);
-let radManifest=null, radFrames=[], radCur=0, radOverlay=null, radPlay=null, radWarpCache={}, radTok=0;
+let radManifest=null, radFrames=[], radOverlay=null, radAnim=null, radWarpCache={}, radTok=0, radLast=-1;
 function radWarp(img){                       // equirect 1400×850 -> Mercator
   const c=document.createElement('canvas'); c.width=1400; c.height=850;
   const ctx=c.getContext('2d'); ctx.imageSmoothingEnabled=false;
@@ -1805,50 +1803,56 @@ function radUrl(path,cb){
 }
 async function radCarregaManifest(){
   const inf=$('radarInfo'); if(inf) inf.textContent='carregant…';
-  try{
-    const r=await fetch(RADAR_BASE+'manifest.json?_='+Date.now(),{cache:'no-store'});
-    radManifest=await r.json(); radConstrueixFrames();
-  }catch(e){ radManifest=null; if(inf) inf.textContent='error'; }
+  try{ const r=await fetch(RADAR_BASE+'manifest.json?_='+Date.now(),{cache:'no-store'});
+       radManifest=await r.json(); radConstrueixFrames(); }
+  catch(e){ radManifest=null; if(inf) inf.textContent='error'; }
 }
 function radConstrueixFrames(){
-  radStop();
+  radAturaAnim();
   const prod=$('radarProd').value;
   const dict=(radManifest && (prod==='composit'?radManifest.composit:radManifest.echotop_composit))||{};
-  radFrames=Object.keys(dict).sort().map(ts=>({ts:ts,path:dict[ts]}));
-  const tl=$('radarTl'); tl.max=Math.max(0,radFrames.length-1);
-  radCur=Math.max(0,radFrames.length-1); tl.value=radCur;
+  radFrames=Object.keys(dict).sort().map(ts=>({ts:ts,t:Date.parse(ts),path:dict[ts]}));
   $('radarBar').style.display=radFrames.length?'block':'none';
-  if(radFrames.length) radMostra(radCur);
-  else { if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} const inf=$('radarInfo'); if(inf) inf.textContent='sense frames'; }
+  radLast=-1; radSync();
 }
-function radMostra(i){
-  if(!radFrames.length) return;
-  i=((i%radFrames.length)+radFrames.length)%radFrames.length; radCur=i;
-  $('radarTl').value=i;
-  const f=radFrames[i], tok=++radTok;
-  radUrl(f.path,url=>{
-    if(tok!==radTok) return;
+function radRefT(){                           // hora de referència = la de la màquina del temps
+  if(typeof timeT!=='undefined' && timeT!=null) return timeT;
+  const g=toDate(DATA&&DATA.generat); return g?g.getTime():Date.now();
+}
+function radNearest(T){
+  let hi=-1,best=Infinity;
+  for(let i=0;i<radFrames.length;i++){ const d=Math.abs(radFrames[i].t-T); if(d<best){best=d;hi=i;} }
+  return best<=45*60000 ? hi : -1;            // tolerància ±45 min
+}
+function radShowFrame(i){
+  if(i<0){ if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} radLast=-1;
+    const inf=$('radarInfo'); if(inf) inf.textContent='sense dada a esta hora'; return; }
+  if(i===radLast && radOverlay) return;
+  radLast=i; const f=radFrames[i], tok=++radTok;
+  radUrl(f.path,url=>{ if(tok!==radTok) return;
     const nou=L.imageOverlay(url,RAD_BOUNDS,{opacity:($('radarOpac').value/100),zIndex:350}).addTo(map);
-    if(radOverlay) map.removeLayer(radOverlay);
-    radOverlay=nou;
-  });
-  $('radarInfo').textContent=f.ts.replace('T',' ').replace(':00Z',' UTC');
+    if(radOverlay) map.removeLayer(radOverlay); radOverlay=nou; });
+  const inf=$('radarInfo'); if(inf) inf.textContent=f.ts.replace('T',' ').replace(':00Z',' UTC');
 }
-function radStop(){ if(radPlay){clearInterval(radPlay);radPlay=null;} const b=$('radarPlay'); if(b)b.textContent='▶'; }
-function radLleva(){ radStop(); if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} $('radarBar').style.display='none'; }
-$('radarOn').addEventListener('change',e=>{
-  if(e.target.checked){ if(!radManifest) radCarregaManifest(); else radConstrueixFrames(); }
-  else radLleva();
-});
+function radSync(){        // pinta el frame més pròxim a l'hora de la màquina del temps
+  if(!$('radarOn').checked || radAnim) return;
+  if(!radFrames.length){ if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} return; }
+  radShowFrame(radNearest(radRefT()));
+}
+function radDiaKey(ms){ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function radAturaAnim(){ if(radAnim){clearInterval(radAnim);radAnim=null;} const b=$('radarPlay'); if(b)b.textContent='▶ Animar echotop (dia)'; }
+function radAnimaToggle(){ // anima NOMÉS l'echotop del dia de referència (no toca les dades meteo)
+  if(radAnim){ radAturaAnim(); radSync(); return; }
+  const dia=radDiaKey(radRefT());
+  const idx=[]; for(let i=0;i<radFrames.length;i++) if(radDiaKey(radFrames[i].t)===dia) idx.push(i);
+  if(!idx.length){ alert('No hi ha frames de radar/echotop d\'este dia a l\'arxiu.'); return; }
+  $('radarPlay').textContent='⏸ Aturar'; let k=0; radShowFrame(idx[0]);
+  radAnim=setInterval(()=>{ k=(k+1)%idx.length; radShowFrame(idx[k]); },650);
+}
+function radLleva(){ radAturaAnim(); if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} $('radarBar').style.display='none'; radLast=-1; }
+$('radarOn').addEventListener('change',e=>{ if(e.target.checked){ if(!radManifest) radCarregaManifest(); else radConstrueixFrames(); } else radLleva(); });
 $('radarProd').addEventListener('change',()=>{ if($('radarOn').checked) radConstrueixFrames(); });
-$('radarPrev').addEventListener('click',()=>{ radStop(); radMostra(radCur-1); });
-$('radarNext').addEventListener('click',()=>{ radStop(); radMostra(radCur+1); });
-$('radarPlay').addEventListener('click',()=>{
-  if(radPlay){ radStop(); return; }
-  if(!radFrames.length) return;
-  $('radarPlay').textContent='⏸'; radPlay=setInterval(()=>radMostra(radCur+1),700);
-});
-$('radarTl').addEventListener('input',()=>{ radStop(); radMostra(parseInt($('radarTl').value,10)); });
+$('radarPlay').addEventListener('click',radAnimaToggle);
 $('radarOpac').addEventListener('input',()=>{ if(radOverlay) radOverlay.setOpacity($('radarOpac').value/100); });
 
 // ---------------- capa de camp de vents (fletxes + vent al clic) ----------------
