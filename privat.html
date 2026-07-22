@@ -260,6 +260,11 @@
         </label>
         <p class="muted" style="font-size:11px;margin:6px 0 0">Camp diagnòstic sobre el relleu a partir de les observacions. <b>Clica el mapa</b> per veure el vent d'un punt. <span id="ventInfo"></span></p>
         <div id="ventLeg" style="display:none;margin-top:7px;font-size:11px"></div>
+        <div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--line)">
+          <label class="switch"><input type="checkbox" id="zonaOn"> Camp fi de zona (WindNinja)</label>
+          <div id="zonaInfo" class="muted" style="font-size:11px;margin-top:4px">—</div>
+          <p class="muted" style="font-size:11px;margin:6px 0 0">Camp d'alta resolució sobre la caixa d'un incendi, calculat amb WindNinja a partir del relleu i les estacions. Es genera des d'Actions i es dibuixa per damunt del camp general.</p>
+        </div>
       </div>
     </div>
 
@@ -1806,6 +1811,77 @@ $('focList').addEventListener('click',async e=>{
 // ajornat: WORKER_URL es declara més avall, cal que el script haja acabat de carregar
 setTimeout(()=>focsSync(true),0);   // si ja hi ha contrasenya guardada, sincronitza sense preguntar
 
+// ---------------- capa de camp fi de ZONA (WindNinja) ----------------
+const ZONA_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/zona/';
+let zonaData=null, zonaLayer=null, zonaMeta=null;
+async function carregaZona(){
+  const inf=$('zonaInfo'); if(inf) inf.textContent='carregant…';
+  try{
+    zonaMeta=await fetch(ZONA_URL+'zona.json?_='+Date.now(),{cache:'no-store'})
+      .then(r=>r.ok?r.json():null).catch(()=>null);
+    const r=await fetch(ZONA_URL+'vent_zona.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+    if(!r||!r.ok){ if(inf) inf.textContent='encara no hi ha cap zona calculada'; return; }
+    const p=await desxifra(await r.json(), PASS);
+    zonaData=decodeVentHores(p);
+    if(inf) inf.innerHTML=((zonaMeta&&zonaMeta.nom)?('<b>'+zonaMeta.nom+'</b> · '):'')
+      +(p.t&&p.t.length?fmtTemps(p.t[0]):'')+' · malla '+(p.malla_m||'?')+' m'
+      +(p.avis?('<br><span style="color:#f59e0b">⚠ '+p.avis+'</span>'):'');
+  }catch(e){ if(inf) inf.textContent='error carregant la zona'; }
+}
+function zonaUV(ll){          // vent fi en un punt, o null si no aplica
+  if(!$('zonaOn')||!$('zonaOn').checked||!zonaData) return null;
+  const W=zonaData,B=W.bbox;
+  if(ll.lng<B[0]||ll.lng>B[1]||ll.lat<B[2]||ll.lat>B[3]) return null;
+  const i=Math.round((ll.lng-B[0])/((B[1]-B[0])/(W.nx-1)));
+  const j=Math.round((B[3]-ll.lat)/((B[3]-B[2])/(W.ny-1)));
+  if(i<0||i>=W.nx||j<0||j>=W.ny) return null;
+  const pos=W.landPos[j*W.nx+i]; if(pos<0) return null;
+  return [W.buf[pos*2]*W.esc, W.buf[pos*2+1]*W.esc];
+}
+const ZonaLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','zona-cv');
+    c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);
+    L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    if(!zonaData)return; const W=zonaData,B=W.bbox,nx=W.nx,ny=W.ny;
+    const dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
+    const a=m.latLngToContainerPoint([B[3],B[0]]), b=m.latLngToContainerPoint([B[2],B[1]]);
+    ctx.strokeStyle='rgba(245,158,11,.95)';ctx.lineWidth=1.5;ctx.setLineDash([6,4]);
+    ctx.strokeRect(a.x,a.y,b.x-a.x,b.y-a.y);ctx.setLineDash([]);
+    const p1=m.latLngToContainerPoint([B[3],B[0]+dlon]);
+    const cell=Math.max(.001,Math.abs(p1.x-a.x)),step=Math.max(1,Math.round(20/cell)),LN=13;
+    ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.shadowColor='rgba(0,0,0,.9)';ctx.shadowBlur=3;ctx.shadowOffsetX=.8;ctx.shadowOffsetY=1;
+    for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){
+      const pos=W.landPos[j*nx+i]; if(pos<0)continue;
+      const u=W.buf[pos*2]*W.esc, v=W.buf[pos*2+1]*W.esc, sp=Math.hypot(u,v); if(sp<0.05)continue;
+      const p=m.latLngToContainerPoint([B[3]-j*dlat,B[0]+i*dlon]);
+      if(p.x<-20||p.y<-20||p.x>s.x+20||p.y>s.y+20)continue;
+      const sx=u/sp,sy=-v/sp,x0=p.x-sx*LN/2,y0=p.y-sy*LN/2,x1=p.x+sx*LN/2,y1=p.y+sy*LN/2;
+      const ah=5.0,an=Math.atan2(sy,sx),col=ventColor(sp);
+      ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=1.8;
+      ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x1,y1);
+      ctx.lineTo(x1-ah*Math.cos(an-.62),y1-ah*Math.sin(an-.62));
+      ctx.lineTo(x1-ah*Math.cos(an+.62),y1-ah*Math.sin(an+.62));
+      ctx.closePath();ctx.fill();
+    }
+    ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;}
+});
+$('zonaOn').addEventListener('change',async e=>{
+  if(e.target.checked){
+    if(!zonaData) await carregaZona();
+    if(!zonaData){ e.target.checked=false; return; }
+    if(!zonaLayer) zonaLayer=new ZonaLayer(); zonaLayer.addTo(map);
+    const B=zonaData.bbox; map.fitBounds([[B[2],B[0]],[B[3],B[1]]],{padding:[30,30]});
+  } else if(zonaLayer) map.removeLayer(zonaLayer);
+});
+
 // ---------------- capa Radar / Echotop (AEMET, tota la península) ----------------
 const RADAR_BASE='https://javimiroo.github.io/radar-arxiu/';
 const RAD_BOUNDS=[[35.5,-9.5],[44.0,4.5]];
@@ -2106,6 +2182,14 @@ $('ventOn').addEventListener('change',e=>{
   } else { if(ventLayer) map.removeLayer(ventLayer); $('ventLeg').style.display='none'; }
 });
 map.on('click',e=>{
+  const zu=zonaUV(e.latlng);                    // dins d'una zona fina, mana WindNinja
+  if(zu){
+    const sp=Math.hypot(zu[0],zu[1]), df=(Math.atan2(-zu[0],-zu[1])*180/Math.PI+360)%360;
+    L.popup().setLatLng(e.latlng).setContent(
+      '<b>Vent</b>: '+(sp*3.6).toFixed(1)+' km/h<br><b>Direcció</b>: '+Math.round(df)+'° ('+ventCardinal(df)+')'
+      +'<br><small>camp fi · WindNinja</small>').openOn(map);
+    return;
+  }
   if(!ventClickOn) return;
   const VC=ventCtx(); if(!VC) return;
   const W=VC.W,B=W.bbox,dlon=(B[1]-B[0])/(W.nx-1),dlat=(B[3]-B[2])/(W.ny-1);
