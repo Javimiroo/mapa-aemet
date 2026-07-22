@@ -84,6 +84,7 @@ jobs:
       - name: T1 · solver de MASSA (vent mitjà)
         continue-on-error: true
         run: |
+          set -o pipefail
           t0=$(date +%s)
           /usr/bin/time -v docker run --rm -v "$PWD/wn/t1_domini_massa":/data \
             --entrypoint ${{ steps.img.outputs.BIN }} ${{ steps.img.outputs.IMG }}:latest /data/run.cfg 2>&1 | tee wn/t1.log | tail -25
@@ -93,6 +94,7 @@ jobs:
       - name: T2 · solver de MASSA + MOMENT (CFD)
         continue-on-error: true
         run: |
+          set -o pipefail
           t0=$(date +%s)
           /usr/bin/time -v docker run --rm -v "$PWD/wn/t2_domini_moment":/data \
             --entrypoint ${{ steps.img.outputs.BIN }} ${{ steps.img.outputs.IMG }}:latest /data/run.cfg 2>&1 | tee wn/t2.log | tail -30
@@ -102,6 +104,7 @@ jobs:
       - name: T3 · inicialització per PUNTS (estacions reals)
         continue-on-error: true
         run: |
+          set -o pipefail
           if [ -d wn/t3_punts_massa ]; then
             t0=$(date +%s)
             /usr/bin/time -v docker run --rm -v "$PWD/wn/t3_punts_massa":/data \
@@ -117,12 +120,13 @@ jobs:
         run: |
           echo "================ RESUM ================"
           for t in t1 t2 t3; do
-            if [ -f wn/$t.log ]; then
-              n=$(ls wn/${t}_*/*.asc 2>/dev/null | wc -l)
-              echo "$t -> $n fitxers .asc generats"
-              grep -iE "error|exception|fail" wn/$t.log | head -3 || true
-            fi
+            d=$(ls -d wn/${t}_* 2>/dev/null | head -1)
+            n=$(find $d -name '*.asc' 2>/dev/null | wc -l)
+            echo "--------- $t ($d): $n fitxers .asc ---------"
+            [ -f wn/$t.log ] && { echo '   >>> LOG SENCER:'; cat wn/$t.log | head -40; } || echo '   (sense log)'
           done
+          echo "--------- AJUDA DEL CLI ---------"
+          head -50 wn/CLI_HELP.txt 2>/dev/null || echo '(buit: el binari no respon a --help)'
           du -sh wn 2>/dev/null || true
 
       - name: Puja els resultats
