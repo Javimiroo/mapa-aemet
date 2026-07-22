@@ -1,0 +1,101 @@
+name: Camp de vent fi d'una zona (WindNinja)
+
+# Calcula el camp de vent d'alta resolució sobre una caixa (zona d'incendi) amb
+# WindNinja, inicialitzat amb les estacions reals, i el publica xifrat a la
+# branca 'zona'. Es dispara a mà o des del mapa (via el Worker de Cloudflare).
+#
+# Temps orientatiu: ~1 min de descàrrega de la imatge + ~25 s de càlcul.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bbox:
+        description: "Caixa lon0,lat0,lon1,lat1 (millor 10-15 km de costat)"
+        required: true
+        default: "0.90,41.22,1.02,41.34"
+      nom:
+        description: "Nom de la zona / incendi (informatiu)"
+        required: false
+        default: ""
+      mesh:
+        description: "Resolució de malla de WindNinja (m)"
+        required: false
+        default: "100"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: zona
+  cancel-in-progress: true
+
+jobs:
+  zona:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Dependències
+        run: pip install numpy pillow rasterio pyproj cryptography
+
+      - name: Prepara el DEM i les estacions de la caixa
+        run: |
+          python windninja_prep.py --bbox "${{ github.event.inputs.bbox }}" \
+            --out wn --res 50 --mesh "${{ github.event.inputs.mesh }}" --zona
+
+      - name: Descarrega WindNinja
+        run: |
+          t0=$(date +%s)
+          docker pull ekeenan/windninja-momentum:latest >/dev/null
+          echo "pull: $(( $(date +%s) - t0 )) s"
+
+      - name: Calcula el camp (solver de massa + estacions)
+        run: |
+          set -o pipefail
+          t0=$(date +%s)
+          docker run --rm -v "$PWD/wn/zona":/data \
+            --entrypoint WindNinja_cli ekeenan/windninja-momentum:latest /data/run.cfg 2>&1 | tail -20
+          echo "càlcul: $(( $(date +%s) - t0 )) s"
+          ls -la wn/zona/*.asc
+
+      - name: Converteix i xifra
+        env:
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: |
+          python windninja_zona.py --dir wn/zona \
+            --bbox "${{ github.event.inputs.bbox }}" \
+            --estacions wn/zona/estacions --out vent_zona.enc
+          ls -la vent_zona.enc
+
+      - name: Publica a la branca 'zona'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PUB=$(mktemp -d)
+          cp vent_zona.enc "$PUB/"
+          printf '{"bbox":"%s","nom":"%s","generat":"%s"}\n' \
+            "${{ github.event.inputs.bbox }}" "${{ github.event.inputs.nom }}" \
+            "$(date -u +%FT%TZ)" > "$PUB/zona.json"
+          cd "$PUB"
+          git init -q -b zona
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Camp de vent de zona $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" zona
+          echo "publicat a la branca 'zona'"
+
+      - name: Diagnòstic si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zona-diagnostic
+          retention-days: 7
+          path: |
+            wn/zona/run.cfg
+            wn/zona/estacions/*.csv
+            wn/zona/*.asc
