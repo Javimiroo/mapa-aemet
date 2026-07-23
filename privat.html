@@ -2878,6 +2878,22 @@ const FocAnnotLayer=L.Layer.extend({
     FD.arrows.forEach(ar=>focDrawFletxa(ctx,m.latLngToContainerPoint(ar.a),m.latLngToContainerPoint(ar.b),1));
     if(FD.arrowPreview)focDrawFletxa(ctx,m.latLngToContainerPoint(FD.arrowPreview.a),m.latLngToContainerPoint(FD.arrowPreview.b),1);}
 });
+// capa de perímetres (tots, per antiguitat) com a canvas, perquè l'exportació els copie exactes
+const FocPerimLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    if(!FD)return; const ps=focPerimsList(), cols=focPerimColors(ps.length);
+    ctx.lineJoin='round';
+    for(let k=ps.length-1;k>=0;k--){ const p=ps[k]; if(!p.pts.length)continue;
+      ctx.beginPath(); p.pts.forEach((q,i)=>{const pt=m.latLngToContainerPoint([q.lat,q.lng]);i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y);}); ctx.closePath();
+      ctx.fillStyle=cols[k].f; ctx.fill(); ctx.strokeStyle=cols[k].s; ctx.lineWidth=2.6; ctx.stroke(); }
+  }
+});
 function focArrowDown(e){ if(!focArrowMode||!FD)return; focArrowStart=e.latlng; }
 function focArrowMove(e){ if(!focArrowMode||!focArrowStart||!FD)return; FD.arrowPreview={a:focArrowStart,b:e.latlng}; if(FD.annotLayer)FD.annotLayer.redraw(); }
 function focArrowUp(e){ if(!focArrowMode||!focArrowStart||!FD)return; if(focArrowStart.distanceTo(e.latlng)>8) FD.arrows.push({a:focArrowStart,b:e.latlng}); focArrowStart=null; FD.arrowPreview=null; if(FD.annotLayer)FD.annotLayer.redraw(); }
@@ -2921,6 +2937,7 @@ async function obreFocTauler(id){
   const mp=FD.map=L.map('focMap',{zoomControl:true}).setView(centre,12);
   L.tileLayer(BASEMAPS.satellite.u,Object.assign({crossOrigin:true},BASEMAPS.satellite.o)).addTo(mp);
   FD.ventLayer=new FocVentLayer(); FD.ventLayer.addTo(mp);
+  FD.perimLayer=new FocPerimLayer(); FD.perimLayer.addTo(mp);
   FD.annotLayer=new FocAnnotLayer(); FD.annotLayer.addTo(mp);
   mp.on('mousedown',focArrowDown); mp.on('mousemove',focArrowMove); mp.on('mouseup',focArrowUp);
   focArrowMode=false; $('focArrowBtn').classList.remove('on');
@@ -2992,12 +3009,7 @@ function focDrawStations(){
     FD.estMarkers.push(m);
   }
 }
-function focDrawPerims(){
-  if(!FD||!FD.map)return;
-  FD.perimLayers.forEach(l=>FD.map.removeLayer(l)); FD.perimLayers=[];
-  const ch=focPerimVigent(); if(!ch||!ch.pts.length)return;
-  FD.perimLayers.push(L.polygon(ch.pts.map(p=>[p.lat,p.lng]),{color:'#e8380d',weight:3,fill:true,fillColor:'#e8380d',fillOpacity:0.12}).addTo(FD.map));
-}
+function focDrawPerims(){ if(FD&&FD.perimLayer) FD.perimLayer.redraw(); }
 function focFlame(){ if(!FD||!FD.map)return; if(FD.flameM){FD.map.removeLayer(FD.flameM);FD.flameM=null;} if(FD.foc.flama) FD.flameM=L.marker([FD.foc.flama.lat,FD.foc.flama.lng],{icon:flamaIcon()}).addTo(FD.map); }
 function focRenderEstList(){
   const box=$('focEstList'); if(!box)return;
@@ -3063,40 +3075,17 @@ function focChartsCursor(){
 // colors dels perímetres per antiguitat: el més vell roig, el més nou taronja
 function focPerimColors(n){ const out=[]; for(let i=0;i<n;i++){ const t=n>1?i/(n-1):0, hue=Math.round(t*40), l=52-t*3;
   out.push({s:'hsl('+hue+',88%,'+l+'%)', f:'hsla('+hue+',88%,'+l+'%,.32)'}); } return out; }
-// ---- compon un canvas del mapa del tauler (base + fletxes + perímetre) ----
-async function focComposaMapa(S,opts){
-  S=S||2; opts=opts||{}; const el=$('focMap'), m=FD.map;
+// ---- compon un canvas del mapa del tauler EXACTAMENT com es veu en pantalla ----
+// (base per html2canvas + les capes canvas d'overlay copiades tal qual; res es reprojecta)
+async function focComposaMapa(S){
+  S=S||2; const el=$('focMap');
   const base=await html2canvas(el,{useCORS:true,backgroundColor:'#0b1220',scale:S,
     ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-overlay-pane')||x.classList.contains('leaflet-control-container'))});
-  const c=base.getContext('2d'), sxp=base.width/el.clientWidth, syp=base.height/el.clientHeight;
-  if(FD.runData && $('focVentOn').checked){
-    const W=FD.runData,B=W.bbox,nx=W.nx,ny=W.ny,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
-    const q0=m.latLngToContainerPoint([B[3],B[0]]),q1=m.latLngToContainerPoint([B[3],B[0]+dlon]);
-    const cell=Math.max(.001,Math.abs(q1.x-q0.x))*sxp,step=Math.max(1,Math.round(20*S/cell)),LN=13*S;
-    const a=m.latLngToContainerPoint([B[3],B[0]]),b=m.latLngToContainerPoint([B[2],B[1]]);
-    c.strokeStyle='rgba(245,158,11,.9)';c.lineWidth=1.4*S;c.setLineDash([6*S,4*S]);c.strokeRect(a.x*sxp,a.y*syp,(b.x-a.x)*sxp,(b.y-a.y)*syp);c.setLineDash([]);
-    c.lineCap='round';c.lineJoin='round';c.shadowColor='rgba(0,0,0,.9)';c.shadowBlur=3*S;c.shadowOffsetX=.8*S;c.shadowOffsetY=1*S;
-    for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){const pos=W.landPos[j*nx+i];if(pos<0)continue;
-      const u=W.buf[pos*2]*W.esc,v=W.buf[pos*2+1]*W.esc,sp=Math.hypot(u,v);if(sp<0.05)continue;
-      const p=m.latLngToContainerPoint([B[3]-j*dlat,B[0]+i*dlon]),X=p.x*sxp,Y=p.y*syp;
-      if(X<-30||Y<-30||X>base.width+30||Y>base.height+30)continue;
-      const ux=u/sp,uy=-v/sp,X0=X-ux*LN/2,Y0=Y-uy*LN/2,X1=X+ux*LN/2,Y1=Y+uy*LN/2,ah=5*S,an=Math.atan2(uy,ux),col=ventColor(sp);
-      c.strokeStyle=col;c.fillStyle=col;c.lineWidth=1.8*S;c.beginPath();c.moveTo(X0,Y0);c.lineTo(X1,Y1);c.stroke();
-      c.beginPath();c.moveTo(X1,Y1);c.lineTo(X1-ah*Math.cos(an-.62),Y1-ah*Math.sin(an-.62));c.lineTo(X1-ah*Math.cos(an+.62),Y1-ah*Math.sin(an+.62));c.closePath();c.fill();}
-    c.shadowColor='transparent';c.shadowBlur=0;c.shadowOffsetX=0;c.shadowOffsetY=0;
-  }
-  const traça=(pts)=>{ c.beginPath(); pts.forEach((p,i)=>{const pt=m.latLngToContainerPoint([p.lat,p.lng]),X=pt.x*sxp,Y=pt.y*syp;i?c.lineTo(X,Y):c.moveTo(X,Y);}); c.closePath(); };
-  if(opts.totsPerims){                         // evolució: tots els perímetres, el guanyat d'un altre color
-    const ps=focPerimsList(), cols=focPerimColors(ps.length);
-    for(let k=ps.length-1;k>=0;k--){ const p=ps[k]; if(!p.pts.length)continue;
-      traça(p.pts); c.fillStyle=cols[k].f; c.fill(); c.strokeStyle=cols[k].s; c.lineWidth=2.6*S; c.lineJoin='round'; c.stroke(); }
-  } else {
-    const ch=focPerimVigent();
-    if(ch&&ch.pts.length){ traça(ch.pts); c.fillStyle='rgba(232,56,13,.12)';c.fill();c.strokeStyle='#e8380d';c.lineWidth=3*S;c.lineJoin='round';c.stroke(); }
-  }
-  // fletxes de propagació dibuixades a mà
-  FD.arrows.forEach(ar=>focDrawFletxa(c,{x:m.latLngToContainerPoint(ar.a).x*sxp,y:m.latLngToContainerPoint(ar.a).y*syp},{x:m.latLngToContainerPoint(ar.b).x*sxp,y:m.latLngToContainerPoint(ar.b).y*syp},S));
-  // llegenda del vent WindNinja
+  const c=base.getContext('2d');
+  const posa=cv=>{ if(cv&&cv.width&&cv.height) c.drawImage(cv,0,0,cv.width,cv.height,0,0,base.width,base.height); };
+  if(FD.ventLayer&&$('focVentOn').checked) posa(FD.ventLayer._c);   // vent WindNinja
+  posa(FD.perimLayer&&FD.perimLayer._c);                            // perímetres (per antiguitat)
+  posa(FD.annotLayer&&FD.annotLayer._c);                            // fletxes de propagació
   if(FD.runData && $('focVentOn').checked) dibuixaLlegendaVentBox(c, 12*S, base.height-58*S, S, 'Vent WindNinja (km/h)');
   return base;
 }
@@ -3104,7 +3093,7 @@ async function focExportImatge(){
   if(typeof html2canvas!=='function'){ alert('Falta la llibreria de captura.'); return; }
   const btn=$('focExport'),old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
   try{
-    const S=2, mapC=await focComposaMapa(S,{totsPerims:true});
+    const S=2, mapC=await focComposaMapa(S);
     const chEl=$('focCharts'), svH=chEl.style.height, svO=chEl.style.overflow;   // expandim per capturar tots els meteogrames
     chEl.style.height='auto'; chEl.style.overflow='visible';
     const chartsC=await html2canvas(chEl,{backgroundColor:'#0f172a',scale:S});
