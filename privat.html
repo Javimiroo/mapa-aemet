@@ -517,6 +517,8 @@
 <div id="focModal" style="display:none;position:fixed;inset:0;z-index:5000;background:#0b1220;color:#e5e7eb;flex-direction:column">
   <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #334155;background:#0f172a;flex-wrap:wrap">
     <b id="focTitol" style="font-size:16px">🔥 Incendi</b>
+    <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:5px">Inici
+      <input type="datetime-local" id="focIniciInput" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 6px;font-size:12px"></label>
     <span id="focSub" style="font-size:12px;color:#94a3b8"></span>
     <span style="flex:1"></span>
     <button class="btn small" id="focFinalitzar">🏁 Marcar finalitzat</button>
@@ -2966,25 +2968,42 @@ async function obreFocTauler(id){
     .map(e=>({st:e,km:haversineKm(centre,L.latLng(e.lat,e.lon)),rumb:rumb16(centre,L.latLng(e.lat,e.lon))})).sort((a,b)=>a.km-b.km);
   FD.chartIds=FD.nears.slice(0,3).map(o=>String(o.st.idema));
   focRenderEstList(); focRenderPerims();
-  // la línia de temps no ha de passar de les DADES METEO més recents disponibles
-  const ultimObs=focUltimaObs();
-  const ini=f.inici?(f.inici-2*3600000):(ultimObs-6*3600000), fi=Math.min(f.fi||ultimObs, ultimObs);
-  FD.tMin=Math.floor(ini/3600000)*3600000; FD.tMax=Math.max(FD.tMin+3600000,Math.floor(fi/3600000)*3600000);
-  FD.tSteps=Math.round((FD.tMax-FD.tMin)/3600000);
-  $('focTRange').max=FD.tSteps; $('focTRange').value=FD.tSteps; FD.tSel=FD.tMax;
+  $('focIniciInput').value = f.inici!=null ? msToLocalDatetime(f.inici) : '';
+  focRecalculaTimeline(true);                     // fixa el rang i posa el cursor al final
   focMarks();
-  if(FD.runs.length) await focLoadRun(FD.runs.length-1);
-  else await focFallbackZona();
+  if(FD.runs.length){ await focLoadRun(FD.runs.length-1); }
+  else { FD.runData=null; $('focRunInfo').textContent='Cap camp fi calculat encara. Prem «🌬️ Calcular camp fi».'; if(FD.ventLayer)FD.ventLayer.redraw(); }
   await focScrub();
   focRenderCharts();
   focVentLegShow();
   focMostraDataTime();
   setTimeout(()=>{ if(FD&&FD.map){ FD.map.invalidateSize(); FD.map.setView(centre,12); } },90);
 }
+// rang de la línia de temps: de (inici-2h) fins a min(fi, última observació meteo)
+function focRecalculaTimeline(alFinal){
+  const f=FD.foc, ultimObs=focUltimaObs();
+  const ini=f.inici?(f.inici-2*3600000):(ultimObs-6*3600000), fi=Math.min(f.fi||ultimObs, ultimObs);
+  FD.tMin=Math.floor(ini/3600000)*3600000; FD.tMax=Math.max(FD.tMin+3600000,Math.floor(fi/3600000)*3600000);
+  FD.tSteps=Math.round((FD.tMax-FD.tMin)/3600000);
+  $('focTRange').max=FD.tSteps;
+  if(alFinal){ $('focTRange').value=FD.tSteps; FD.tSel=FD.tMax; }
+  else if(+$('focTRange').value>FD.tSteps){ $('focTRange').value=FD.tSteps; }
+}
+async function focSetInici(){
+  if(!FD)return; const v=$('focIniciInput').value; const ms=v?new Date(v).getTime():null;
+  const f=FD.foc; f.inici=ms;
+  const foc={id:f.id,nom:f.nom,flama:f.flama,perims:focPerimsDe(f),inici:ms,fi:(f.fi!==undefined?f.fi:null)};
+  const a=await focsAPI('guarda',{foc}); if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id)); if(g)FD.foc=g; focsRender(); }
+  const q=x=>new Date(x).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  $('focSub').textContent=(FD.foc.inici?('inici '+q(FD.foc.inici)):'sense hora d\'inici')+(FD.foc.fi?(' · 🏁 '+q(FD.foc.fi)):'');
+  focRecalculaTimeline(false); focMarks(); await focScrub();
+}
+// posició d'una correguda al temps = HORA DE LES DADES (obs), no l'hora de càlcul
+function focRunTemps(r){ return r.obs || r.ts; }
 function focMarks(){
   const box=$('focTMarks'); if(!box)return; box.innerHTML=''; const span=(FD.tMax-FD.tMin)||1;
-  FD.runs.forEach(r=>{ const x=Math.max(0,Math.min(100,(r.ts-FD.tMin)/span*100));
-    box.insertAdjacentHTML('beforeend','<span title="Vent WindNinja · '+new Date(r.ts).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#22c55e;font-size:13px;line-height:1;font-weight:900">▮</span>'); });
+  FD.runs.forEach(r=>{ const t=focRunTemps(r), x=Math.max(0,Math.min(100,(t-FD.tMin)/span*100));
+    box.insertAdjacentHTML('beforeend','<span title="Vent WindNinja · dades de les '+new Date(t).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#22c55e;font-size:13px;line-height:1;font-weight:900">▮</span>'); });
   focPerimsList().forEach(p=>{ const x=Math.max(0,Math.min(100,(p.ts-FD.tMin)/span*100));
     box.insertAdjacentHTML('beforeend','<span title="Perímetre · '+new Date(p.ts).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#f87171;font-size:10px;line-height:1">◆</span>'); });
 }
@@ -3004,7 +3023,7 @@ async function focLoadRun(idx){
 async function focScrub(){
   const i=parseInt($('focTRange').value,10); FD.tSel=FD.tMin+i*3600000;
   $('focTLabel').textContent=new Date(FD.tSel).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-  if(FD.runs.length){ let best=-1,bd=Infinity; FD.runs.forEach((r,k)=>{const d=Math.abs(r.ts-FD.tSel);if(d<bd){bd=d;best=k;}});
+  if(FD.runs.length){ let best=-1,bd=Infinity; FD.runs.forEach((r,k)=>{const d=Math.abs(focRunTemps(r)-FD.tSel);if(d<bd){bd=d;best=k;}});
     if(best>=0&&best!==FD.runIdx) await focLoadRun(best); }
   focDrawStations(); focDrawPerims(); focFlame(); focChartsCursor();
 }
@@ -3225,7 +3244,10 @@ async function focCalculaVent(){
             const a=await focsAPI('run_add',{id:f.id,enc:enc,meta:meta});
             if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id));
               if(g){ FD.foc=g; FD.runs=(g.runs||[]).slice().sort((x,y)=>x.ts-y.ts); focActualRuns=g.runs||[]; } focsRender(); }
-            focMarks(); if(FD.runs.length) await focLoadRun(FD.runs.length-1); await focScrub();
+            focRecalculaTimeline(false); focMarks();
+            const nou=FD.runs[FD.runs.length-1];        // mou el cursor a la correguda nova
+            if(nou){ const idx=Math.round((focRunTemps(nou)-FD.tMin)/3600000); $('focTRange').value=Math.max(0,Math.min(FD.tSteps,idx)); }
+            await focScrub();
             b.textContent='✓ Camp fi llest'; inf.textContent='Correguda desada en este incendi (marca verda al temps).';
             setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
           }
@@ -3250,6 +3272,7 @@ $('focVar').addEventListener('change',()=>{ focDrawStations(); });
 $('focVentOn').addEventListener('change',()=>{ if(FD&&FD.ventLayer) FD.ventLayer.redraw(); focVentLegShow(); });
 $('focCalcBtn').addEventListener('click',focCalculaVent);
 $('focDataBtn').addEventListener('click',focActualitzaDades);
+$('focIniciInput').addEventListener('change',focSetInici);
 $('focArrowBtn').addEventListener('click',focArrowToggle);
 $('focArrowClear').addEventListener('click',()=>{ if(FD){ FD.arrows=[]; FD.arrowPreview=null; if(FD.annotLayer)FD.annotLayer.redraw(); } });
 $('focPerimList').addEventListener('click',e=>{ const b=e.target.closest('.focPerimDel'); if(b) focEsborraPerim(+b.dataset.k); });
