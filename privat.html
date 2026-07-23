@@ -240,6 +240,7 @@
     <div class="card coll collapsed">
       <h2>🔥 Incendi</h2>
       <div class="cardbody">
+        <button class="btn" id="focNou" style="width:100%;margin-bottom:9px">➕ Nou incendi (buida el formulari)</button>
         <label>Nom / lloc</label>
         <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
         <label style="margin-top:8px">Hora d'inici de l'incendi</label>
@@ -1956,7 +1957,7 @@ async function focGuarda(){
   else { foc.id=focActualId||('local'+Date.now()); focActualId=foc.id; focActualPerims=perims;
          foc.ts=Date.now(); focsCache=[foc].concat(focsCache.filter(x=>x.id!==foc.id)).slice(0,5); focsLocalDesa(focsCache);
          b.textContent='✓ Guardat (només ací)'; }
-  focsRender(); setTimeout(()=>{ b.textContent=old; b.disabled=false; },1800);
+  focsRender(); setTimeout(()=>{ b.disabled=false; actualitzaBotoGuarda(); },1800);
 }
 function focCarrega(id){
   const f=focsCache.find(x=>String(x.id)===String(id)); if(!f) return;
@@ -1970,8 +1971,21 @@ function focCarrega(id){
   redibuixaPerim();
   const pts=perimLL.slice(); if(flameLL) pts.push(flameLL);
   if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.35));
-  focsRender();
+  focsRender(); actualitzaBotoGuarda();
 }
+function actualitzaBotoGuarda(){
+  const b=$('focGuarda'); if(!b)return;
+  b.textContent = focActualId ? '💾 Actualitzar este incendi' : '💾 Guardar incendi nou';
+}
+function focNou(){                          // comença un incendi de zero (no modifica el carregat)
+  focActualId=null; focActualPerims=[]; focActualRuns=[];
+  $('incident').value=''; $('focInici').value='';
+  if(flameLL){ flameLL=null; posaFlames(); $('flama').textContent='🔥 Situar incendi al mapa'; }
+  if(dibuixantPerim) acabaPerim();
+  esborraPerim();
+  actualitzaBotoGuarda(); focsRender();
+}
+$('focNou').addEventListener('click',focNou);
 $('focGuarda').addEventListener('click',focGuarda);
 $('focSync').addEventListener('click',()=>focsSync(false));
 $('focList').addEventListener('click',async e=>{
@@ -1995,6 +2009,7 @@ $('focList').addEventListener('click',async e=>{
   }
 });
 // ajornat: WORKER_URL es declara més avall, cal que el script haja acabat de carregar
+actualitzaBotoGuarda();
 setTimeout(()=>focsSync(true),0);   // si ja hi ha contrasenya guardada, sincronitza sense preguntar
 
 // ---------------- capa de camp fi de ZONA (WindNinja) ----------------
