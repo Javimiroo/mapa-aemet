@@ -271,11 +271,7 @@
         </label>
         <p class="muted" style="font-size:11px;margin:6px 0 0">Camp diagnòstic sobre el relleu a partir de les observacions. <b>Clica el mapa</b> per veure el vent d'un punt. <span id="ventInfo"></span></p>
         <div id="ventLeg" style="display:none;margin-top:7px;font-size:11px"></div>
-        <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
-          <label class="switch"><input type="checkbox" id="zonaOn"> Veure l'últim camp fi calculat</label>
-          <div id="zonaInfo" class="muted" style="font-size:11px;margin-top:4px">—</div>
-          <p class="muted" style="font-size:11px;margin:6px 0 0">Mostra l'<b>últim</b> camp fi calculat (compartit per l'equip). El càlcul es fa ara <b>dins del tauler de cada incendi</b> (📊). Clica dins de la caixa taronja per consultar el vent d'eixe punt.</p>
-        </div>
+        <p class="muted" style="font-size:11px;margin:9px 0 0;padding-top:9px;border-top:1px solid var(--line)">El <b>camp fi de vent (WindNinja)</b> d'alta resolució es calcula i es consulta <b>dins del tauler de cada incendi</b> (📊).</p>
       </div>
     </div>
 
@@ -521,6 +517,7 @@
     <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:5px">Inici
       <input type="datetime-local" id="focIniciInput" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 6px;font-size:12px"></label>
     <span id="focSub" style="font-size:12px;color:#94a3b8"></span>
+    <span id="focUltimRun" style="font-size:12px;color:#22c55e;font-weight:600"></span>
     <span style="flex:1"></span>
     <button class="btn small" id="focFinalitzar">🏁 Marcar finalitzat</button>
     <button class="btn small" id="focExport">📷 Exportar imatge</button>
@@ -1241,7 +1238,7 @@ function render(){
   if(countMode){ renderCount(); return; }
   const vk=selVar.value, barbMode=(vk==='barbes');
   if(vk==='cap'){                                  // sense variable: mapa net (només base + capes de vent/radar)
-    $('status').innerHTML='Sense variable · només base'+(ventClickOn||($('zonaOn').checked)?' i vent':'');
+    $('status').innerHTML='Sense variable · només base'+(ventClickOn?' i vent':'');
     return;
   }
   const filtering=!!activeFilter; let nOk=0, shown=0;
@@ -2144,15 +2141,7 @@ async function zonaCalcula(){         // dispara el càlcul a partir de la flama
   b.textContent='Tarda més del previst'; inf.textContent='Mira la pestanya Actions per veure què ha passat.';
   setTimeout(()=>{b.textContent=old;b.disabled=false;},5000);
 }
-$('zonaOn').addEventListener('change',async e=>{
-  if(e.target.checked){
-    if(!zonaData) await carregaZona();
-    if(!zonaData){ e.target.checked=false; return; }
-    if(!zonaLayer) zonaLayer=new ZonaLayer(); zonaLayer.addTo(map);
-    const B=zonaData.bbox; map.fitBounds([[B[2],B[0]],[B[3],B[1]]],{padding:[30,30]});
-  } else if(zonaLayer) map.removeLayer(zonaLayer);
-  actualitzaVentLeg2();
-});
+// (El camp fi de zona al mapa general s'ha tret: ara viu dins del tauler de cada incendi.)
 
 // ---------------- capa Radar / Echotop (AEMET, tota la península) ----------------
 const RADAR_BASE='https://javimiroo.github.io/radar-arxiu/';
@@ -2991,7 +2980,7 @@ async function obreFocTauler(id){
   await focScrub();
   focRenderCharts();
   focVentLegShow();
-  focMostraDataTime();
+  focMostraDataTime(); focMostraUltimRun();
   setTimeout(()=>{ if(FD&&FD.map){ FD.map.invalidateSize(); FD.map.setView(centre,12); } },90);
 }
 // rang de la línia de temps: de (inici-2h) fins a min(fi, última observació meteo)
@@ -3223,6 +3212,12 @@ function focMostraDataTime(){
   const el=$('focDataTime'); if(!el)return;
   const ms=focUltimaObs(); el.textContent='Dades: '+(ms?new Date(ms).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}):'—');
 }
+// hora de l'última vegada que s'ha CORREGUT el WindNinja d'aquest incendi
+function focMostraUltimRun(){
+  const el=$('focUltimRun'); if(!el)return;
+  let ult=null; (FD&&FD.runs||[]).forEach(r=>{ if(!ult||r.ts>ult) ult=r.ts; });
+  el.textContent = ult ? ('· últim WindNinja: '+new Date(ult).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})) : '· sense camp fi calculat';
+}
 // calcular el camp fi de vent D'AQUEST incendi (WindNinja), i desar-lo al seu timeline
 async function focCalculaVent(){
   const f=FD.foc, c=focCentreDe(f);
@@ -3264,7 +3259,7 @@ async function focCalculaVent(){
         focRecalculaTimeline(false); focMarks();
         const nou=FD.runs[FD.runs.length-1];            // mou el cursor a la correguda nova
         if(nou){ const idx=Math.round((focRunTemps(nou)-FD.tMin)/3600000); $('focTRange').value=Math.max(0,Math.min(FD.tSteps,idx)); }
-        await focScrub();
+        await focScrub(); focMostraUltimRun();
         b.textContent='✓ Camp fi llest'; inf.textContent='Correguda desada en este incendi (marca verda al temps).';
         setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
       }

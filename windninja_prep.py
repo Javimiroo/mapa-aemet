@@ -88,6 +88,21 @@ def escriu_dem_utm(big, transform, bbox, path, res_m=50):
     reproject(big, dem, src_transform=transform, src_crs=src_crs,
               dst_transform=dt, dst_crs=dst_crs, resampling=Resampling.bilinear,
               dst_nodata=-9999.0)
+    # WindNinja NO tolera NO_DATA dins del domini: la reprojecció a UTM sol deixar
+    # forats a les cantonades. Els omplim (interpolació) perquè no falle.
+    nod = (dem != -9999.0).astype(np.uint8)
+    if int(nod.min()) == 0:
+        forats = int((nod == 0).sum())
+        try:
+            from rasterio.fill import fillnodata
+            dem = fillnodata(dem, mask=nod, max_search_distance=float(max(dw, dh)))
+        except Exception as ex:
+            print("  avis: fillnodata ha fallat (%s)" % ex)
+        rest = dem == -9999.0                       # per si en queda algun d'aïllat
+        if rest.any():
+            valids = dem[dem != -9999.0]
+            dem[rest] = float(valids.min()) if valids.size else 0.0
+        print("  DEM: omplerts %d forats NO_DATA a les vores" % forats)
     with rasterio.open(path, "w", driver="GTiff", height=dh, width=dw, count=1,
                        dtype="float32", crs=dst_crs, transform=dt, nodata=-9999,
                        compress="deflate") as ds:
