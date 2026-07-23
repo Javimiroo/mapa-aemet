@@ -22,6 +22,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 ITER = 200000
 ESC = 0.25                      # m/s per unitat int8 (quantització)
 TZ_LOCAL = ZoneInfo("Europe/Madrid")
+# El camp general es construeix NOMÉS amb Meteocat (XEMA): AEMET publica en punt i
+# Meteocat a i mitja, i barrejar-los desquadrava el camp respecte de les barbes.
+# Posa None si algun dia vols tornar a barrejar totes les xarxes.
+FONT_CAMP = "Meteocat"
 _HERE = os.path.dirname(os.path.abspath(__file__))
 GRID_DEFAULT = os.path.join(_HERE, "vent_grid.npz")
 
@@ -108,7 +112,7 @@ def genera_camp(winds, grid_path=None, nxT=160, nyT=120):
     return {"bbox": [LON0, LON1, LAT0, LAT1], "nx": nxT, "ny": nyT, "u": us, "v": vs, "sea": se}
 
 
-def winds_per_hora(estacions, inclou_actual=True):
+def winds_per_hora(estacions, inclou_actual=True, nomes_font=None):
     """{t_iso: [{lat,lon,alt,u,v}, ...]} a partir de l'històric de les estacions.
 
     IMPORTANT: l'històric només guarda les lectures en punt (:00), però la lectura
@@ -119,6 +123,8 @@ def winds_per_hora(estacions, inclou_actual=True):
     """
     d = {}
     for e in estacions:
+        if nomes_font and e.get("font") != nomes_font:   # acotar a una xarxa (p. ex. Meteocat)
+            continue
         lat, lon = e.get("lat"), e.get("lon")
         if lat is None or lon is None:
             continue
@@ -187,7 +193,7 @@ def _iso(s):
 def escriu_vent(estacions, password, out_file="vent_privat.enc", grid_path=None, max_hores=26):
     """Camp de vent HORARI del dia d'avui (fitxer en directe). Els dies tancats
     els cobreix arxiu-vent/. Així la màquina del temps té camp a cada hora."""
-    perh = winds_per_hora(estacions)
+    perh = winds_per_hora(estacions, nomes_font=FONT_CAMP)
     disp = sorted(t for t, w in perh.items() if len(w) >= 5)
     if not disp:
         raise RuntimeError("sense hores amb vent")

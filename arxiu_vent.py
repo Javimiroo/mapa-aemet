@@ -25,7 +25,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from camp_vents import genera_camp, xifrar, ITER, ESC, winds_per_hora, empaqueta_hores
+from camp_vents import genera_camp, xifrar, ITER, ESC, winds_per_hora, empaqueta_hores, FONT_CAMP
 
 ARXIU_DIR = "arxiu"
 OUT_DIR = "arxiu-vent"
@@ -51,7 +51,7 @@ def _iso(s):
 
 def genera_dia(dades_dia, grid_path=None):
     """Payload compacte amb TOTES les hores d'un dia arxivat, o None."""
-    perh = winds_per_hora(dades_dia.get("estacions") or [])
+    perh = winds_per_hora(dades_dia.get("estacions") or [], nomes_font=FONT_CAMP)
     hores = sorted(t for t, w in perh.items() if len(w) >= 5)
     if not hores:
         return None
