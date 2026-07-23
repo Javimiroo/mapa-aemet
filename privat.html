@@ -139,6 +139,8 @@
            padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
   .perim-vert{background:#e8380d;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.6);cursor:move}
   #focArrowBtn.on{background:#f59e0b;color:#111;font-weight:700}
+  .foc-actiu-lbl{background:rgba(232,56,13,.92);color:#fff;border:none;border-radius:5px;font-weight:700;font-size:11px;box-shadow:0 1px 4px rgba(0,0,0,.6)}
+  .foc-actiu-lbl:before{display:none}
   .wl-title{font-size:10.5px;color:var(--txt);font-weight:700;margin-bottom:4px;text-align:center}
   .wl-bar{height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.45)}
   .wl-ticks{position:relative;height:13px;margin-top:1px}
@@ -269,11 +271,9 @@
         <p class="muted" style="font-size:11px;margin:6px 0 0">Camp diagnòstic sobre el relleu a partir de les observacions. <b>Clica el mapa</b> per veure el vent d'un punt. <span id="ventInfo"></span></p>
         <div id="ventLeg" style="display:none;margin-top:7px;font-size:11px"></div>
         <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
-          <button class="btn" id="zonaCalc" style="width:100%">🌬️ Calcular camp fi (WindNinja)</button>
-          <div id="zonaCalcInfo" class="muted" style="font-size:11px;margin:5px 0 10px">Calcularà el camp de vent de la zona de l'incendi seleccionat.</div>
           <label class="switch"><input type="checkbox" id="zonaOn"> Veure l'últim camp fi calculat</label>
           <div id="zonaInfo" class="muted" style="font-size:11px;margin-top:4px">—</div>
-          <p class="muted" style="font-size:11px;margin:6px 0 0">Mostra l'<b>últim</b> camp fi que s'ha calculat (n'hi ha un de sol, compartit per tot l'equip). Clica dins de la caixa taronja per consultar el vent d'alta resolució d'eixe punt.</p>
+          <p class="muted" style="font-size:11px;margin:6px 0 0">Mostra l'<b>últim</b> camp fi calculat (compartit per l'equip). El càlcul es fa ara <b>dins del tauler de cada incendi</b> (📊). Clica dins de la caixa taronja per consultar el vent d'eixe punt.</p>
         </div>
       </div>
     </div>
@@ -530,6 +530,9 @@
         <label style="font-size:12px;color:#cbd5e1">Variable:</label>
         <select id="focVar" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:4px 6px;font-size:12px"></select>
         <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="focVentOn" checked> Vent WindNinja</label>
+        <button class="btn small" id="focCalcBtn" title="Calcular el camp fi de vent d'aquest incendi amb WindNinja">🌬️ Calcular camp fi</button>
+        <button class="btn small" id="focDataBtn" title="Tornar a llegir les dades meteo més recents">↻ Dades</button>
+        <span id="focDataTime" style="font-size:11px;color:#94a3b8"></span>
         <button class="btn small" id="focArrowBtn" title="Dibuixar fletxes de propagació (arrossega sobre el mapa)">✏️ Fletxes</button>
         <button class="btn small" id="focArrowClear" title="Esborrar les fletxes dibuixades">🗑</button>
         <span id="focRunInfo" style="font-size:11px;color:#94a3b8;margin-left:auto"></span>
@@ -1909,11 +1912,23 @@ function focsRender(){
     const extra=(nper?(' · '+nper+' perím.'):'')+(nrun?(' · '+nrun+' vent'):'')+(f.fi?' · 🏁':'');
     const sel=(String(f.id)===String(focActualId))?';outline:2px solid var(--accent)':'';
     return '<div class="row" style="align-items:stretch;gap:5px;margin-top:5px">'
+      +'<button class="btn small focA" data-id="'+f.id+'" title="'+(f.actiu?'Actiu al mapa · clica per desactivar':'Inactiu · clica per mostrar-lo al mapa')+'" style="flex:0 0 auto">'+(f.actiu?'🟢':'⚪')+'</button>'
       +'<button class="btn small focL" data-id="'+f.id+'" style="flex:1;text-align:left;line-height:1.3'+sel+'">🔥 '
       +(f.nom||'(sense nom)')+'<br><span class="muted" style="font-size:10px">'+q+extra+'</span></button>'
       +'<button class="btn small focT" data-id="'+f.id+'" title="Obrir el tauler de l\'incendi">📊</button>'
       +'<button class="btn small focD" data-id="'+f.id+'" title="Esborrar per a tothom">🗑</button></div>';
   }).join('');
+  renderFocsActius();
+}
+let focsActiusMarkers=[];
+function renderFocsActius(){                 // flames al mapa general dels incendis ACTIUS
+  focsActiusMarkers.forEach(m=>{try{map.removeLayer(m);}catch(e){}}); focsActiusMarkers=[];
+  focsCache.forEach(f=>{ if(!f.actiu||!f.flama)return;
+    const m=L.marker([f.flama.lat,f.flama.lng],{icon:flamaIcon(),zIndexOffset:2500})
+      .addTo(map).bindTooltip(f.nom||'Incendi',{permanent:true,direction:'top',className:'foc-actiu-lbl',offset:[0,-40]});
+    m.on('click',()=>obreFocTauler(f.id));
+    focsActiusMarkers.push(m);
+  });
 }
 function localDatetimeToMs(v){ if(!v) return null; const t=new Date(v).getTime(); return isNaN(t)?null:t; }
 function msToLocalDatetime(ms){ if(ms==null) return ''; const d=new Date(ms-d0off(ms)); return d.toISOString().slice(0,16); }
@@ -1958,7 +1973,10 @@ function focCarrega(id){
 $('focGuarda').addEventListener('click',focGuarda);
 $('focSync').addEventListener('click',()=>focsSync(false));
 $('focList').addEventListener('click',async e=>{
-  const bl=e.target.closest('.focL'), bd=e.target.closest('.focD'), bt=e.target.closest('.focT');
+  const bl=e.target.closest('.focL'), bd=e.target.closest('.focD'), bt=e.target.closest('.focT'), ba=e.target.closest('.focA');
+  if(ba){ const f=focsCache.find(x=>String(x.id)===String(ba.dataset.id)); const nou=!(f&&f.actiu);
+    const a=await focsAPI('foc_actiu',{id:ba.dataset.id,actiu:nou}); if(a){ focsCache=a; focsLocalDesa(a); } else if(f){ f.actiu=nou; }
+    focsRender(); return; }
   if(bt){ obreFocTauler(bt.dataset.id); return; }
   if(bl){ focCarrega(bl.dataset.id); return; }
   if(bd){
@@ -2109,7 +2127,6 @@ async function zonaCalcula(){         // dispara el càlcul a partir de la flama
   b.textContent='Tarda més del previst'; inf.textContent='Mira la pestanya Actions per veure què ha passat.';
   setTimeout(()=>{b.textContent=old;b.disabled=false;},5000);
 }
-$('zonaCalc').addEventListener('click',zonaCalcula);
 $('zonaOn').addEventListener('change',async e=>{
   if(e.target.checked){
     if(!zonaData) await carregaZona();
@@ -2961,6 +2978,7 @@ async function obreFocTauler(id){
   await focScrub();
   focRenderCharts();
   focVentLegShow();
+  focMostraDataTime();
   setTimeout(()=>{ if(FD&&FD.map){ FD.map.invalidateSize(); FD.map.setView(centre,12); } },90);
 }
 function focMarks(){
@@ -3166,9 +3184,72 @@ async function focFinalitzar(){
   const g=focsCache.find(x=>String(x.id)===String(f.id))||f; g.fi=nou; focsRender();
   obreFocTauler(f.id);   // reobrim per recalcular la línia de temps amb el nou fi
 }
+// hora de les dades meteo carregades ara mateix, al capçal del tauler
+function focMostraDataTime(){
+  const el=$('focDataTime'); if(!el)return;
+  const ms=focUltimaObs(); el.textContent='Dades: '+(ms?new Date(ms).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}):'—');
+}
+// calcular el camp fi de vent D'AQUEST incendi (WindNinja), i desar-lo al seu timeline
+async function focCalculaVent(){
+  const f=FD.foc, c=focCentreDe(f);
+  if(!c){ alert('Este incendi no té ni flama ni perímetre.'); return; }
+  const half=0.063, dlon=half/Math.max(0.2,Math.cos(c.lat*Math.PI/180));
+  const bbox=[(c.lng-dlon).toFixed(4),(c.lat-half).toFixed(4),(c.lng+dlon).toFixed(4),(c.lat+half).toFixed(4)].join(',');
+  const b=$('focCalcBtn'), old=b.textContent, inf=$('focRunInfo');
+  let generatAbans=''; try{ const j=await fetch(ZONA_URL+'zona.json?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null); generatAbans=(j&&j.generat)||''; }catch(e){}
+  const est0=await workerJSON({accio:'zona_estat'}); const urlAbans=(est0&&est0.url)||'';
+  b.disabled=true; b.textContent='Enviant…';
+  const d=await workerJSON({accio:'zona',bbox:bbox,nom:f.nom||''});
+  if(!d){ b.disabled=false;b.textContent=old; return; }
+  if(d.error==='running'){ alert('Ja hi ha un càlcul de vent en marxa (potser d\'un altre incendi o company). Espera que acabe.'); b.disabled=false;b.textContent=old; return; }
+  if(!d.ok){ alert('No s\'ha pogut llançar: '+(d.error||'?')+(d.detail?('\n'+d.detail):'')); b.disabled=false;b.textContent=old; return; }
+  inf.textContent='Càlcul llançat. Es descarrega WindNinja i es resol (un parell de minuts)…';
+  const t0=Date.now();
+  for(let i=0;i<60;i++){
+    b.textContent='Calculant… '+Math.round((Date.now()-t0)/1000)+' s';
+    await sleep(10000);
+    const st=await workerJSON({accio:'zona_estat'}); if(!st)continue;
+    const esNostra=st.url&&st.url!==urlAbans;
+    if(esNostra&&st.estat==='completed'){
+      if(st.resultat!=='success'){ b.textContent='✗ ha fallat';
+        inf.innerHTML='Ha fallat'+(st.url?(' · <a href="'+st.url+'" target="_blank" style="color:#f59e0b">registre</a>'):'')+'.';
+        setTimeout(()=>{b.textContent=old;b.disabled=false;},6000); return; }
+      b.textContent='Desant…';
+      for(let k=0;k<10;k++){
+        const jm=await fetch(ZONA_URL+'zona.json?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null);
+        if(jm && (jm.generat||'')!==generatAbans){
+          const enc=await fetch(ZONA_URL+'vent_zona.enc?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():null).catch(()=>null);
+          if(enc){
+            const meta={ts:Date.now(),bbox:bbox,obs:null,malla:100};
+            try{ const p=await desxifra(JSON.parse(enc),PASS); meta.obs=(p.t&&p.t[0])||null; }catch(e){}
+            const a=await focsAPI('run_add',{id:f.id,enc:enc,meta:meta});
+            if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id));
+              if(g){ FD.foc=g; FD.runs=(g.runs||[]).slice().sort((x,y)=>x.ts-y.ts); focActualRuns=g.runs||[]; } focsRender(); }
+            focMarks(); if(FD.runs.length) await focLoadRun(FD.runs.length-1); await focScrub();
+            b.textContent='✓ Camp fi llest'; inf.textContent='Correguda desada en este incendi (marca verda al temps).';
+            setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
+          }
+        }
+        await sleep(5000);
+      }
+      b.textContent='calculat, tarda a arribar'; inf.textContent='El càlcul ha anat bé; la còpia pública triga. Torna a obrir el tauler d\'ací a un minut.';
+      setTimeout(()=>{b.textContent=old;b.disabled=false;},7000); return;
+    }
+  }
+  b.textContent='Tarda més del previst'; setTimeout(()=>{b.textContent=old;b.disabled=false;},5000);
+}
+// tornar a llegir les dades meteo i refrescar el tauler
+async function focActualitzaDades(){
+  const b=$('focDataBtn'), old=b.textContent; b.disabled=true; b.textContent='↻ …';
+  try{ await carregar(PASS); const id=FD.foc.id; await obreFocTauler(id); }
+  catch(e){ alert('No s\'han pogut recarregar les dades.'); }
+  b.disabled=false; b.textContent=old;
+}
 function focTanca(){ if(FD){ FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); if(FD.map){try{FD.map.remove();}catch(e){} FD.map=null;} } $('focModal').style.display='none'; FD=null; }
 $('focVar').addEventListener('change',()=>{ focDrawStations(); });
 $('focVentOn').addEventListener('change',()=>{ if(FD&&FD.ventLayer) FD.ventLayer.redraw(); focVentLegShow(); });
+$('focCalcBtn').addEventListener('click',focCalculaVent);
+$('focDataBtn').addEventListener('click',focActualitzaDades);
 $('focArrowBtn').addEventListener('click',focArrowToggle);
 $('focArrowClear').addEventListener('click',()=>{ if(FD){ FD.arrows=[]; FD.arrowPreview=null; if(FD.annotLayer)FD.annotLayer.redraw(); } });
 $('focPerimList').addEventListener('click',e=>{ const b=e.target.closest('.focPerimDel'); if(b) focEsborraPerim(+b.dataset.k); });
