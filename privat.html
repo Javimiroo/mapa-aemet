@@ -133,6 +133,9 @@
   #windleg{position:absolute;right:10px;top:54px;z-index:1150;display:none;width:186px;
            background:rgba(15,23,42,.92);border:1px solid var(--line);border-radius:9px;
            padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  #ventleg2{position:absolute;right:10px;bottom:66px;z-index:1150;display:none;width:200px;
+           background:rgba(15,23,42,.92);border:1px solid var(--line);border-radius:9px;
+           padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
   .wl-title{font-size:10.5px;color:var(--txt);font-weight:700;margin-bottom:4px;text-align:center}
   .wl-bar{height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.45)}
   .wl-ticks{position:relative;height:13px;margin-top:1px}
@@ -502,6 +505,7 @@
     <button class="tb-btn" id="tbNow" title="Tornar a l'actual">⏱ Ara</button>
   </div>
   <div id="windleg"></div>
+  <div id="ventleg2"></div>
   <div id="reviewBar"><span>🕐 <b id="reviewTxt"></b></span><button id="reviewExit">↩ Tornar al directe</button></div>
 </div>
 
@@ -727,6 +731,7 @@ setBase('icgc');
 const $=id=>document.getElementById(id);
 const selVar=$('var');
 ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':'');selVar.appendChild(o);});
+{const o=document.createElement('option');o.value='cap';o.textContent='— Cap (només base i vent) —';selVar.appendChild(o);}
 selVar.value='ta';
 
 // ------------------------------------------------------------------ cercador de pobles (ICGC)
@@ -818,6 +823,7 @@ document.addEventListener('click',e=>{ if(!e.target.closest('#cercaWrap')) $('ce
 
 function renderPresets(){
   const vk=selVar.value, box=$('presets'); box.innerHTML='';
+  if(vk==='cap'||!VARS[vk]){ box.innerHTML='<span class="muted" style="font-size:11px">Sense variable seleccionada</span>'; return; }
   const dir=VARS[vk].dir;
   if(!VARS[vk].presets.length){box.innerHTML='<span class="muted" style="font-size:11px">Sense llindars predefinits · usa el personalitzat</span>';return;}
   VARS[vk].presets.forEach(p=>{
@@ -830,6 +836,7 @@ function highlightChip(el){document.querySelectorAll('#presets .chip').forEach(x
 
 function renderLegend(){
   const vk=selVar.value, L_=$('legend');
+  if(vk==='cap'){ L_.innerHTML='<div class="muted">Sense variable: el mapa mostra només la base i, si les actives, les capes de vent o radar.</div>'; return; }
   let sc, unit, nota='';
   if(vk==='barbes'){ sc=SCALES.wind; unit='km/h'; nota=' · número al cercle = ratxa diària'; }
   else {
@@ -1173,6 +1180,10 @@ function render(){
   if(streakMode){ renderStreak(); return; }
   if(countMode){ renderCount(); return; }
   const vk=selVar.value, barbMode=(vk==='barbes');
+  if(vk==='cap'){                                  // sense variable: mapa net (només base + capes de vent/radar)
+    $('status').innerHTML='Sense variable · només base'+(ventClickOn||($('zonaOn').checked)?' i vent':'');
+    return;
+  }
   const filtering=!!activeFilter; let nOk=0, shown=0;
   DATA.estacions.forEach(st=>{
     if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
@@ -1348,6 +1359,7 @@ map.on('zoomend',()=>{
 
 // ---------------- exporta imatge ----------------
 function especMapaUnic(){
+  if(selVar.value==='cap') return {k:'cap'};
   if(selVar.value==='barbes') return {k:'barbs'};
   if(streakMode) return {k:'streak',v:streakMode.v,op:streakMode.op,val:streakMode.val,hide0:streakMode.op==='<',ref:streakMode.ref||12};
   if(countMode) return {k:'count',v:countMode.v,op:countMode.op,val:countMode.val,hores:countMode.hores};
@@ -1362,7 +1374,28 @@ function dibuixaLogoBombers(c,x,y,h){
   for(let i=0;i<4;i++) c.fillRect(x+i*(sq+gap), y+h*0.80, sq, sq);
   c.restore(); return w;
 }
+// caixa compacta amb l'escala de vent (km/h) dibuixada damunt del mapa exportat
+function dibuixaLlegendaVentBox(c, bx, by, S, titol){
+  const bw=170*S, bh=44*S;
+  c.save();
+  c.fillStyle='rgba(15,23,42,.9)'; c.strokeStyle='rgba(255,255,255,.28)'; c.lineWidth=S;
+  c.fillRect(bx,by,bw,bh); c.strokeRect(bx,by,bw,bh);
+  c.fillStyle='#fff'; c.font='bold '+(10.5*S)+'px Arial'; c.textAlign='left'; c.textBaseline='top';
+  c.fillText(titol||'Velocitat vent (km/h)', bx+8*S, by+6*S);
+  const gx=bx+8*S, gy=by+21*S, gw=bw-16*S, gh=9*S;
+  const g=c.createLinearGradient(gx,0,gx+gw,0);
+  [0,2,4,6,8,10].forEach(s=>g.addColorStop(s/10, ventColor(s)));
+  c.fillStyle=g; c.fillRect(gx,gy,gw,gh);
+  c.strokeStyle='rgba(0,0,0,.5)'; c.strokeRect(gx,gy,gw,gh);
+  c.fillStyle='#cbd5e1'; c.font=(9*S)+'px Arial'; c.textAlign='center'; c.textBaseline='top';
+  [0,10,20,30,36].forEach(v=>c.fillText(v, gx+gw*(v/36), gy+gh+2*S));
+  c.restore();
+}
 function dibuixaLlegendaExport(c, spec, x, y, w, S){
+  if(spec.k==='cap'){                                 // sense variable: no hi ha llegenda de colors d'estació
+    c.save(); c.textAlign='center'; c.textBaseline='top'; c.fillStyle='#666'; c.font=(13*S)+'px Arial';
+    c.fillText('Mapa sense variable d\'estació', x+w/2, y+4*S); c.restore(); return;
+  }
   c.save(); c.textAlign='center'; c.textBaseline='top';
   c.fillStyle='#111'; c.font='bold '+(15*S)+'px Arial';
   c.fillText(specLabel(spec), x+w/2, y);
@@ -1478,6 +1511,32 @@ async function generarImatge(){
         }
         c.shadowColor='transparent';c.shadowBlur=0;c.shadowOffsetX=0;c.shadowOffsetY=0;
       }
+      if($('zonaOn') && $('zonaOn').checked && zonaData && p.mapObj){   // fletxes WindNinja (camp fi) a la captura
+        const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
+        const WZ=zonaData, B=WZ.bbox, nx=WZ.nx, ny=WZ.ny, dlon=(B[1]-B[0])/(nx-1), dlat=(B[3]-B[2])/(ny-1);
+        const q0=p.mapObj.latLngToContainerPoint([B[3],B[0]]), q1=p.mapObj.latLngToContainerPoint([B[3],B[0]+dlon]);
+        const cellpx=Math.max(.001,Math.abs(q1.x-q0.x))*sxp, stp=Math.max(1,Math.round(20*S/cellpx)), LN=13*S, ah=5.0*S, SPR=.62;
+        const a2=p.mapObj.latLngToContainerPoint([B[3],B[0]]), b2=p.mapObj.latLngToContainerPoint([B[2],B[1]]);
+        c.save(); c.strokeStyle='rgba(245,158,11,.95)'; c.lineWidth=1.5*S; c.setLineDash([6*S,4*S]);
+        c.strokeRect(x+a2.x*sxp,mapY+a2.y*syp,(b2.x-a2.x)*sxp,(b2.y-a2.y)*syp); c.setLineDash([]); c.restore();
+        c.lineCap='round'; c.lineJoin='round';
+        c.shadowColor='rgba(0,0,0,.9)'; c.shadowBlur=3*S; c.shadowOffsetX=.8*S; c.shadowOffsetY=1*S;
+        for(let j=0;j<ny;j+=stp)for(let i=0;i<nx;i+=stp){
+          const pos=WZ.landPos[j*nx+i]; if(pos<0)continue;
+          const u=WZ.buf[pos*2]*WZ.esc, v=WZ.buf[pos*2+1]*WZ.esc, sp=Math.hypot(u,v); if(sp<0.05)continue;
+          const pt=p.mapObj.latLngToContainerPoint([B[3]-j*dlat,B[0]+i*dlon]);
+          const X=x+pt.x*sxp, Y=mapY+pt.y*syp;
+          if(X<x-30||Y<mapY-30||X>x+mapW+30||Y>mapY+mapH+30)continue;
+          const ux=u/sp,uy=-v/sp,X0=X-ux*LN/2,Y0=Y-uy*LN/2,X1=X+ux*LN/2,Y1=Y+uy*LN/2,an=Math.atan2(uy,ux);
+          const col=ventColor(sp);c.strokeStyle=col;c.fillStyle=col;c.lineWidth=1.8*S;
+          c.beginPath();c.moveTo(X0,Y0);c.lineTo(X1,Y1);c.stroke();
+          c.beginPath();c.moveTo(X1,Y1);
+          c.lineTo(X1-ah*Math.cos(an-SPR),Y1-ah*Math.sin(an-SPR));
+          c.lineTo(X1-ah*Math.cos(an+SPR),Y1-ah*Math.sin(an+SPR));
+          c.closePath();c.fill();
+        }
+        c.shadowColor='transparent';c.shadowBlur=0;c.shadowOffsetX=0;c.shadowOffsetY=0;
+      }
       if(perimLL.length>=2 && p.mapObj){
         const el=p.el, sx=mapW/el.clientWidth, sy=mapH/el.clientHeight;
         c.beginPath();
@@ -1487,6 +1546,9 @@ async function generarImatge(){
         c.strokeStyle='#e8380d'; c.lineWidth=3*S; c.lineJoin='round'; c.stroke();
       }
       c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,mapY,mapW,mapH);
+      const zOn=$('zonaOn')&&$('zonaOn').checked&&zonaData;
+      if(ventClickOn||zOn)                            // escala del vent damunt del mapa
+        dibuixaLlegendaVentBox(c, x+mapW-178*S, mapY+10*S, S, (zOn&&!ventClickOn)?'Vent WindNinja (km/h)':'Velocitat vent (km/h)');
       dibuixaLlegendaExport(c, p.spec, x, mapY+mapH+9*S, mapW, S);
       x+=mapW+gap;
     }
@@ -1881,6 +1943,7 @@ async function zonaMostra(){          // activa la capa i enquadra la caixa
   if(!zonaLayer) zonaLayer=new ZonaLayer();
   zonaLayer.addTo(map);
   const B=zonaData.bbox; map.fitBounds([[B[2],B[0]],[B[3],B[1]]],{padding:[30,30]});
+  actualitzaVentLeg2();
 }
 async function workerJSON(extra){     // crida genèrica al Worker
   const p=passEquip(true); if(!p) return null;
@@ -1951,6 +2014,7 @@ $('zonaOn').addEventListener('change',async e=>{
     if(!zonaLayer) zonaLayer=new ZonaLayer(); zonaLayer.addTo(map);
     const B=zonaData.bbox; map.fitBounds([[B[2],B[0]],[B[3],B[1]]],{padding:[30,30]});
   } else if(zonaLayer) map.removeLayer(zonaLayer);
+  actualitzaVentLeg2();
 });
 
 // ---------------- capa Radar / Echotop (AEMET, tota la península) ----------------
@@ -2211,6 +2275,21 @@ async function carregaVent(){
 function ventColor(s){const st=[[0,[95,160,255]],[2,[0,180,255]],[4,[0,215,110]],[6,[200,225,0]],[8,[255,150,0]],[10,[235,0,0]]];
   if(s<=0)return'rgb(40,70,170)'; if(s>=10)return'rgb(200,0,0)';
   for(let m=1;m<st.length;m++){if(s<=st[m][0]){const a=st[m-1],b=st[m],t=(s-a[0])/(b[0]-a[0]);const c=a[1].map((v,q)=>Math.round(v+(b[1][q]-v)*t));return'rgb('+c[0]+','+c[1]+','+c[2]+')';}}return'rgb(200,0,0)';}
+// llegenda del CAMP DE VENT (fletxes) superposada al mapa, avall a la dreta
+function ventLeg2HTML(titol){
+  const spd=[0,2,4,6,8,10];                              // m/s -> 0..36 km/h
+  const stops=spd.map(s=>ventColor(s)+' '+Math.round(s/10*100)+'%').join(',');
+  const ticks=[0,10,20,30,36].map(v=>'<span style="left:'+Math.round(v/36*100)+'%">'+v+'</span>').join('');
+  return '<div class="wl-title">'+(titol||'Velocitat del vent (km/h)')+'</div>'+
+         '<div class="wl-bar" style="background:linear-gradient(90deg,'+stops+')"></div>'+
+         '<div class="wl-ticks">'+ticks+'</div>';
+}
+function actualitzaVentLeg2(){
+  const el=$('ventleg2'); if(!el) return;
+  const zonaOn=$('zonaOn')&&$('zonaOn').checked&&zonaData;
+  if(ventClickOn||zonaOn){ el.innerHTML=ventLeg2HTML(zonaOn&&!ventClickOn?'Vent fi WindNinja (km/h)':'Velocitat del vent (km/h)'); el.style.display='block'; }
+  else el.style.display='none';
+}
 const VentLayer=L.Layer.extend({
   onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','vent-cv');c.style.position='absolute';c.style.pointerEvents='none';
     const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
@@ -2251,6 +2330,7 @@ $('ventOn').addEventListener('change',e=>{
     $('ventLeg').style.display='block';
     $('ventLeg').innerHTML='<b>km/h</b>'+bins.map(b=>'<span style="display:inline-block;width:13px;height:9px;background:'+ventColor(b[0])+';margin:0 3px 0 9px;vertical-align:middle"></span>'+b[1]).join('');
   } else { if(ventLayer) map.removeLayer(ventLayer); $('ventLeg').style.display='none'; }
+  actualitzaVentLeg2();
 });
 map.on('click',e=>{
   const zu=zonaUV(e.latlng);                    // dins d'una zona fina, mana WindNinja
