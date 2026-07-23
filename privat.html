@@ -3117,20 +3117,19 @@ function focChartsCursor(){
 function focPerimColors(n){ const out=[]; for(let i=0;i<n;i++){ const t=n>1?i/(n-1):0, hue=Math.round(t*40), l=52-t*3;
   out.push({s:'hsl('+hue+',88%,'+l+'%)', f:'hsla('+hue+',88%,'+l+'%,.32)'}); } return out; }
 // ---- foto del mapa del tauler EXACTAMENT com es veu ----
-// Base per html2canvas (només tessel·les/marcadors) + les capes canvas d'overlay copiades
-// escalades a la MATEIXA mida. Sincronitzem la mida interna del mapa abans, que si no
-// la graella d'overlay i la base tenen aspecte diferent i tot ix desplaçat/estirat.
+// UNA sola captura de tot el mapa junt (tessel·les + capes de vent/perímetres/fletxes +
+// flama). Així tot queda alineat per construcció, com la flama, i no cal reprojectar
+// ni enganxar capes a mà (que era el que es descol·locava).
 async function focComposaMapa(S){
   S=S||2; const el=$('focMap');
   FD.map.invalidateSize({animate:false});
-  await new Promise(r=>setTimeout(r,200));                 // deixa que les capes es redibuixen a la mida bona
-  const base=await html2canvas(el,{useCORS:true,backgroundColor:'#0b1220',scale:S,
-    ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-overlay-pane')||x.classList.contains('leaflet-control-container'))});
+  if(FD.ventLayer) FD.ventLayer.redraw();
+  if(FD.perimLayer) FD.perimLayer.redraw();
+  if(FD.annotLayer) FD.annotLayer.redraw();
+  await new Promise(r=>setTimeout(r,220));                 // deixa assentar tessel·les i capes
+  const base=await html2canvas(el,{useCORS:true, backgroundColor:'#0b1220', scale:S, logging:false,
+    ignoreElements:x=>x.classList&&x.classList.contains('leaflet-control-container')});
   const c=base.getContext('2d');
-  const posa=cv=>{ if(cv&&cv.width&&cv.height) c.drawImage(cv,0,0,cv.width,cv.height,0,0,base.width,base.height); };
-  if(FD.ventLayer&&$('focVentOn').checked) posa(FD.ventLayer._c);   // vent WindNinja
-  posa(FD.perimLayer&&FD.perimLayer._c);                            // perímetres (per antiguitat)
-  posa(FD.annotLayer&&FD.annotLayer._c);                            // fletxes de propagació
   if(FD.runData && $('focVentOn').checked) dibuixaLlegendaVentBox(c, 12*S, base.height-58*S, S, 'Vent WindNinja (km/h)');
   return base;
 }
