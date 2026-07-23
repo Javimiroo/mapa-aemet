@@ -3006,8 +3006,8 @@ async function focSetInici(){
 function focRunTemps(r){ return r.obs || r.ts; }
 function focMarks(){
   const box=$('focTMarks'); if(!box)return; box.innerHTML=''; const span=(FD.tMax-FD.tMin)||1;
-  FD.runs.forEach(r=>{ const t=focRunTemps(r), x=Math.max(0,Math.min(100,(t-FD.tMin)/span*100));
-    box.insertAdjacentHTML('beforeend','<span title="Vent WindNinja · dades de les '+new Date(t).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#22c55e;font-size:13px;line-height:1;font-weight:900">▮</span>'); });
+  FD.runs.forEach((r,k)=>{ const t=focRunTemps(r), x=Math.max(0,Math.min(100,(t-FD.tMin)/span*100)), act=(k===FD.runIdx);
+    box.insertAdjacentHTML('beforeend','<span class="focRunMark" data-k="'+k+'" title="Correguda WindNinja · dades de les '+new Date(t).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+' · clica per veure-la" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:'+(act?'#86efac':'#16a34a')+';font-size:'+(act?16:13)+'px;line-height:1;font-weight:900;cursor:pointer;pointer-events:auto">▮</span>'); });
   focPerimsList().forEach(p=>{ const x=Math.max(0,Math.min(100,(p.ts-FD.tMin)/span*100));
     box.insertAdjacentHTML('beforeend','<span title="Perímetre · '+new Date(p.ts).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#f87171;font-size:10px;line-height:1">◆</span>'); });
 }
@@ -3024,11 +3024,13 @@ async function focLoadRun(idx){
   }catch(e){ $('focRunInfo').textContent='no s\'ha pogut carregar el vent'; }
   if(FD.ventLayer) FD.ventLayer.redraw(); focVentLegShow();
 }
-async function focScrub(){
+async function focScrub(forcaRun){
   const i=parseInt($('focTRange').value,10); FD.tSel=FD.tMin+i*3600000;
   $('focTLabel').textContent=new Date(FD.tSel).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-  if(FD.runs.length){ let best=-1,bd=Infinity; FD.runs.forEach((r,k)=>{const d=Math.abs(focRunTemps(r)-FD.tSel);if(d<bd){bd=d;best=k;}});
+  if(forcaRun!=null && FD.runs[forcaRun]){ if(forcaRun!==FD.runIdx) await focLoadRun(forcaRun); }
+  else if(FD.runs.length){ let best=-1,bd=Infinity; FD.runs.forEach((r,k)=>{const d=Math.abs(focRunTemps(r)-FD.tSel);if(d<bd){bd=d;best=k;}});
     if(best>=0&&best!==FD.runIdx) await focLoadRun(best); }
+  focMarks();                             // refresca el ressaltat de la correguda activa
   focDrawStations(); focDrawPerims(); focFlame(); focChartsCursor();
 }
 function focValAt(st,vk,ms){
@@ -3287,6 +3289,13 @@ $('focPerimList').addEventListener('click',e=>{ const b=e.target.closest('.focPe
 $('focTRange').addEventListener('input',()=>{ if(FD) focScrub(); });
 $('focTPrev').addEventListener('click',()=>{ const r=$('focTRange'); r.value=Math.max(0,+r.value-1); focScrub(); });
 $('focTNext').addEventListener('click',()=>{ const r=$('focTRange'); r.value=Math.min(+r.max,+r.value+1); focScrub(); });
+$('focTMarks').addEventListener('click',async e=>{     // clic a una marca de correguda → veure eixa correguda
+  const m=e.target.closest('.focRunMark'); if(!m||!FD)return;
+  const k=+m.dataset.k, r=FD.runs[k]; if(!r)return;
+  const idx=Math.round((focRunTemps(r)-FD.tMin)/3600000);
+  $('focTRange').value=Math.max(0,Math.min(FD.tSteps,idx));
+  await focScrub(k);
+});
 $('focEstList').addEventListener('click',e=>{ const it=e.target.closest('.focEstItem'); if(!it)return; const id=it.dataset.id;
   const k=FD.chartIds.indexOf(id);
   if(k>=0) FD.chartIds.splice(k,1);
