@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --line:#334155;
@@ -136,6 +137,7 @@
   #ventleg2{position:absolute;right:10px;bottom:66px;z-index:1150;display:none;width:200px;
            background:rgba(15,23,42,.92);border:1px solid var(--line);border-radius:9px;
            padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .perim-vert{background:#e8380d;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.6);cursor:move}
   .wl-title{font-size:10.5px;color:var(--txt);font-weight:700;margin-bottom:4px;text-align:center}
   .wl-bar{height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.45)}
   .wl-ticks{position:relative;height:13px;margin-top:1px}
@@ -237,12 +239,14 @@
       <div class="cardbody">
         <label>Nom / lloc</label>
         <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
+        <label style="margin-top:8px">Hora d'inici de l'incendi</label>
+        <input type="datetime-local" id="focInici" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px">
         <button class="btn" id="flama" style="width:100%;margin-top:8px">🔥 Situar incendi al mapa</button>
         <div class="row" style="margin-top:8px">
           <button class="btn small" id="perimBtn" style="flex:1">✏️ Dibuixar perímetre</button>
           <button class="btn small" id="perimClear" style="flex:0 0 auto" title="Esborrar perímetre">🗑</button>
         </div>
-        <p class="muted" id="perimHint" style="font-size:11px;margin:4px 0 0;display:none">Fes clic al mapa per marcar el contorn. Prem "Acabar" quan estiga.</p>
+        <p class="muted" id="perimHint" style="font-size:11px;margin:4px 0 0;display:none">Fes clic al mapa per afegir punts. Arrossega els vèrtexs per moure'ls; clic dret per llevar-ne un. Prem "Acabar" quan estiga.</p>
         <label class="btn small" style="display:block;width:100%;margin-top:8px;text-align:center;cursor:pointer">📁 Importar perímetre (KML / GeoJSON)
           <input type="file" id="perimFile" accept=".kml,.json,.geojson" style="display:none">
         </label>
@@ -251,7 +255,7 @@
           <button class="btn small" id="focSync" style="flex:0 0 auto" title="Refrescar la llista de l'equip">↻</button>
         </div>
         <div id="focList" style="margin-top:8px"></div>
-        <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>5 últims</b> (nom, flama i perímetre) i els veu <b>tot l'equip</b>. Clica'n un per tornar-lo a situar al mapa.</p>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>5 últims</b> (nom, flama, perímetres, corregudes de vent) i els veu <b>tot l'equip</b>. Clica un incendi per situar-lo; 📊 obri el seu tauler.</p>
       </div>
     </div>
 
@@ -509,6 +513,46 @@
   <div id="reviewBar"><span>🕐 <b id="reviewTxt"></b></span><button id="reviewExit">↩ Tornar al directe</button></div>
 </div>
 
+<div id="focModal" style="display:none;position:fixed;inset:0;z-index:5000;background:#0b1220;color:#e5e7eb;flex-direction:column">
+  <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #334155;background:#0f172a;flex-wrap:wrap">
+    <b id="focTitol" style="font-size:16px">🔥 Incendi</b>
+    <span id="focSub" style="font-size:12px;color:#94a3b8"></span>
+    <span style="flex:1"></span>
+    <button class="btn small" id="focFinalitzar">🏁 Marcar finalitzat</button>
+    <button class="btn small" id="focExport">📷 Exportar imatge</button>
+    <button class="btn small" id="focZipBtn">🗜 ZIP</button>
+    <button class="btn small" id="focTancar">✕ Tancar</button>
+  </div>
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="flex:1.4;position:relative;min-width:0;display:flex;flex-direction:column;border-right:1px solid #334155">
+      <div style="display:flex;gap:10px;align-items:center;padding:6px 10px;background:#0f172a;border-bottom:1px solid #1e293b;flex-wrap:wrap">
+        <label style="font-size:12px;color:#cbd5e1">Variable:</label>
+        <select id="focVar" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:4px 6px;font-size:12px"></select>
+        <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="focVentOn" checked> Vent WindNinja</label>
+        <span id="focRunInfo" style="font-size:11px;color:#94a3b8;margin-left:auto"></span>
+      </div>
+      <div id="focMap" style="flex:1;min-height:0"></div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 12px;background:#0f172a;border-top:1px solid #334155">
+        <button class="tb-btn" id="focTPrev" title="Hora anterior">◀</button>
+        <div style="flex:1">
+          <div id="focTMarks" style="position:relative;height:15px;margin-bottom:1px"></div>
+          <input type="range" id="focTRange" min="0" max="100" value="100" step="1" style="width:100%">
+        </div>
+        <button class="tb-btn" id="focTNext" title="Hora següent">▶</button>
+        <span id="focTLabel" style="font-size:12px;min-width:132px;text-align:right;color:#e5e7eb">—</span>
+      </div>
+    </div>
+    <div style="flex:1;min-width:330px;max-width:560px;display:flex;flex-direction:column;background:#0b1220">
+      <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
+        <b style="font-size:13px">Estacions més properes</b>
+        <span style="font-size:11px;color:#94a3b8"> · clica'n fins a 3 per als meteogrames</span>
+        <div id="focEstList" style="margin-top:6px;max-height:172px;overflow:auto"></div>
+      </div>
+      <div id="focCharts" style="flex:1;overflow:auto;padding:6px 12px"></div>
+    </div>
+  </div>
+</div>
+
 <div id="estModal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
   <div style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:12px;padding:16px;max-width:min(780px,95vw);width:780px;box-shadow:0 12px 44px rgba(0,0,0,.55)">
     <div class="row" style="justify-content:space-between;align-items:center">
@@ -717,6 +761,8 @@ const BASEMAPS={
 };
 let baseLayer=null, baseLayer2=null, map2=null, markers2=[], comboActive=null;
 let flame=null, flame2=null, flameLL=null;
+let focActualId=null, focActualPerims=[], focActualRuns=[];   // incendi carregat/en edició
+function tempsEfectiu(){ return (typeof timeT!=='undefined'&&timeT!=null)?timeT:Date.now(); }
 let perimLL=[], perim=null, perim2=null, dibuixantPerim=false;
 function setBase(key){
   const b=BASEMAPS[key]||BASEMAPS.dark;
@@ -1601,21 +1647,37 @@ function redibuixaPerim(){
   perim=L.polygon(perimLL,PERIM_ST).addTo(map);
   if(comboActive&&map2) perim2=L.polygon(perimLL,PERIM_ST).addTo(map2);
 }
-function onPerimClick(e){ perimLL.push(e.latlng); redibuixaPerim(); }
-function iniciaPerim(){
-  dibuixantPerim=true; perimLL=[]; redibuixaPerim();
+const VERT_ICON=L.divIcon({className:'perim-vert',html:'',iconSize:[14,14],iconAnchor:[7,7]});
+let perimVerts=[];
+function llevaVerts(){ perimVerts.forEach(m=>{try{map.removeLayer(m);}catch(e){}}); perimVerts=[]; }
+function refVerts(){                        // vèrtexs arrossegables mentre s'edita
+  llevaVerts();
+  if(!dibuixantPerim) return;
+  perimLL.forEach((ll,i)=>{
+    const m=L.marker(ll,{icon:VERT_ICON,draggable:true,zIndexOffset:4000,keyboard:false}).addTo(map);
+    m.on('drag',()=>{ perimLL[i]=m.getLatLng(); redibuixaPerim(); });
+    m.on('contextmenu',ev=>{ L.DomEvent.stop(ev); perimLL.splice(i,1); refVerts(); redibuixaPerim(); });
+    perimVerts.push(m);
+  });
+}
+function onPerimClick(e){ perimLL.push(e.latlng); refVerts(); redibuixaPerim(); }
+function iniciaPerim(){                      // NO esborra: continua editant el que hi haja
+  dibuixantPerim=true;
   map.on('click',onPerimClick); if(map2) map2.on('click',onPerimClick);
   map.getContainer().style.cursor='crosshair'; if(map2)map2.getContainer().style.cursor='crosshair';
   $('perimBtn').textContent='✓ Acabar perímetre'; $('perimHint').style.display='';
+  refVerts(); redibuixaPerim();
 }
 function acabaPerim(){
   dibuixantPerim=false;
   map.off('click',onPerimClick); if(map2) map2.off('click',onPerimClick);
   map.getContainer().style.cursor=''; if(map2)map2.getContainer().style.cursor='';
   $('perimBtn').textContent='✏️ Dibuixar perímetre'; $('perimHint').style.display='none';
+  llevaVerts();
 }
 function esborraPerim(){
-  perimLL=[]; if(perim){map.removeLayer(perim);perim=null;} if(perim2&&map2){map2.removeLayer(perim2);perim2=null;}
+  perimLL=[]; llevaVerts();
+  if(perim){map.removeLayer(perim);perim=null;} if(perim2&&map2){map2.removeLayer(perim2);perim2=null;}
 }
 $('perimBtn').addEventListener('click',()=>{ dibuixantPerim?acabaPerim():iniciaPerim(); });
 $('perimClear').addEventListener('click',()=>{ esborraPerim(); if(dibuixantPerim)acabaPerim(); });
@@ -1823,52 +1885,84 @@ async function focsSync(nomesSiPass){
   if(a){ focsCache=a; focsLocalDesa(a); }
   focsRender();
 }
+function focPerimsDe(f){    // compat: nou (perims) o antic (perim)
+  if(Array.isArray(f.perims)) return f.perims;
+  if(Array.isArray(f.perim)&&f.perim.length>=3) return [{ts:f.ts||Date.now(),pts:f.perim}];
+  return [];
+}
+function focUltimPerim(f){ const ps=focPerimsDe(f); return ps.length?ps[ps.length-1].pts:[]; }
 function focsRender(){
   const el=$('focList'); if(!el) return;
   if(!focsCache.length){ el.innerHTML='<div class="muted" style="font-size:11px">Encara no n\'hi ha cap de guardat.</div>'; return; }
   el.innerHTML=focsCache.map(f=>{
     const d=new Date(f.ts||Date.now());
     const q=d.toLocaleDateString('ca-ES',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
-    const np=(f.perim&&f.perim.length>=3)?(' · perímetre '+f.perim.length+' pts'):'';
+    const nper=focPerimsDe(f).length, nrun=(f.runs||[]).length;
+    const extra=(nper?(' · '+nper+' perím.'):'')+(nrun?(' · '+nrun+' vent'):'')+(f.fi?' · 🏁':'');
+    const sel=(String(f.id)===String(focActualId))?';outline:2px solid var(--accent)':'';
     return '<div class="row" style="align-items:stretch;gap:5px;margin-top:5px">'
-      +'<button class="btn small focL" data-id="'+f.id+'" style="flex:1;text-align:left;line-height:1.3">🔥 '
-      +(f.nom||'(sense nom)')+'<br><span class="muted" style="font-size:10px">'+q+np+'</span></button>'
+      +'<button class="btn small focL" data-id="'+f.id+'" style="flex:1;text-align:left;line-height:1.3'+sel+'">🔥 '
+      +(f.nom||'(sense nom)')+'<br><span class="muted" style="font-size:10px">'+q+extra+'</span></button>'
+      +'<button class="btn small focT" data-id="'+f.id+'" title="Obrir el tauler de l\'incendi">📊</button>'
       +'<button class="btn small focD" data-id="'+f.id+'" title="Esborrar per a tothom">🗑</button></div>';
   }).join('');
 }
+function localDatetimeToMs(v){ if(!v) return null; const t=new Date(v).getTime(); return isNaN(t)?null:t; }
+function msToLocalDatetime(ms){ if(ms==null) return ''; const d=new Date(ms-d0off(ms)); return d.toISOString().slice(0,16); }
+function d0off(ms){ return new Date(ms).getTimezoneOffset()*60000; }
 async function focGuarda(){
   if(!flameLL && perimLL.length<3){ alert('Situa la flama o dibuixa/importa un perímetre abans de guardar.'); return; }
   const b=$('focGuarda'), old=b.textContent; b.disabled=true; b.textContent='Guardant…';
-  const foc={ nom:($('incident').value||'').trim()||'Incendi', ts:Date.now(),
+  // acumulem l'historial de perímetres: mantenim els anteriors i afegim l'actual si n'hi ha
+  const perims=focActualPerims.slice();
+  if(perimLL.length>=3){
+    const pts=perimLL.map(p=>({lat:+p.lat.toFixed(5),lng:+p.lng.toFixed(5)}));
+    const ultim=perims.length?JSON.stringify(perims[perims.length-1].pts):null;
+    if(JSON.stringify(pts)!==ultim) perims.push({ts:tempsEfectiu(),pts});
+  }
+  const foc={ id:focActualId||undefined, nom:($('incident').value||'').trim()||'Incendi',
               flama: flameLL?{lat:flameLL.lat,lng:flameLL.lng}:null,
-              perim: perimLL.map(p=>({lat:+p.lat.toFixed(5),lng:+p.lng.toFixed(5)})) };
+              perims, inici: localDatetimeToMs($('focInici').value) };
   const a=await focsAPI('guarda',{foc});
-  if(a){ focsCache=a; focsLocalDesa(a); b.textContent='✓ Guardat'; }
-  else { foc.id='local'+Date.now(); focsCache=[foc].concat(focsCache).slice(0,5); focsLocalDesa(focsCache);
+  if(a){ focsCache=a; focsLocalDesa(a);
+    const meu=a[0];   // el Worker posa el desat al davant de la llista
+    if(meu){ focActualId=meu.id; focActualPerims=focPerimsDe(meu); focActualRuns=meu.runs||[]; }
+    b.textContent='✓ Guardat'; }
+  else { foc.id=focActualId||('local'+Date.now()); focActualId=foc.id; focActualPerims=perims;
+         foc.ts=Date.now(); focsCache=[foc].concat(focsCache.filter(x=>x.id!==foc.id)).slice(0,5); focsLocalDesa(focsCache);
          b.textContent='✓ Guardat (només ací)'; }
   focsRender(); setTimeout(()=>{ b.textContent=old; b.disabled=false; },1800);
 }
 function focCarrega(id){
   const f=focsCache.find(x=>String(x.id)===String(id)); if(!f) return;
+  focActualId=f.id; focActualPerims=focPerimsDe(f); focActualRuns=f.runs||[];
   $('incident').value=f.nom||'';
+  $('focInici').value=msToLocalDatetime(f.inici!=null?f.inici:null);
   flameLL = f.flama ? L.latLng(f.flama.lat,f.flama.lng) : null;
   posaFlames();
   $('flama').textContent = flameLL ? '🔥 Llevar incendi del mapa' : '🔥 Situar incendi al mapa';
-  perimLL = (f.perim||[]).map(p=>L.latLng(p.lat,p.lng));
+  perimLL = focUltimPerim(f).map(p=>L.latLng(p.lat,p.lng));   // carreguem l'últim perímetre per editar-lo
   redibuixaPerim();
   const pts=perimLL.slice(); if(flameLL) pts.push(flameLL);
   if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.35));
+  focsRender();
 }
 $('focGuarda').addEventListener('click',focGuarda);
 $('focSync').addEventListener('click',()=>focsSync(false));
 $('focList').addEventListener('click',async e=>{
-  const bl=e.target.closest('.focL'), bd=e.target.closest('.focD');
-  if(bl) focCarrega(bl.dataset.id);
-  else if(bd){
-    if(!confirm('Esborrar este incendi per a tot l\'equip?')) return;
+  const bl=e.target.closest('.focL'), bd=e.target.closest('.focD'), bt=e.target.closest('.focT');
+  if(bt){ obreFocTauler(bt.dataset.id); return; }
+  if(bl){ focCarrega(bl.dataset.id); return; }
+  if(bd){
+    const f=focsCache.find(x=>String(x.id)===String(bd.dataset.id));
+    if(!confirm('Esborrar «'+((f&&f.nom)||'incendi')+'» per a tot l\'equip?\n\nAçò no es pot desfer.')) return;
+    if(f && confirm('Vols exportar tota la informació generada (perímetres, corregudes de vent, dades) en un ZIP abans d\'esborrar?')){
+      try{ await exportaFocZip(f); }catch(ex){ if(!confirm('No s\'ha pogut exportar el ZIP ('+(ex.message||ex)+').\nEsborrar igualment?')) return; }
+    }
     const a=await focsAPI('esborra',{id:bd.dataset.id});
     if(a){ focsCache=a; focsLocalDesa(a); }
     else { focsCache=focsCache.filter(x=>String(x.id)!==String(bd.dataset.id)); focsLocalDesa(focsCache); }
+    if(String(focActualId)===String(bd.dataset.id)){ focActualId=null; focActualPerims=[]; focActualRuns=[]; }
     focsRender();
   }
 });
@@ -1994,6 +2088,7 @@ async function zonaCalcula(){         // dispara el càlcul a partir de la flama
         if(zonaData && zonaMeta && zonaMeta.bbox===bbox && (zonaMeta.generat||'')!==generatAbans){
           await zonaMostra(); b.textContent='✓ Camp fi llest';
           inf.textContent='Camp calculat i dibuixat. Clica dins de la caixa per consultar el vent.';
+          desaCorreguda();                       // guardem la correguda lligada a l'incendi actiu
           setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
         }
         await sleep(5000);
@@ -2686,6 +2781,282 @@ async function exportaGrafic(){
   btn.textContent=old; btn.disabled=false;
 }
 document.getElementById('chImg').addEventListener('click',exportaGrafic);
+
+// ============================================================================
+//  TAULER PER INCENDI (finestra pròpia amb mapa, estacions, meteogrames i temps)
+// ============================================================================
+let FD=null;                                   // estat del tauler obert
+function haversineKm(a,b){
+  const R=6371,dLat=(b.lat-a.lat)*Math.PI/180,dLon=(b.lng-a.lng)*Math.PI/180;
+  const s=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+function focCentreDe(f){
+  if(f.flama) return L.latLng(f.flama.lat,f.flama.lng);
+  const ps=focUltimPerim(f); if(ps.length) return L.latLngBounds(ps.map(p=>[p.lat,p.lng])).getCenter();
+  return null;
+}
+function focPerimsList(){ return FD?focPerimsDe(FD.foc):[]; }
+function focPerimVigent(){ const ps=focPerimsList(); if(!ps.length)return null; let ch=ps[0]; ps.forEach(p=>{if(p.ts<=FD.tSel)ch=p;}); return ch; }
+// capa de fletxes WindNinja sobre el mapa del tauler
+const FocVentLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    if(!FD||!FD.runData||!$('focVentOn').checked)return;
+    const W=FD.runData,B=W.bbox,nx=W.nx,ny=W.ny,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
+    const a=m.latLngToContainerPoint([B[3],B[0]]),b=m.latLngToContainerPoint([B[2],B[1]]);
+    ctx.strokeStyle='rgba(245,158,11,.9)';ctx.lineWidth=1.4;ctx.setLineDash([6,4]);ctx.strokeRect(a.x,a.y,b.x-a.x,b.y-a.y);ctx.setLineDash([]);
+    const p1=m.latLngToContainerPoint([B[3],B[0]+dlon]),cell=Math.max(.001,Math.abs(p1.x-a.x)),step=Math.max(1,Math.round(20/cell)),LN=13;
+    ctx.lineCap='round';ctx.lineJoin='round';ctx.shadowColor='rgba(0,0,0,.9)';ctx.shadowBlur=3;ctx.shadowOffsetX=.8;ctx.shadowOffsetY=1;
+    for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){const pos=W.landPos[j*nx+i];if(pos<0)continue;
+      const u=W.buf[pos*2]*W.esc,v=W.buf[pos*2+1]*W.esc,sp=Math.hypot(u,v);if(sp<0.05)continue;
+      const p=m.latLngToContainerPoint([B[3]-j*dlat,B[0]+i*dlon]);if(p.x<-20||p.y<-20||p.x>s.x+20||p.y>s.y+20)continue;
+      const sx=u/sp,sy=-v/sp,x0=p.x-sx*LN/2,y0=p.y-sy*LN/2,x1=p.x+sx*LN/2,y1=p.y+sy*LN/2,ah=5,an=Math.atan2(sy,sx),col=ventColor(sp);
+      ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x1-ah*Math.cos(an-.62),y1-ah*Math.sin(an-.62));ctx.lineTo(x1-ah*Math.cos(an+.62),y1-ah*Math.sin(an+.62));ctx.closePath();ctx.fill();}
+    ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;}
+});
+async function obreFocTauler(id){
+  const f=focsCache.find(x=>String(x.id)===String(id)); if(!f){ alert('Incendi no trobat.'); return; }
+  const centre=focCentreDe(f); if(!centre){ alert('Este incendi encara no té ni flama ni perímetre.'); return; }
+  if(!PASS){ alert('Cal haver entrat amb la contrasenya per veure el vent xifrat.'); }
+  $('focModal').style.display='flex';
+  $('focTitol').textContent='🔥 '+(f.nom||'Incendi');
+  const q=ms=>new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  $('focSub').textContent=(f.inici?('inici '+q(f.inici)):'sense hora d\'inici')+(f.fi?(' · 🏁 '+q(f.fi)):'');
+  $('focFinalitzar').textContent=f.fi?'↩ Reobrir':'🏁 Marcar finalitzat';
+  if(FD){ FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); if(FD.map){try{FD.map.remove();}catch(e){} FD.map=null;} }
+  FD={foc:f,centre:centre,charts:[],chartIds:[],chartDay:null,estMarkers:[],perimLayers:[],flameM:null,
+      runs:(f.runs||[]).slice().sort((a,b)=>a.ts-b.ts),runIdx:-1,runData:null,map:null,ventLayer:null};
+  const mp=FD.map=L.map('focMap',{zoomControl:true}).setView(centre,12);
+  L.tileLayer(BASEMAPS.satellite.u,Object.assign({crossOrigin:true},BASEMAPS.satellite.o)).addTo(mp);
+  FD.ventLayer=new FocVentLayer(); FD.ventLayer.addTo(mp);
+  const sv=$('focVar'); sv.innerHTML='';
+  ORDER.filter(k=>k!=='barbes').forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':'');sv.appendChild(o);});
+  {const o=document.createElement('option');o.value='cap';o.textContent='— Cap (només base i vent) —';sv.appendChild(o);}
+  sv.value='hr';
+  FD.nears=(DATA?DATA.estacions:[]).filter(e=>e.lat!=null&&e.lon!=null)
+    .map(e=>({st:e,km:haversineKm(centre,L.latLng(e.lat,e.lon))})).sort((a,b)=>a.km-b.km);
+  FD.chartIds=FD.nears.slice(0,3).map(o=>String(o.st.idema));
+  focRenderEstList();
+  const ini=f.inici?(f.inici-2*3600000):(Date.now()-6*3600000), fi=f.fi||Date.now();
+  FD.tMin=Math.floor(ini/3600000)*3600000; FD.tMax=Math.max(FD.tMin+3600000,Math.ceil(fi/3600000)*3600000);
+  FD.tSteps=Math.round((FD.tMax-FD.tMin)/3600000);
+  $('focTRange').max=FD.tSteps; $('focTRange').value=FD.tSteps; FD.tSel=FD.tMax;
+  focMarks();
+  if(FD.runs.length) await focLoadRun(FD.runs.length-1);
+  await focScrub();
+  focRenderCharts();
+  setTimeout(()=>{ if(FD&&FD.map){ FD.map.invalidateSize(); FD.map.setView(centre,12); } },90);
+}
+function focMarks(){
+  const box=$('focTMarks'); if(!box)return; box.innerHTML=''; const span=(FD.tMax-FD.tMin)||1;
+  FD.runs.forEach(r=>{ const x=Math.max(0,Math.min(100,(r.ts-FD.tMin)/span*100));
+    box.insertAdjacentHTML('beforeend','<span title="Vent WindNinja · '+new Date(r.ts).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#f59e0b;font-size:11px;line-height:1">🌬</span>'); });
+  focPerimsList().forEach(p=>{ const x=Math.max(0,Math.min(100,(p.ts-FD.tMin)/span*100));
+    box.insertAdjacentHTML('beforeend','<span title="Perímetre · '+new Date(p.ts).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#f87171;font-size:10px;line-height:1">◆</span>'); });
+}
+async function focLoadRun(idx){
+  const r=FD.runs[idx]; if(!r) return; FD.runIdx=idx;
+  $('focRunInfo').textContent='carregant vent…';
+  try{
+    const d=await workerJSON({accio:'run_get',rid:r.rid});
+    if(d&&d.ok&&d.enc){
+      const p=await desxifra(JSON.parse(d.enc),PASS); FD.runData=decodeVentHores(p);
+      const obs=(FD.runData.t&&FD.runData.t[0])||r.obs;
+      $('focRunInfo').textContent='🌬 vent de les '+(obs?new Date(obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'?')+' · '+FD.runs.length+' corregudes';
+    } else $('focRunInfo').textContent='sense vent per a esta correguda';
+  }catch(e){ $('focRunInfo').textContent='no s\'ha pogut carregar el vent'; }
+  if(FD.ventLayer) FD.ventLayer.redraw();
+}
+async function focScrub(){
+  const i=parseInt($('focTRange').value,10); FD.tSel=FD.tMin+i*3600000;
+  $('focTLabel').textContent=new Date(FD.tSel).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  if(FD.runs.length){ let best=-1,bd=Infinity; FD.runs.forEach((r,k)=>{const d=Math.abs(r.ts-FD.tSel);if(d<bd){bd=d;best=k;}});
+    if(best>=0&&best!==FD.runIdx) await focLoadRun(best); }
+  focDrawStations(); focDrawPerims(); focFlame(); focChartsCursor();
+}
+function focValAt(st,vk,ms){
+  if(vk==='cap') return null;
+  const arr=serieHoraria(st,diaKey(new Date(ms)),vk), v=arr&&arr[new Date(ms).getHours()];
+  if(v!=null&&!isNaN(v)) return v;
+  return getVal(st,vk);
+}
+function focDrawStations(){
+  if(!FD||!FD.map)return;
+  FD.estMarkers.forEach(m=>FD.map.removeLayer(m)); FD.estMarkers=[];
+  const vk=$('focVar').value, N=Math.min(FD.nears.length,18);
+  for(let i=0;i<N;i++){ const o=FD.nears[i], st=o.st;
+    let ic;
+    if(vk==='cap'){ ic=L.divIcon({className:'',html:'<div style="width:9px;height:9px;border-radius:50%;background:#38bdf8;border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>',iconSize:[12,12],iconAnchor:[6,6]}); }
+    else { const v=focValAt(st,vk,FD.tSel); if(v==null) continue; const col=colorFor(vk,v);
+      ic=L.divIcon({className:'',html:'<div style="background:'+col+';color:'+txtColor(col)+';border:1.5px solid rgba(0,0,0,.4);border-radius:5px;padding:0 4px;font:700 11px Arial;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.55)">'+fmt(vk,v)+'</div>',iconSize:null}); }
+    const m=L.marker([st.lat,st.lon],{icon:ic}).addTo(FD.map).bindTooltip(curtNom(st)+' · '+o.km.toFixed(1)+' km',{direction:'top'});
+    FD.estMarkers.push(m);
+  }
+}
+function focDrawPerims(){
+  if(!FD||!FD.map)return;
+  FD.perimLayers.forEach(l=>FD.map.removeLayer(l)); FD.perimLayers=[];
+  const ch=focPerimVigent(); if(!ch||!ch.pts.length)return;
+  FD.perimLayers.push(L.polygon(ch.pts.map(p=>[p.lat,p.lng]),{color:'#e8380d',weight:3,fill:true,fillColor:'#e8380d',fillOpacity:0.12}).addTo(FD.map));
+}
+function focFlame(){ if(!FD||!FD.map)return; if(FD.flameM){FD.map.removeLayer(FD.flameM);FD.flameM=null;} if(FD.foc.flama) FD.flameM=L.marker([FD.foc.flama.lat,FD.foc.flama.lng],{icon:flamaIcon()}).addTo(FD.map); }
+function focRenderEstList(){
+  const box=$('focEstList'); if(!box)return;
+  box.innerHTML=FD.nears.slice(0,14).map(o=>{ const id=String(o.st.idema), on=FD.chartIds.indexOf(id)>=0;
+    return '<div class="focEstItem" data-id="'+id+'" style="display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;'+(on?'background:#1e293b':'')+'">'
+      +'<span style="width:13px;color:#22c55e">'+(on?'✓':'')+'</span>'
+      +'<span style="flex:1;font-size:12px">'+curtNom(o.st)+' <span style="color:#94a3b8">('+o.st.font+')</span></span>'
+      +'<span style="font-size:11px;color:#38bdf8">'+o.km.toFixed(1)+' km</span></div>';
+  }).join('');
+}
+const focCursorPlugin={id:'focCursor',afterDatasetsDraw(chart){
+  if(!FD)return; const d=new Date(FD.tSel),hf=d.getHours()+d.getMinutes()/60,x=chart.scales.x;
+  if(hf<x.min||hf>x.max)return; const px=x.getPixelForValue(hf),a=chart.chartArea,ctx=chart.ctx;
+  ctx.save();ctx.strokeStyle='rgba(245,158,11,.95)';ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();ctx.restore();
+}};
+function focRenderCharts(){
+  FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); FD.charts=[];
+  const box=$('focCharts'); if(!box)return; box.innerHTML='';
+  FD.chartDay=diaKey(new Date(FD.tSel));
+  if(!FD.chartIds.length){ box.innerHTML='<div style="color:#94a3b8;font-size:12px;padding:8px">Tria fins a 3 estacions de la llista per veure els seus meteogrames.</div>'; return; }
+  const labels=[]; for(let h=0;h<24;h++)labels.push(h);
+  FD.chartIds.forEach(id=>{ const st=estPerId(id); if(!st)return;
+    const wrap=document.createElement('div'); wrap.style.marginBottom='9px';
+    wrap.innerHTML='<div style="font-size:12px;font-weight:700;margin:0 0 2px">'+curtNom(st)+' <span style="color:#94a3b8;font-weight:400">· '+st.font+' · '+diaKey(new Date(FD.tSel))+'</span></div><div style="position:relative;height:148px"><canvas></canvas></div>';
+    box.appendChild(wrap);
+    const ch=new Chart(wrap.querySelector('canvas'),{type:'line',data:{labels:labels,datasets:[
+      {label:'T °C',data:serieHoraria(st,FD.chartDay,'ta'),borderColor:'#ef4444',backgroundColor:'#ef4444',yAxisID:'y1',tension:.3,pointRadius:0,borderWidth:2,spanGaps:true},
+      {label:'HR %',data:serieHoraria(st,FD.chartDay,'hr'),borderColor:'#38bdf8',backgroundColor:'#38bdf8',yAxisID:'y2',tension:.3,pointRadius:0,borderWidth:1.4,borderDash:[5,4],spanGaps:true},
+      {label:'Vent km/h',data:serieHoraria(st,FD.chartDay,'vv'),borderColor:'#22c55e',backgroundColor:'#22c55e',yAxisID:'y1v',tension:.3,pointRadius:0,borderWidth:1.6,spanGaps:true}]},
+      options:{maintainAspectRatio:false,animation:false,interaction:{intersect:false,mode:'index'},
+        plugins:{legend:{labels:{color:'#cbd5e1',boxWidth:10,font:{size:9}}}},
+        scales:{x:{ticks:{color:'#94a3b8',font:{size:9}},grid:{color:'rgba(148,163,184,.10)'}},
+          y1:{position:'left',ticks:{color:'#e5e7eb',font:{size:9}},grid:{color:'rgba(148,163,184,.08)'}},
+          y2:{position:'right',min:0,max:100,ticks:{color:'#38bdf8',font:{size:9}},grid:{display:false}},
+          y1v:{display:false}}},plugins:[focCursorPlugin]});
+    FD.charts.push(ch);
+  });
+}
+function focChartsCursor(){
+  if(!FD)return; const dk=diaKey(new Date(FD.tSel));
+  if(dk!==FD.chartDay){ focRenderCharts(); return; }
+  FD.charts.forEach(c=>{try{c.update();}catch(e){}});
+}
+// ---- compon un canvas del mapa del tauler (base + fletxes + perímetre) ----
+async function focComposaMapa(S){
+  S=S||2; const el=$('focMap'), m=FD.map;
+  const base=await html2canvas(el,{useCORS:true,backgroundColor:'#0b1220',scale:S,
+    ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-overlay-pane')||x.classList.contains('leaflet-control-container'))});
+  const c=base.getContext('2d'), sxp=base.width/el.clientWidth, syp=base.height/el.clientHeight;
+  if(FD.runData && $('focVentOn').checked){
+    const W=FD.runData,B=W.bbox,nx=W.nx,ny=W.ny,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
+    const q0=m.latLngToContainerPoint([B[3],B[0]]),q1=m.latLngToContainerPoint([B[3],B[0]+dlon]);
+    const cell=Math.max(.001,Math.abs(q1.x-q0.x))*sxp,step=Math.max(1,Math.round(20*S/cell)),LN=13*S;
+    const a=m.latLngToContainerPoint([B[3],B[0]]),b=m.latLngToContainerPoint([B[2],B[1]]);
+    c.strokeStyle='rgba(245,158,11,.9)';c.lineWidth=1.4*S;c.setLineDash([6*S,4*S]);c.strokeRect(a.x*sxp,a.y*syp,(b.x-a.x)*sxp,(b.y-a.y)*syp);c.setLineDash([]);
+    c.lineCap='round';c.lineJoin='round';c.shadowColor='rgba(0,0,0,.9)';c.shadowBlur=3*S;c.shadowOffsetX=.8*S;c.shadowOffsetY=1*S;
+    for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){const pos=W.landPos[j*nx+i];if(pos<0)continue;
+      const u=W.buf[pos*2]*W.esc,v=W.buf[pos*2+1]*W.esc,sp=Math.hypot(u,v);if(sp<0.05)continue;
+      const p=m.latLngToContainerPoint([B[3]-j*dlat,B[0]+i*dlon]),X=p.x*sxp,Y=p.y*syp;
+      if(X<-30||Y<-30||X>base.width+30||Y>base.height+30)continue;
+      const ux=u/sp,uy=-v/sp,X0=X-ux*LN/2,Y0=Y-uy*LN/2,X1=X+ux*LN/2,Y1=Y+uy*LN/2,ah=5*S,an=Math.atan2(uy,ux),col=ventColor(sp);
+      c.strokeStyle=col;c.fillStyle=col;c.lineWidth=1.8*S;c.beginPath();c.moveTo(X0,Y0);c.lineTo(X1,Y1);c.stroke();
+      c.beginPath();c.moveTo(X1,Y1);c.lineTo(X1-ah*Math.cos(an-.62),Y1-ah*Math.sin(an-.62));c.lineTo(X1-ah*Math.cos(an+.62),Y1-ah*Math.sin(an+.62));c.closePath();c.fill();}
+    c.shadowColor='transparent';c.shadowBlur=0;c.shadowOffsetX=0;c.shadowOffsetY=0;
+  }
+  const ch=focPerimVigent();
+  if(ch&&ch.pts.length){ c.beginPath(); ch.pts.forEach((p,i)=>{const pt=m.latLngToContainerPoint([p.lat,p.lng]),X=pt.x*sxp,Y=pt.y*syp;i?c.lineTo(X,Y):c.moveTo(X,Y);}); c.closePath();
+    c.fillStyle='rgba(232,56,13,.12)';c.fill();c.strokeStyle='#e8380d';c.lineWidth=3*S;c.lineJoin='round';c.stroke(); }
+  return base;
+}
+async function focExportImatge(){
+  if(typeof html2canvas!=='function'){ alert('Falta la llibreria de captura.'); return; }
+  const btn=$('focExport'),old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
+  try{
+    const S=2, mapC=await focComposaMapa(S), chartsC=await html2canvas($('focCharts'),{backgroundColor:'#0f172a',scale:S});
+    const pad=16*S, head=64*S, foot=30*S, gap=14*S;
+    const bodyW=Math.max(mapC.width, chartsC.width), W=bodyW+2*pad, H=head+mapC.height+gap+chartsC.height+foot+2*pad;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+    c.fillStyle='#0b1220'; c.fillRect(0,0,W,H);
+    c.fillStyle='#fff'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(22*S)+'px Arial';
+    c.fillText('🔥 '+(FD.foc.nom||'Incendi'), pad, pad+head*0.36);
+    c.fillStyle='#94a3b8'; c.font=(13*S)+'px Arial';
+    const q=ms=>new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    c.fillText((FD.foc.inici?('Inici '+q(FD.foc.inici)+'  ·  '):'')+'Vista: '+q(FD.tSel)+(FD.foc.fi?('  ·  Finalitzat '+q(FD.foc.fi)):''), pad, pad+head*0.72);
+    c.textAlign='right'; c.fillStyle='#c00000'; c.font='900 '+(18*S)+'px Arial'; c.fillText('bombers', W-pad, pad+head*0.40);
+    c.drawImage(mapC, pad+(bodyW-mapC.width)/2, pad+head);
+    c.drawImage(chartsC, pad+(bodyW-chartsC.width)/2, pad+head+mapC.height+gap);
+    c.textAlign='left'; c.fillStyle='#64748b'; c.font=(11*S)+'px Arial';
+    c.fillText('Generat '+new Date().toLocaleString('ca-ES')+' · WindNinja · AEMET i Meteocat (SMC) · Base: Esri', pad, H-pad-foot*0.4);
+    cv.toBlob(bl=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
+      a.download='incendi_'+((FD.foc.nom||'incendi').replace(/[^\w]+/g,'_'))+'.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); },'image/png');
+  }catch(e){ alert('No s\'ha pogut exportar: '+(e&&e.message||e)); }
+  btn.disabled=false; btn.textContent=old;
+}
+async function exportaFocZip(f){
+  if(typeof JSZip==='undefined'){ throw new Error('llibreria ZIP no carregada'); }
+  const zip=new JSZip(), safe=(f.nom||'incendi').replace(/[^\w]+/g,'_');
+  zip.file('info.json', JSON.stringify({nom:f.nom, inici:f.inici, fi:f.fi, flama:f.flama,
+    perimetres:focPerimsDe(f).length, corregudes:(f.runs||[]).length, exportat:new Date().toISOString()}, null, 2));
+  focPerimsDe(f).forEach((p,i)=>{ const ring=p.pts.map(q=>[q.lng,q.lat]); if(ring.length)ring.push(ring[0]);
+    zip.file('perimetres/perimetre_'+String(i+1).padStart(2,'0')+'.geojson',
+      JSON.stringify({type:'Feature',properties:{ts:new Date(p.ts).toISOString()},geometry:{type:'Polygon',coordinates:[ring]}})); });
+  const dashOpen = FD && FD.foc && String(FD.foc.id)===String(f.id);
+  const runs=(f.runs||[]).slice().sort((a,b)=>a.ts-b.ts);
+  for(let k=0;k<runs.length;k++){ const r=runs[k];
+    try{ const d=await workerJSON({accio:'run_get',rid:r.rid});
+      if(d&&d.ok&&d.enc){ const tag=new Date(r.ts).toISOString().replace(/[:]/g,'').replace('T','_').slice(0,15);
+        zip.file('vent_windninja/'+tag+'.enc', d.enc);
+        if(dashOpen){ await focLoadRun(k); await new Promise(res=>setTimeout(res,140));
+          const mc=await focComposaMapa(2), bl=await new Promise(res=>mc.toBlob(res,'image/png')); if(bl) zip.file('vent_windninja/'+tag+'.png', bl); } }
+    }catch(e){}
+  }
+  if(dashOpen){ try{ const mc=await focComposaMapa(2), bl=await new Promise(res=>mc.toBlob(res,'image/png')); if(bl) zip.file('mapa_actual.png', bl); }catch(e){}
+    await focScrub(); }
+  const blob=await zip.generateAsync({type:'blob'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='incendi_'+safe+'.zip'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),6000);
+}
+async function focFinalitzar(){
+  const f=FD.foc, nou=f.fi?null:Date.now();
+  const foc={id:f.id,nom:f.nom,flama:f.flama,perims:focPerimsDe(f),inici:(f.inici!=null?f.inici:null),fi:nou};
+  const a=await focsAPI('guarda',{foc}); if(a){ focsCache=a; focsLocalDesa(a); }
+  const g=focsCache.find(x=>String(x.id)===String(f.id))||f; g.fi=nou; focsRender();
+  obreFocTauler(f.id);   // reobrim per recalcular la línia de temps amb el nou fi
+}
+function focTanca(){ if(FD){ FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); if(FD.map){try{FD.map.remove();}catch(e){} FD.map=null;} } $('focModal').style.display='none'; FD=null; }
+$('focVar').addEventListener('change',()=>{ focDrawStations(); });
+$('focVentOn').addEventListener('change',()=>{ if(FD&&FD.ventLayer) FD.ventLayer.redraw(); });
+$('focTRange').addEventListener('input',()=>{ if(FD) focScrub(); });
+$('focTPrev').addEventListener('click',()=>{ const r=$('focTRange'); r.value=Math.max(0,+r.value-1); focScrub(); });
+$('focTNext').addEventListener('click',()=>{ const r=$('focTRange'); r.value=Math.min(+r.max,+r.value+1); focScrub(); });
+$('focEstList').addEventListener('click',e=>{ const it=e.target.closest('.focEstItem'); if(!it)return; const id=it.dataset.id;
+  const k=FD.chartIds.indexOf(id);
+  if(k>=0) FD.chartIds.splice(k,1);
+  else { if(FD.chartIds.length>=3){ alert('Màxim 3 estacions.'); return; } FD.chartIds.push(id); }
+  focRenderEstList(); focRenderCharts(); });
+$('focTancar').addEventListener('click',focTanca);
+$('focExport').addEventListener('click',focExportImatge);
+$('focFinalitzar').addEventListener('click',focFinalitzar);
+$('focZipBtn').addEventListener('click',async()=>{ const b=$('focZipBtn'),o=b.textContent; b.disabled=true; b.textContent='Preparant ZIP…';
+  try{ await exportaFocZip(FD.foc); }catch(e){ alert('No s\'ha pogut fer el ZIP: '+(e.message||e)); } b.disabled=false; b.textContent=o; });
+// desa la correguda de WindNinja acabada de calcular, lligada a l'incendi seleccionat
+async function desaCorreguda(){
+  if(!focActualId) return;
+  try{
+    const enc=await fetch(ZONA_URL+'vent_zona.enc?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():null);
+    if(!enc) return;
+    const meta={ts:Date.now(), bbox:(zonaMeta&&zonaMeta.bbox)||'', obs:(zonaData&&zonaData.t&&zonaData.t[0])||null, malla:100};
+    const a=await focsAPI('run_add',{id:focActualId, enc:enc, meta:meta});
+    if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(focActualId)); if(g) focActualRuns=g.runs||[]; focsRender(); }
+  }catch(e){}
+}
 </script>
 </body>
 </html>
