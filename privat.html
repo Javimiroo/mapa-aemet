@@ -2965,7 +2965,7 @@ async function obreFocTauler(id){
   mp.on('mousedown',focArrowDown); mp.on('mousemove',focArrowMove); mp.on('mouseup',focArrowUp);
   focArrowMode=false; $('focArrowBtn').classList.remove('on');
   const sv=$('focVar'); sv.innerHTML='';
-  ORDER.filter(k=>k!=='barbes').forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':'');sv.appendChild(o);});
+  ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=(k==='barbes'?'Barbes de vent':VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':''));sv.appendChild(o);});
   {const o=document.createElement('option');o.value='cap';o.textContent='— Cap (només base i vent) —';sv.appendChild(o);}
   sv.value='hr';
   FD.nears=(DATA?DATA.estacions:[]).filter(e=>e.lat!=null&&e.lon!=null)
@@ -3039,11 +3039,28 @@ function focValAt(st,vk,ms){
   if(v!=null&&!isNaN(v)) return v;
   return getVal(st,vk);
 }
+// barba de vent al TEMPS triat (usa el zoom del mapa del tauler)
+function focBarbZoom(){ const z=(FD&&FD.map&&FD.map.getZoom)?FD.map.getZoom():12; return Math.max(0.62,Math.min(2.6,0.78+(z-8)*0.32)); }
+function makeFocBarbIcon(st,ms){
+  const vv=focValAt(st,'vv',ms); if(vv==null) return null;
+  const vmax=focValAt(st,'vmax',ms);
+  const arr=serieDir(st,diaKey(new Date(ms))), h=new Date(ms).getHours();
+  const dir=(arr&&arr[h]!=null)?arr[h]:((st.actual&&st.actual.dv!=null)?st.actual.dv:0);
+  const zf=focBarbZoom(), col=colorFor('vv',vv), R=34*zf, cr=7*zf, fsz=Math.max(8,Math.round(8.5*zf)), gtxt=(vmax==null)?'':Math.round(vmax);
+  const html='<svg width="'+(2*R)+'" height="'+(2*R)+'" viewBox="'+(-R)+' '+(-R)+' '+(2*R)+' '+(2*R)+'" style="overflow:visible;filter:drop-shadow(0 0 .8px #0b0f19) drop-shadow(0 0 .8px #0b0f19)">'
+    +'<g transform="rotate('+dir+')">'+windBarbSVG(vv,col,zf)+'</g>'
+    +'<circle cx="0" cy="0" r="'+cr+'" fill="#fff" stroke="#222" stroke-width="'+Math.max(1,1.3*zf)+'"/>'
+    +'<text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-weight="700" font-size="'+fsz+'" fill="#111">'+gtxt+'</text></svg>';
+  return L.divIcon({className:'',html:html,iconSize:[2*R,2*R],iconAnchor:[R,R]});
+}
 function focDrawStations(){
   if(!FD||!FD.map)return;
   FD.estMarkers.forEach(m=>FD.map.removeLayer(m)); FD.estMarkers=[];
   const vk=$('focVar').value, N=Math.min(FD.nears.length,18);
   for(let i=0;i<N;i++){ const o=FD.nears[i], st=o.st;
+    if(vk==='barbes'){ const ic=makeFocBarbIcon(st,FD.tSel); if(!ic) continue;
+      const m=L.marker([st.lat,st.lon],{icon:ic}).addTo(FD.map).bindTooltip(curtNom(st)+' · '+o.km.toFixed(1)+' km',{direction:'top'});
+      FD.estMarkers.push(m); continue; }
     let ic;
     if(vk==='cap'){ ic=L.divIcon({className:'',html:'<div style="width:9px;height:9px;border-radius:50%;background:#38bdf8;border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>',iconSize:[12,12],iconAnchor:[6,6]}); }
     else { const v=focValAt(st,vk,FD.tSel); if(v==null) continue; const col=colorFor(vk,v);
