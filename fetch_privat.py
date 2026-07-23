@@ -62,6 +62,7 @@ EST_FILE = "meteocat_estacions.json"
 #   10 m: 30/31/50 · 6 m: 48/49/53 · 2 m: 46/47/56  (font: metadades XEMA, Meteocat)
 MC_VARS = {
     32: ("ta", 1.0), 33: ("hr", 1.0),
+    35: ("prec", 1.0),                                      # precipitació 30 min (mm)
     46: ("vv", 3.6), 47: ("dv", 1.0), 56: ("vmax", 3.6),   # vent a 2 m
     48: ("vv", 3.6), 49: ("dv", 1.0), 53: ("vmax", 3.6),   # vent a 6 m
     30: ("vv", 3.6), 31: ("dv", 1.0), 50: ("vmax", 3.6),   # vent a 10 m (preferent)
@@ -287,7 +288,7 @@ def estacions_meteocat(baixa_ahir=True):
                 "fint": fint, "ta": latest("ta"), "tamax": None, "tamin": None,
                 "tamax_dia": max(ta_all) if ta_all else None, "tamin_dia": min(ta_all) if ta_all else None,
                 "n_hores": len(historic), "hr": latest("hr"), "vv": latest("vv"),
-                "vmax": latest("vmax"), "dv": latest("dv"), "dmax": None, "prec": None,
+                "vmax": latest("vmax"), "dv": latest("dv"), "dmax": None, "prec": latest("prec"),
                 "pres": None, "tpr": punt_rosada(latest("ta"), latest("hr")),
             },
             "historic": historic,
