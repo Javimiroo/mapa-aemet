@@ -263,9 +263,9 @@
         <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
           <button class="btn" id="zonaCalc" style="width:100%">🌬️ Calcular camp fi (WindNinja)</button>
           <div id="zonaCalcInfo" class="muted" style="font-size:11px;margin:5px 0 10px">Calcularà el camp de vent de la zona de l'incendi seleccionat.</div>
-          <label class="switch"><input type="checkbox" id="zonaOn"> Camp fi de zona (WindNinja)</label>
+          <label class="switch"><input type="checkbox" id="zonaOn"> Veure l'últim camp fi calculat</label>
           <div id="zonaInfo" class="muted" style="font-size:11px;margin-top:4px">—</div>
-          <p class="muted" style="font-size:11px;margin:6px 0 0">Camp d'alta resolució sobre la caixa d'un incendi, calculat amb WindNinja a partir del relleu i les estacions. Es genera des d'Actions i es dibuixa per damunt del camp general.</p>
+          <p class="muted" style="font-size:11px;margin:6px 0 0">Mostra l'<b>últim</b> camp fi que s'ha calculat (n'hi ha un de sol, compartit per tot l'equip). Clica dins de la caixa taronja per consultar el vent d'alta resolució d'eixe punt.</p>
         </div>
       </div>
     </div>
@@ -1826,7 +1826,7 @@ async function carregaZona(){
     const p=await desxifra(await r.json(), PASS);
     zonaData=decodeVentHores(p);
     if(inf) inf.innerHTML=((zonaMeta&&zonaMeta.nom)?('<b>'+zonaMeta.nom+'</b> · '):'')
-      +(p.t&&p.t.length?fmtTemps(p.t[0]):'')+' · malla '+(p.malla_m||'?')+' m'
+      +(p.t&&p.t.length?('vent de les '+fmtTemps(p.t[0])):'')+' · malla '+(p.malla_m||'?')+' m'
       +(p.avis?('<br><span style="color:#f59e0b">⚠ '+p.avis+'</span>'):'');
   }catch(e){ if(inf) inf.textContent='error carregant la zona'; }
 }
@@ -1896,29 +1896,39 @@ async function zonaCalcula(){         // dispara el càlcul a partir de la flama
   const half=0.063, dlon=half/Math.max(0.2,Math.cos(c.lat*Math.PI/180));   // ~14 km de costat
   const bbox=[(c.lng-dlon).toFixed(4),(c.lat-half).toFixed(4),(c.lng+dlon).toFixed(4),(c.lat+half).toFixed(4)].join(',');
   const b=$('zonaCalc'), old=b.textContent, inf=$('zonaCalcInfo');
-  // llevem el camp anterior: si no, es veu la caixa vella i confon
+  // REFERÈNCIES d'abans de llançar, per no confondre el resultat nou amb el vell:
+  //  - generatAbans: marca de temps del fitxer publicat ara mateix
+  //  - urlAbans: l'última execució de GitHub (per identificar LA NOSTRA, la nova)
+  let generatAbans='';
+  try{ const j=await fetch(ZONA_URL+'zona.json?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null); generatAbans=(j&&j.generat)||''; }catch(e){}
+  const est0=await workerJSON({accio:'zona_estat'}); const urlAbans=(est0&&est0.url)||'';
+  // llevem el camp anterior de la vista: si no, es veu la caixa vella i confon
   if(zonaLayer) map.removeLayer(zonaLayer);
   zonaData=null; zonaMeta=null; $('zonaOn').checked=false; $('zonaInfo').textContent='—';
   b.disabled=true; b.textContent='Enviant…';
   const d=await workerJSON({accio:'zona',bbox:bbox,nom:($('incident').value||'').trim()});
   if(!d){ b.disabled=false;b.textContent=old; return; }
-  if(d.error==='running'){ alert('Ja hi ha un càlcul de zona en marxa. Espera que acabe.'); b.disabled=false;b.textContent=old; return; }
+  if(d.error==='running'){ alert('Ja hi ha un càlcul de zona en marxa (potser d\'un company). Espera que acabe i torna-ho a provar.'); b.disabled=false;b.textContent=old; return; }
   if(!d.ok){ alert('No s\'ha pogut llançar el càlcul: '+(d.error||'?')+(d.detail?('\n'+d.detail):'')); b.disabled=false;b.textContent=old; return; }
-  inf.textContent='Càlcul llançat. Es descarrega WindNinja i es resol el camp; pots seguir treballant.';
-  for(let i=0;i<45;i++){
-    b.textContent='Calculant… '+(i*10)+' s';
+  inf.textContent='Càlcul llançat. Es descarrega WindNinja i es resol el camp (un parell de minuts); pots seguir treballant.';
+  const t0=Date.now();
+  for(let i=0;i<60;i++){                                 // fins a ~10 min
+    b.textContent='Calculant… '+Math.round((Date.now()-t0)/1000)+' s';
     await sleep(10000);
     const st=await workerJSON({accio:'zona_estat'});     // preguntem a GitHub, no al fitxer
-    if(st && st.estat==='completed'){
+    if(!st) continue;
+    const esNostra=st.url && st.url!==urlAbans;          // NOMÉS acceptem la nova execució
+    if(esNostra && st.estat==='completed'){
       if(st.resultat!=='success'){
         b.textContent='✗ el càlcul ha fallat';
         inf.innerHTML='Ha fallat'+(st.url?(' · <a href="'+st.url+'" target="_blank" style="color:#f59e0b">veure el registre</a>'):'')+'.';
         setTimeout(()=>{b.textContent=old;b.disabled=false;},6000); return;
       }
       b.textContent='Publicant…';
-      for(let k=0;k<8;k++){                              // la còpia pública tarda a refrescar-se
+      for(let k=0;k<10;k++){                             // la còpia pública tarda a refrescar-se
         await carregaZona();
-        if(zonaData && zonaMeta && zonaMeta.bbox===bbox){
+        // exigim que el fitxer siga d'aquesta caixa I més nou que el d'abans
+        if(zonaData && zonaMeta && zonaMeta.bbox===bbox && (zonaMeta.generat||'')!==generatAbans){
           await zonaMostra(); b.textContent='✓ Camp fi llest';
           inf.textContent='Camp calculat i dibuixat. Clica dins de la caixa per consultar el vent.';
           setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
