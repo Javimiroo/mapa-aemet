@@ -3234,27 +3234,26 @@ async function focCalculaVent(){
         inf.innerHTML='Ha fallat'+(st.url?(' · <a href="'+st.url+'" target="_blank" style="color:#f59e0b">registre</a>'):'')+'.';
         setTimeout(()=>{b.textContent=old;b.disabled=false;},6000); return; }
       b.textContent='Desant…';
-      for(let k=0;k<10;k++){
-        const jm=await fetch(ZONA_URL+'zona.json?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null);
-        if(jm && (jm.generat||'')!==generatAbans){
-          const enc=await fetch(ZONA_URL+'vent_zona.enc?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.text():null).catch(()=>null);
-          if(enc){
-            const meta={ts:Date.now(),bbox:bbox,obs:null,malla:100};
-            try{ const p=await desxifra(JSON.parse(enc),PASS); meta.obs=(p.t&&p.t[0])||null; }catch(e){}
-            const a=await focsAPI('run_add',{id:f.id,enc:enc,meta:meta});
-            if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id));
-              if(g){ FD.foc=g; FD.runs=(g.runs||[]).slice().sort((x,y)=>x.ts-y.ts); focActualRuns=g.runs||[]; } focsRender(); }
-            focRecalculaTimeline(false); focMarks();
-            const nou=FD.runs[FD.runs.length-1];        // mou el cursor a la correguda nova
-            if(nou){ const idx=Math.round((focRunTemps(nou)-FD.tMin)/3600000); $('focTRange').value=Math.max(0,Math.min(FD.tSteps,idx)); }
-            await focScrub();
-            b.textContent='✓ Camp fi llest'; inf.textContent='Correguda desada en este incendi (marca verda al temps).';
-            setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
-          }
-        }
-        await sleep(5000);
+      let enc=null;
+      for(let k=0;k<8;k++){                              // llegim el fitxer per l'API (sense cau), no del raw
+        const zf=await workerJSON({accio:'zona_fitxer'});
+        if(zf && zf.ok && zf.enc){ enc=zf.enc; break; }
+        await sleep(4000);
       }
-      b.textContent='calculat, tarda a arribar'; inf.textContent='El càlcul ha anat bé; la còpia pública triga. Torna a obrir el tauler d\'ací a un minut.';
+      if(enc){
+        const meta={ts:Date.now(),bbox:bbox,obs:null,malla:100};
+        try{ const p=await desxifra(JSON.parse(enc),PASS); meta.obs=(p.t&&p.t[0])||null; }catch(e){}
+        const a=await focsAPI('run_add',{id:f.id,enc:enc,meta:meta});
+        if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id));
+          if(g){ FD.foc=g; FD.runs=(g.runs||[]).slice().sort((x,y)=>focRunTemps(x)-focRunTemps(y)); focActualRuns=g.runs||[]; } focsRender(); }
+        focRecalculaTimeline(false); focMarks();
+        const nou=FD.runs[FD.runs.length-1];            // mou el cursor a la correguda nova
+        if(nou){ const idx=Math.round((focRunTemps(nou)-FD.tMin)/3600000); $('focTRange').value=Math.max(0,Math.min(FD.tSteps,idx)); }
+        await focScrub();
+        b.textContent='✓ Camp fi llest'; inf.textContent='Correguda desada en este incendi (marca verda al temps).';
+        setTimeout(()=>{b.textContent=old;b.disabled=false;},4000); return;
+      }
+      b.textContent='calculat, no s\'ha pogut desar'; inf.textContent='El càlcul ha anat bé però no s\'ha pogut llegir el fitxer. Torna a prémer Calcular en un minut.';
       setTimeout(()=>{b.textContent=old;b.disabled=false;},7000); return;
     }
   }
