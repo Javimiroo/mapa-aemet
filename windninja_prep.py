@@ -260,6 +260,62 @@ def escriu_zona(out, mesh, dem_src, n_est, dtiso):
     return d
 
 
+def vent_representatiu(bbox, meta_path="meteocat_estacions.json"):
+    """Fallback quan NO hi ha cap estació amb vent dins de la caixa: agafa l'estació
+    amb vent MÉS PROPERA al centre i el fa servir com a vent mitjà del domini.
+    Retorna (speed_ms, dir_deg, dtiso, nom, dist_km) o None."""
+    lon0, lat0, lon1, lat1 = bbox
+    cx, cy = 0.5 * (lon0 + lon1), 0.5 * (lat0 + lat1)
+    try:
+        from xema_obert import descarrega
+    except Exception as ex:
+        print("  avis: xema_obert no disponible (%s)" % ex)
+        return None
+    if not os.path.exists(meta_path):
+        print("  avis: no trobe %s" % meta_path)
+        return None
+    meta = json.load(open(meta_path, encoding="utf-8"))
+    ests = {k: v for k, v in meta.items() if v.get("lat") is not None and v.get("lon") is not None}
+    if not ests:
+        return None
+    VARS = {46: ("vv", 3.6), 47: ("dv", 1.0), 48: ("vv", 3.6), 49: ("dv", 1.0), 30: ("vv", 3.6), 31: ("dv", 1.0)}
+    ara = datetime.now(timezone.utc)
+    dat = descarrega([ara - timedelta(days=1), ara], VARS, _num, verbose=False)
+
+    def dist(m):
+        return math.hypot((m["lon"] - cx) * math.cos(math.radians(cy)), m["lat"] - cy)
+
+    for codi, m in sorted(ests.items(), key=lambda kv: dist(kv[1])):
+        camps = dat.get(codi) or {}
+        vv, dv = camps.get("vv") or [], camps.get("dv") or []
+        if not vv or not dv:
+            continue
+        t_vv, v_vv = max(vv, key=lambda p: p[0])
+        dd = dict(dv).get(t_vv)
+        if dd is None:
+            continue
+        sp = (v_vv or 0) / 3.6                       # km/h -> m/s
+        dtiso = t_vv[:16].replace(" ", "T") + ":00Z" if len(t_vv) == 16 else t_vv
+        nom = (m.get("nom") or codi).split(" - ")[0].replace(",", "")
+        return (sp, float(dd), dtiso, nom, 111.0 * dist(m))
+    return None
+
+
+def escriu_zona_domini(out, mesh, dem_src, speed, direction, dtiso, nom, dkm):
+    """Mode producció SENSE estacions dins: vent mitjà uniforme (WindNinja ajusta el relleu)."""
+    d = os.path.join(out, "zona")
+    os.makedirs(d, exist_ok=True)
+    shutil.copy(dem_src, os.path.join(d, "dem.tif"))
+    dom = ("initialization_method = domainAverageInitialization\n"
+           "input_speed = %.2f\ninput_speed_units = mps\n"
+           "input_direction = %d\n" % (max(0.1, speed), int(round(direction)) % 360))
+    with open(os.path.join(d, "run.cfg"), "w", encoding="utf-8") as f:
+        f.write(BASE_CFG.format(mesh=mesh) + dom)
+    print("  zona (vent mitjà): cap estació dins; uso «%s» a %.1f km -> %.1f m/s, %d° (obs %s)"
+          % (nom, dkm, speed, int(round(direction)), dtiso))
+    return d
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", default="0.68,41.08,1.18,41.45", help="lon0,lat0,lon1,lat1")
@@ -278,7 +334,13 @@ def main():
     escriu_dem_utm(big, tr, bbox, dem, a.res)
     n, dtiso = estacions_csv(bbox, os.path.join(a.out, "estacions"))
     if a.zona:
-        escriu_zona(a.out, a.mesh, dem, n, dtiso)
+        if n >= 1 and dtiso:
+            escriu_zona(a.out, a.mesh, dem, n, dtiso)          # inicialització per estacions
+        else:                                                  # cap estació dins: vent mitjà de la més propera
+            rep = vent_representatiu(bbox)
+            if not rep:
+                raise SystemExit("cap estació amb vent ni dins ni prop de la caixa")
+            escriu_zona_domini(a.out, a.mesh, dem, rep[0], rep[1], rep[2], rep[3], rep[4])
     else:
         escriu_proves(a.out, a.mesh, dem, n, dtiso)
     print("Fet.")
