@@ -485,11 +485,13 @@ def main():
     mc_prev    = [v for v in prev_full.values() if v.get("font") == "Meteocat"]
 
     print("Baixant AEMET...")
+    _t = time.perf_counter()
     try:
         a = estacions_aemet()
     except Exception as ex:  # AEMET és inestable: si falla, no estavellem tot
         a = None
         print("  AVÍS: AEMET ha fallat (%s)." % str(ex)[:90])
+    print("  ⏱ AEMET: %.1f s" % (time.perf_counter() - _t))
     if not a:                # excepció o resposta buida -> mantenim les d'abans
         a = aemet_prev
         print("  AEMET: %d estacions%s" % (len(a), "  (anteriors, no actualitzat)" if aemet_prev else ""))
@@ -498,11 +500,13 @@ def main():
 
     baixa_ahir = not te_ahir_complet(previ)
     print("Baixant Meteocat (XEMA) [%s]..." % ("ahir+hui" if baixa_ahir else "només hui"))
+    _t = time.perf_counter()
     try:
         m = estacions_meteocat(baixa_ahir=baixa_ahir)
     except Exception as ex:  # el mateix per a Meteocat
         m = None
         print("  AVÍS: Meteocat ha fallat (%s)." % str(ex)[:90])
+    print("  ⏱ Meteocat: %.1f s" % (time.perf_counter() - _t))
     if not m:
         m = mc_prev
         print("  Meteocat: %d estacions%s" % (len(m), "  (anteriors, no actualitzat)" if mc_prev else ""))
@@ -530,14 +534,17 @@ def main():
     print("OK -> dades_privat.enc  (%d estacions: %d AEMET + %d Meteocat)" % (len(estacions), len(a), len(m)))
 
     # --- camp de vents diagnòstic (capa privada) ---
+    _t = time.perf_counter()
     try:
         from camp_vents import escriu_vent
         nv = escriu_vent(estacions, PASSWORD)
         print("OK -> vent_privat.enc  (camp de vents, %d estacions amb vent)" % nv)
     except Exception as ex:  # mai ha de bloquejar l'actualització operativa
         print("  AVIS: camp de vents no generat (%s)" % str(ex)[:120])
+    print("  ⏱ camp de vent: %.1f s" % (time.perf_counter() - _t))
 
     print("Arxivant històric per dies...")
+    _t = time.perf_counter()
     try:
         arxiva(estacions)
     except Exception as ex:  # l'arxiu no ha de bloquejar mai l'actualització operativa
@@ -549,6 +556,7 @@ def main():
         backfill(PASSWORD, max_dies=3)
     except Exception as ex:
         print("  avis: arxiu de vent no completat (%s)" % str(ex)[:100])
+    print("  ⏱ arxiu: %.1f s" % (time.perf_counter() - _t))
 
 
 if __name__ == "__main__":
