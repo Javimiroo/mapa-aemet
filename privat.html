@@ -293,12 +293,16 @@
           </div>
           <div id="radarInfo" class="muted" style="font-size:11px;margin-top:5px;text-align:center">—</div>
           <div class="row" style="gap:6px;align-items:center;margin-top:6px">
+            <span class="muted" style="font-size:11px">Dia</span>
+            <input type="range" id="radarFrame" min="0" max="0" value="0" style="flex:1;accent-color:var(--accent)" title="Arrossega per escombrar tot el dia d'echotop/radar">
+          </div>
+          <div class="row" style="gap:6px;align-items:center;margin-top:6px">
             <span class="muted" style="font-size:11px">Opacitat</span>
             <input type="range" id="radarOpac" min="20" max="100" value="88" style="flex:1;accent-color:var(--accent)">
           </div>
           <button class="btn small" id="estBtn" style="width:100%;margin-top:8px">📊 Estudi d'àrea (alçada màx)</button>
         </div>
-        <p class="muted" style="font-size:11px;margin:8px 0 0">La capa <b>segueix la màquina del temps</b> (mou la barra i es mouen alhora meteo i radar). Els botons <b>◀ ▶</b> i <b>Animar</b> passen l'echotop del dia frame a frame i <b>amaguen les dades meteo</b> per veure'l net; <b>mou la barra del temps per tornar</b>. Radar/echotop d'AEMET (tota la península).</p>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">La capa <b>segueix la màquina del temps</b>. La barra <b>Dia</b> escombra <b>tot el dia</b> d'echotop/radar de colp (arrossega-la); els botons <b>◀ ▶</b> i <b>Animar</b> van frame a frame. En eixos modes s'<b>amaguen les dades meteo</b> per veure'l net; <b>mou la barra del temps de baix per tornar</b>. Radar/echotop d'AEMET (tota la península).</p>
       </div>
     </div>
 
@@ -2181,7 +2185,18 @@ function radConstrueixFrames(){
   const dict=(radManifest && (prod==='composit'?radManifest.composit:radManifest.echotop_composit))||{};
   radFrames=Object.keys(dict).sort().map(ts=>({ts:ts,t:Date.parse(ts),path:dict[ts]}));
   $('radarBar').style.display=radFrames.length?'block':'none';
-  radLast=-1; radSync();
+  radLast=-1; radSetSliderBounds(); radSync();
+}
+function radSetSliderBounds(){ const s=$('radarFrame'); if(!s)return; const n=radIdxDia().length; s.max=Math.max(0,n-1); }
+function radSetSlider(){ const s=$('radarFrame'); if(s) s.value=radModeK; }
+// carrega (warp + cau) tots els frames del dia perquè escombrar siga instantani
+function radPreloadDia(){ radIdxDia().forEach(i=>{ const f=radFrames[i]; if(f) radUrl(f.path,function(){}); }); }
+// salta a un frame del dia per posició (des de la barra); entra en mode echotop si cal
+function radModeGoto(k){
+  radAturaAnim();
+  if(!radModeOn){ if(!radModeEnter()) return; }
+  radModeK=Math.max(0,Math.min(radModeIdx.length-1,k));
+  radShowFrame(radModeIdx[radModeK]);
 }
 function radRefT(){                           // hora de referència = la de la màquina del temps
   if(typeof timeT!=='undefined' && timeT!=null) return timeT;
@@ -2220,18 +2235,18 @@ function radModeEnter(){            // entra en mode echotop: amaga meteo i posa
   if(radModeOn) return true;
   radModeIdx=radIdxDia();
   if(!radModeIdx.length){ alert('No hi ha frames de radar/echotop d\'este dia a l\'arxiu.'); return false; }
-  radModeOn=true; radMeteoHide(true);
+  radModeOn=true; radMeteoHide(true); radPreloadDia();
   const near=radNearest(radRefT()); radModeK=radModeIdx.indexOf(near); if(radModeK<0) radModeK=radModeIdx.length-1;
-  radShowFrame(radModeIdx[radModeK]); return true;
+  radSetSliderBounds(); radSetSlider(); radShowFrame(radModeIdx[radModeK]); return true;
 }
 function radModeExit(){ radAturaAnim(); if(radModeOn){ radModeOn=false; radMeteoHide(false); radSync(); } radAltHide(); }
 function radModeStep(d){ radAturaAnim(); if(!radModeEnter()) return;
-  radModeK=(radModeK+d+radModeIdx.length)%radModeIdx.length; radShowFrame(radModeIdx[radModeK]); }
+  radModeK=(radModeK+d+radModeIdx.length)%radModeIdx.length; radShowFrame(radModeIdx[radModeK]); radSetSlider(); }
 function radAnimaToggle(){
   if(radAnim){ radAturaAnim(); return; }
   if(!radModeEnter()) return;
   $('radarPlay').textContent='⏸ Aturar';
-  radAnim=setInterval(()=>{ radModeK=(radModeK+1)%radModeIdx.length; radShowFrame(radModeIdx[radModeK]); },650);
+  radAnim=setInterval(()=>{ radModeK=(radModeK+1)%radModeIdx.length; radShowFrame(radModeIdx[radModeK]); radSetSlider(); },650);
 }
 function radLleva(){ radAturaAnim(); radModeOn=false; radMeteoHide(false); radAltHide(); if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} $('radarBar').style.display='none'; radLast=-1; }
 $('radarOn').addEventListener('change',e=>{ if(e.target.checked){ if(!radManifest) radCarregaManifest(); else radConstrueixFrames(); } else radLleva(); });
@@ -2239,6 +2254,7 @@ $('radarProd').addEventListener('change',()=>{ if($('radarOn').checked){ radMode
 $('radarPrev').addEventListener('click',()=>radModeStep(-1));
 $('radarNext').addEventListener('click',()=>radModeStep(1));
 $('radarPlay').addEventListener('click',radAnimaToggle);
+$('radarFrame').addEventListener('input',e=>radModeGoto(+e.target.value));   // escombra tot el dia
 $('radarOpac').addEventListener('input',()=>{ if(radOverlay) radOverlay.setOpacity($('radarOpac').value/100); });
 
 // ── alçada del tope al cursor (NOMÉS en mode echotop) ──
