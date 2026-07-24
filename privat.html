@@ -2506,10 +2506,44 @@ $('calArxiu').addEventListener('click',e=>{
 $('reviewExit').addEventListener('click',tornaDirecte);
 $('refresh').onclick=async()=>{
   const b=$('refresh'); b.disabled=true; b.textContent='↻ Recarregant…';
-  try{ await carregar(PASS); }
+  try{ await carregar(PASS); if(typeof carregaVent==='function') await carregaVent(); }
   catch(e){ $('status').innerHTML='<span style="color:#f59e0b">No s\'han pogut recarregar les dades.</span>'; }
   b.disabled=false; b.textContent='↻ Recarregar (sense baixar)';
 };
+
+// ---------------- auto-recàrrega silenciosa ----------------
+// Comprova cada 10 min si hi ha dades noves i, NOMÉS si n'hi ha, les carrega sense
+// molestar. Així la pàgina es manté fresca sense clicar res (publiques cada 30 min).
+const AUTO_REFRESC_MS = 10*60000;
+function toastAuto(txt){
+  let t=$('toastAuto');
+  if(!t){ t=document.createElement('div'); t.id='toastAuto';
+    t.style.cssText='position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:6000;'
+      +'background:rgba(15,23,42,.95);color:#e5e7eb;border:1px solid #334155;border-radius:9px;'
+      +'padding:8px 14px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.5);opacity:0;transition:opacity .3s';
+    document.body.appendChild(t); }
+  t.textContent=txt; t.style.opacity='1'; clearTimeout(t._h); t._h=setTimeout(()=>{t.style.opacity='0';},3800);
+}
+async function autoRefresc(){
+  if(!PASS) return;                                             // encara no s'ha entrat
+  if(reviewMode || (typeof timeT!=='undefined' && timeT!=null)) return;   // estàs mirant el passat
+  if(typeof radModeOn!=='undefined' && (radModeOn || radAnim)) return;    // animant/escombrant radar
+  if(typeof dibuixantPerim!=='undefined' && dibuixantPerim) return;       // dibuixant un perímetre
+  if(['focModal','chartModal','estModal'].some(id=>{const e=$(id);return e && e.style.display!=='none';})) return;
+  try{
+    const r=await fetch(DADES_URL+'?_='+Date.now(),{cache:'no-store'});
+    if(!r || !r.ok) return;
+    const nou=await desxifra(await r.json(), PASS);
+    if(nou && nou.generat && DATA && nou.generat!==DATA.generat){         // NOMÉS si són noves
+      DATA=nou; ventArxiu=null; ventArxiuDia=null;
+      if(calMes) renderCalArxiu();
+      setUpdated(); setTimeT(null);
+      if(typeof carregaVent==='function') await carregaVent();
+      toastAuto('✓ Dades actualitzades — '+new Date().toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}));
+    }
+  }catch(e){}
+}
+setInterval(autoRefresc, AUTO_REFRESC_MS);
 
 // ---------------- actualització manual (via Worker de Cloudflare) ----------------
 // >>> Posa ací la URL del teu Worker (acaba en .workers.dev):
