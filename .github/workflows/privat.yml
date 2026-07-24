@@ -3,12 +3,17 @@ name: Actualitza mapa privat (AEMET + Meteocat)
 on:
   workflow_dispatch: {}   # manual (des del botó del mapa o des de la pestanya Actions)
   schedule:
-    # HORÀRIA. Des que XEMA es baixa per Dades Obertes (sense quota mensual) la
-    # freqüència ja no la limita Meteocat: el portal publica per blocs ~horaris amb
-    # 30-90 min de retard, així que actualitzar cada hora és l'òptim (més sovint
-    # seria rebaixar les mateixes dades). El repo no creix perquè les dades vives
-    # van a la branca 'dades' amb force-push; a 'main' només hi va l'arxiu (1/dia).
-    - cron: "10 * * * *"
+    # Cadència PRINCIPAL: cada 30 min via un disparador extern (cron-job.org), perquè
+    # el cron de GitHub Actions és "best-effort" i de vegades salta hores (p.ex. el
+    # 24/07 no va córrer de 09:10 a 11:28 local i el camp de vent no es va generar).
+    # Amb Dades Obertes (semihorari, ~5 min de retard) cada 30 min SÍ que dona dades
+    # més fresques. Este cron de GitHub queda com a XARXA DE SEGURETAT (cada 30 min,
+    # encara que en salte alguna). El repo no creix: les dades vives van a la branca
+    # 'dades' amb force-push; a 'main' només hi va l'arxiu.
+    # MINUTS :25 i :55 a posta: el portal publica cada bloc (:00 i :30) amb ~50 min
+    # de retard, així que el bloc :30 aterra cap a :20 i el :00 cap a :50; disparant
+    # a :25 i :55 caces el bloc acabat de publicar (mesurat 24/07: retard 53 min).
+    - cron: "25,55 * * * *"
 
 permissions:
   contents: write
