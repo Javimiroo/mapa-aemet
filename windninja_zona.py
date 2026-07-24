@@ -24,7 +24,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ITER = 200000
-ESC = 0.25          # m/s per unitat int8
+ESC = 0.1           # m/s per unitat int8 (fi: resol ~0,36 km/h, màx ~46 km/h de mitjana)
+                    # abans 0,25 -> els vents fluixos de vall s'arrodonien a 0 i no es veien
 MPH = 0.44704       # milles/hora -> m/s
 
 

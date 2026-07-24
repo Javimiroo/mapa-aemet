@@ -3173,9 +3173,13 @@ async function focExportImatge(){
     c.fillStyle='#0b1220'; c.fillRect(0,0,W,H);
     c.fillStyle='#fff'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(23*S)+'px Arial';
     c.fillText('🔥 '+(FD.foc.nom||'Incendi'), pad, pad+head*0.34);
-    c.fillStyle='#94a3b8'; c.font=(13*S)+'px Arial';
-    c.fillText((FD.foc.inici?('Inici '+q(FD.foc.inici)+'  ·  '):'')+'Vista: '+q(FD.tSel)+(FD.foc.fi?('  ·  🏁 '+q(FD.foc.fi)):''), pad, pad+head*0.72);
-    c.textAlign='right'; c.fillStyle='#c00000'; c.font='900 '+(18*S)+'px Arial'; c.fillText('bombers', W-pad, pad+head*0.40);
+    const ventMs=(FD.runData&&FD.runData.t&&FD.runData.t[0])||null;
+    c.fillStyle='#cbd5e1'; c.font=(13*S)+'px Arial'; c.textAlign='left';
+    c.fillText('Dades meteorològiques de les '+q(FD.tSel)+(ventMs?('   ·   Camp de vent WindNinja de les '+q(ventMs)):'')
+      +(FD.foc.inici?('   ·   Inici: '+q(FD.foc.inici)):'')+(FD.foc.fi?('   ·   🏁 '+q(FD.foc.fi)):''), pad, pad+head*0.72);
+    // logo Bombers (dalt a la dreta): "bombers" + 4 quadrats
+    const lh=Math.round(head*0.60); c.font='900 '+Math.round(lh*0.66)+'px Arial';
+    const lw=c.measureText('bombers').width; dibuixaLogoBombers(c, W-pad-lw, pad+(head-lh)/2, lh);
     const mapY=pad+head, chX=pad+mapC.width+gap;
     c.drawImage(mapC, pad, mapY);
     c.strokeStyle='#334155'; c.lineWidth=S; c.strokeRect(pad,mapY,mapC.width,mapC.height);
