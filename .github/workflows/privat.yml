@@ -31,9 +31,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          cache: pip                       # reutilitza les rodes baixades (numpy/scipy no es tornen a baixar)
+          cache-dependency-path: requirements.txt
 
       - name: Instal·la dependències
-        run: pip install cryptography tzdata numpy scipy
+        run: pip install -r requirements.txt
 
       - name: Baixa AEMET + Meteocat i xifra
         env:
