@@ -3249,6 +3249,37 @@ async function focExportImatge(){
   }catch(e){ alert('No s\'ha pogut exportar: '+(e&&e.message||e)); }
   btn.disabled=false; btn.textContent=old;
 }
+// ---- KML del camp de vent WindNinja per a Google Earth (fletxes de colors) ----
+function _kmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _kmlColor(sp){                      // sp en m/s -> color KML aabbggrr (alfa ff)
+  const m=/rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(ventColor(sp)); const h=n=>(+n).toString(16).padStart(2,'0');
+  return m ? ('ff'+h(m[3])+h(m[2])+h(m[1])) : 'ff00ffff';
+}
+function focKmlVent(W, titol, obsMs){
+  const B=W.bbox, nx=W.nx, ny=W.ny, dlon=(B[1]-B[0])/(nx-1), dlat=(B[3]-B[2])/(ny-1);
+  const latc=(B[2]+B[3])/2, MLAT=111320, MLON=111320*Math.cos(latc*Math.PI/180);
+  const step=Math.max(1,Math.round(Math.max(nx,ny)/45));
+  const Lm=Math.max(150, Math.abs(dlon)*MLON*step*0.9);      // llarg de la fletxa en metres
+  const rot=(x,y,a)=>[x*Math.cos(a)-y*Math.sin(a), x*Math.sin(a)+y*Math.cos(a)];
+  const P=(lo,la)=>lo.toFixed(6)+','+la.toFixed(6)+',0';
+  const styles={}; let pm='';
+  for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){
+    const pos=W.landPos[j*nx+i]; if(pos<0)continue;
+    const u=W.buf[pos*2]*W.esc, v=W.buf[pos*2+1]*W.esc, sp=Math.hypot(u,v); if(sp<0.05)continue;
+    const lat=B[3]-j*dlat, lon=B[0]+i*dlon, ux=u/sp, uy=v/sp;
+    const tlon=lon+ux*Lm/MLON, tlat=lat+uy*Lm/MLAT;          // punta (cap on va el vent)
+    const hL=rot(-ux,-uy,0.5), hR=rot(-ux,-uy,-0.5), hm=Lm*0.32;   // barbes de la punta
+    const col=_kmlColor(sp), sid='s'+col;
+    if(!styles[sid]) styles[sid]='<Style id="'+sid+'"><LineStyle><color>'+col+'</color><width>2.2</width></LineStyle></Style>';
+    pm+='<Placemark><styleUrl>#'+sid+'</styleUrl><LineString><tessellate>1</tessellate><coordinates>'
+      +P(lon,lat)+' '+P(tlon,tlat)+' '+P(tlon+hL[0]*hm/MLON,tlat+hL[1]*hm/MLAT)+' '+P(tlon,tlat)+' '+P(tlon+hR[0]*hm/MLON,tlat+hR[1]*hm/MLAT)
+      +'</coordinates></LineString></Placemark>';
+  }
+  const quan=obsMs?(' · '+new Date(obsMs).toLocaleString('ca-ES')):'';
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
+    +'<name>'+_kmlEsc('Camp de vent WindNinja - '+(titol||'incendi')+quan)+'</name>'
+    +Object.keys(styles).map(k=>styles[k]).join('')+pm+'</Document></kml>';
+}
 async function exportaFocZip(f){
   if(typeof JSZip==='undefined'){ throw new Error('llibreria ZIP no carregada'); }
   const zip=new JSZip(), safe=(f.nom||'incendi').replace(/[^\w]+/g,'_');
@@ -3263,6 +3294,8 @@ async function exportaFocZip(f){
     try{ const d=await workerJSON({accio:'run_get',rid:r.rid});
       if(d&&d.ok&&d.enc){ const tag=new Date(r.ts).toISOString().replace(/[:]/g,'').replace('T','_').slice(0,15);
         zip.file('vent_windninja/'+tag+'.enc', d.enc);
+        try{ const p=await desxifra(JSON.parse(d.enc),PASS); const W=decodeVentHores(p);   // KML per a Google Earth
+          zip.file('vent_windninja/'+tag+'.kml', focKmlVent(W, (f.nom||'Incendi'), (W.t&&W.t[0])||r.ts)); }catch(e){}
         if(dashOpen){ await focLoadRun(k); await new Promise(res=>setTimeout(res,140));
           const mc=await focComposaMapa(2), bl=await new Promise(res=>mc.toBlob(res,'image/png')); if(bl) zip.file('vent_windninja/'+tag+'.png', bl); } }
     }catch(e){}
