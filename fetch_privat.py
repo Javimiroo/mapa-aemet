@@ -313,7 +313,9 @@ def desxifrar(blob, password):
 
 
 # ============================ acumulació de l'històric ============================
-DIES_HISTORIC = 6
+DIES_HISTORIC = 3   # històric VIU (operativa). Els dies més vells ja estan a l'arxiu
+                    # (mode revisió); 3 dies mantenen el fitxer lleuger i cobreixen
+                    # meteogrames (avui+ahir), ratxes (24 h) i comptador (8 h).
 OUT_FILE = "dades_privat.enc"
 
 
@@ -347,18 +349,30 @@ def carrega_historic_previ():
         return {}
 
 
+# La publicació actual (branca 'dades'). El checkout de 'main' NO té dades_privat.enc,
+# així que la llegim d'ací per poder reutilitzar-la si una font falla i, sobretot, per
+# NO publicar mai una foto més vella que la que ja hi ha (blindatge anti-regressió).
+DADES_PREV_URL = "https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/dades_privat.enc"
+
+
 def carrega_estacions_previ():
-    """{idema: estació completa} de l'execució anterior. Serveix per REUTILITZAR les
-    estacions d'una font (AEMET o Meteocat) si eixa font falla, i que no desapareguen."""
-    if not os.path.exists(OUT_FILE):
-        return {}
-    try:
-        with open(OUT_FILE, encoding="utf-8") as f:
-            prev = desxifrar(json.load(f), PASSWORD)
-        return {e["idema"]: e for e in prev.get("estacions", [])}
-    except Exception as ex:  # noqa
-        print("  avis: no s'ha pogut llegir l'anterior complet (%s)" % ex)
-        return {}
+    """{idema: estació completa} de la PUBLICACIÓ ACTUAL (o del fitxer local si hi és)."""
+    for origen in ("url", "file"):
+        try:
+            if origen == "url":
+                req = urllib.request.Request(DADES_PREV_URL + "?_=" + str(int(time.time())),
+                                             headers={"User-Agent": "graf"})
+                blob = json.loads(urllib.request.urlopen(req, timeout=30, context=_SSL).read())
+            else:
+                if not os.path.exists(OUT_FILE):
+                    continue
+                with open(OUT_FILE, encoding="utf-8") as f:
+                    blob = json.load(f)
+            prev = desxifrar(blob, PASSWORD)
+            return {e["idema"]: e for e in prev.get("estacions", [])}
+        except Exception as ex:  # noqa
+            print("  avis: previ (%s) no llegit (%s)" % (origen, str(ex)[:80]))
+    return {}
 
 
 def te_ahir_complet(previ):
@@ -517,6 +531,21 @@ def main():
         raise SystemExit("Cap font ha respost i no hi ha dades prèvies; no s'escriu res.")
 
     estacions = sorted(a + m, key=lambda e: e["nom"])
+    # BLINDATGE ANTI-REGRESSIÓ: si per a una estació la font ha tornat una lectura més
+    # VELLA que la ja publicada (throttling puntual de la font cap al runner), conserva
+    # la publicada. Així les dades no retrocedeixen mai encara que un run baixe parcial.
+    n_blind = 0
+    for e in estacions:
+        p = prev_full.get(e["idema"])
+        if not p:
+            continue
+        fn = _parse_t((e.get("actual") or {}).get("fint"))
+        fp = _parse_t((p.get("actual") or {}).get("fint"))
+        if fp and (not fn or fp > fn):
+            e["actual"] = dict(p["actual"])
+            n_blind += 1
+    if n_blind:
+        print("  ⚠ blindatge: %d estacions conservades de la publicació (la font tornava més vell)" % n_blind)
     print("Acumulant històric (fins a %d dies)..." % DIES_HISTORIC)
     acumula(estacions, previ)
     nh = [e["actual"]["n_hores"] for e in estacions] or [0]
