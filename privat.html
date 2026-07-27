@@ -320,7 +320,9 @@
         <span class="key" style="border-radius:50%"></span> AEMET <span class="muted" id="infoAemet" style="font-size:11px"></span></label>
       <label class="switch"><input type="checkbox" id="netMeteocat" checked>
         <span class="key" style="border-radius:22%"></span> Meteocat <span class="muted" id="infoMeteocat" style="font-size:11px"></span></label>
-      <div class="muted" style="font-size:10px;margin-top:4px">nombre d'estacions · última observació (local)</div>
+      <label class="switch"><input type="checkbox" id="netAemetCV">
+        <span class="key" style="border-radius:50%"></span> AEMET CV <span class="muted" id="infoAemetCV" style="font-size:11px"></span></label>
+      <div class="muted" style="font-size:10px;margin-top:4px">nombre d'estacions · última observació (local) · <b>AEMET CV</b> (País Valencià) desactivat per defecte</div>
     </div>
 
     <div class="card">
@@ -1155,7 +1157,10 @@ function afegirMarker(mapObj,arr,st,icon){
   m.on('click',()=>{m.bindPopup(popupHTML(st),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st),60);});
   m.addTo(mapObj); arr.push(m); return m;
 }
-function xarxaActiva(st){ return st.font==='AEMET' ? $('netAemet').checked : $('netMeteocat').checked; }
+function xarxaActiva(st){
+  if(st.font==='AEMET CV') return $('netAemetCV') && $('netAemetCV').checked;
+  return st.font==='AEMET' ? $('netAemet').checked : $('netMeteocat').checked;
+}
 const BANDES=[
   {id:'plana',  nom:'Plana/interior',  min:0,    max:300},
   {id:'mitjana',nom:'Terra mitjana',   min:300,  max:800},
@@ -1366,7 +1371,7 @@ function aplicaCombo(key){
 }
 
 selVar.onchange=()=>{surtModes();renderPresets();renderLegend();highlightChip(null);render();};
-['showVal','onlyVar','fade','hideNoMatch','stale','netAemet','netMeteocat'].forEach(id=>$(id).addEventListener('change',render));
+['showVal','onlyVar','fade','hideNoMatch','stale','netAemet','netMeteocat','netAemetCV'].forEach(id=>$(id).addEventListener('change',render));
 $('staleH').addEventListener('input',render);
 document.querySelectorAll('.banda').forEach(c=>c.addEventListener('change',render));
 ['altMin','altMax'].forEach(id=>$(id).addEventListener('input',render));
@@ -1718,9 +1723,10 @@ function setUpdated(){
     ? ('📅 Arxiu històric · '+diaLabelLlarg(reviewMode)+'  ·  '+(DATA.n_estacions||0)+' estacions')
     : ('Baixat: '+dataLoc(DATA.generat)+' (hora local)  ·  '+(DATA.n_estacions||0)+' estacions');
   $('fontline').textContent=DATA.font||'Observació en temps real';
-  const ia=$('infoAemet'), im=$('infoMeteocat');
+  const ia=$('infoAemet'), im=$('infoMeteocat'), icv=$('infoAemetCV');
   if(ia) ia.textContent=infoXarxa('AEMET');
   if(im) im.textContent=infoXarxa('Meteocat');
+  if(icv) icv.textContent=infoXarxa('AEMET CV');
   calcDomini();
 }
 let PASS=null;

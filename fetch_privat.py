@@ -51,6 +51,12 @@ PASSWORD = _need("MAPA_PASS")
 AEMET_BASE = "https://opendata.aemet.es/opendata/api"
 MC_BASE = "https://api.meteo.cat"
 PROV_CAT = {"BARCELONA", "GIRONA", "LLEIDA", "TARRAGONA"}
+# Comunitat Valenciana com a APÈNDIX opcional (font "AEMET CV", desactivada per defecte
+# al mapa). Normalitzem accents/variants perquè AEMET les etiqueta en castellà.
+PROV_CV = {"VALENCIA", "CASTELLON", "CASTELLO", "ALICANTE", "ALACANT"}
+def _norm_prov(s):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", s or "") if unicodedata.category(c) != "Mn").strip().upper()
 ITER = 200000
 EST_FILE = "meteocat_estacions.json"
 
@@ -125,16 +131,18 @@ def aemet(endpoint):
 
 def estacions_aemet():
     inv = aemet("/valores/climatologicos/inventarioestaciones/todasestaciones")
-    cat = {}
+    dest = {}                                   # idema -> (província mostrada, font)
     for e in inv:
-        prov = (e.get("provincia") or "").strip().upper()
+        prov = _norm_prov(e.get("provincia"))
         if prov in PROV_CAT:
-            cat[e["indicativo"]] = prov.capitalize()
+            dest[e["indicativo"]] = (prov.capitalize(), "AEMET")
+        elif prov in PROV_CV:
+            dest[e["indicativo"]] = (prov.capitalize(), "AEMET CV")
 
     obs = aemet("/observacion/convencional/todas")
     per = {}
     for r in obs:
-        if r.get("idema") in cat:
+        if r.get("idema") in dest:
             per.setdefault(r["idema"], []).append(r)
 
     out = []
@@ -160,9 +168,10 @@ def estacions_aemet():
 
         mx = [h["tamax"] if h["tamax"] is not None else h["ta"] for h in hist if h["tamax"] is not None or h["ta"] is not None]
         mn = [h["tamin"] if h["tamin"] is not None else h["ta"] for h in hist if h["tamin"] is not None or h["ta"] is not None]
+        provcap, font = dest.get(idema, ("", "AEMET"))
         out.append({
-            "idema": idema, "nom": (ult.get("ubi") or idema).strip(), "provincia": cat.get(idema, ""),
-            "font": "AEMET", "lat": ult.get("lat"), "lon": ult.get("lon"), "alt": ult.get("alt"),
+            "idema": idema, "nom": (ult.get("ubi") or idema).strip(), "provincia": provcap,
+            "font": font, "lat": ult.get("lat"), "lon": ult.get("lon"), "alt": ult.get("alt"),
             "actual": {
                 "fint": ult.get("fint"), "ta": _num(last("ta")), "tamax": _num(last("tamax")),
                 "tamin": _num(last("tamin")), "tamax_dia": max(mx) if mx else None,
