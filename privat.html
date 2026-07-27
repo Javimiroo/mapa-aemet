@@ -2618,14 +2618,31 @@ function diesDisponibles(){
   (DATA?DATA.estacions:[]).forEach(st=>(st.historic||[]).forEach(h=>{const d=toDate(h.t); if(d)set.add(diaKey(d));}));
   return Array.from(set).sort().reverse();
 }
+// El meteograma pot comparar dies de l'ARXIU (no només els 3 vius): carreguem el dia
+// d'arxiu sota demanda a una cache i les sèries hi llegeixen. Així el visor viu es
+// manté lleuger però pots comparar hui amb qualsevol dia de l'historial.
+const arxiuMeteoCache={};   // {dia: {idema: historic[]}} · null = dia viu (usa st.historic)
+async function asseguraDiaMeteo(dia){
+  if(Object.prototype.hasOwnProperty.call(arxiuMeteoCache,dia)) return;
+  if(diesDisponibles().indexOf(dia)>=0){ arxiuMeteoCache[dia]=null; return; }   // dia viu
+  arxiuMeteoCache[dia]=null;
+  try{
+    const r=await fetch(ARXIU_URL+dia+'.enc?_='+Date.now(),{cache:'no-store'});
+    if(!r.ok) return;
+    const dades=await desxifra(await r.json(), PASS);
+    const idx={}; (dades.estacions||[]).forEach(e=>{ idx[String(e.idema)]=e.historic||[]; });
+    arxiuMeteoCache[dia]=idx;
+  }catch(e){}
+}
+function histDe(st,diaK){ const c=arxiuMeteoCache[diaK]; return c?(c[String(st.idema)]||[]):(st.historic||[]); }
 function serieHoraria(st,diaK,vk){
   const sum=new Array(24).fill(0),cnt=new Array(24).fill(0);
-  (st.historic||[]).forEach(h=>{ const d=toDate(h.t); if(!d||diaKey(d)!==diaK)return; const x=h[vk]; if(x==null||isNaN(x))return; const hh=d.getHours(); sum[hh]+=x; cnt[hh]++; });
+  histDe(st,diaK).forEach(h=>{ const d=toDate(h.t); if(!d||diaKey(d)!==diaK)return; const x=h[vk]; if(x==null||isNaN(x))return; const hh=d.getHours(); sum[hh]+=x; cnt[hh]++; });
   return sum.map((s,i)=>cnt[i]?s/cnt[i]:null);
 }
 function serieDir(st,diaK){
   const sx=new Array(24).fill(0),sy=new Array(24).fill(0),cnt=new Array(24).fill(0);
-  (st.historic||[]).forEach(h=>{ const d=toDate(h.t); if(!d||diaKey(d)!==diaK)return; const dv=h.dv; if(dv==null||isNaN(dv))return; const r=dv*Math.PI/180, hh=d.getHours(); sx[hh]+=Math.cos(r); sy[hh]+=Math.sin(r); cnt[hh]++; });
+  histDe(st,diaK).forEach(h=>{ const d=toDate(h.t); if(!d||diaKey(d)!==diaK)return; const dv=h.dv; if(dv==null||isNaN(dv))return; const r=dv*Math.PI/180, hh=d.getHours(); sx[hh]+=Math.cos(r); sy[hh]+=Math.sin(r); cnt[hh]++; });
   return sx.map((x,i)=>{ if(!cnt[i])return null; let a=Math.atan2(sy[i],sx[i])*180/Math.PI; if(a<0)a+=360; return a; });
 }
 function hexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
@@ -2779,11 +2796,14 @@ function omplirControls(){
     if(gEst.indexOf(String(e.idema))>=0) return;
     const o=document.createElement('option'); o.value=e.idema; o.textContent=(e.nom||e.idema)+' ('+e.font+')'; sel.appendChild(o); });
   const db=document.getElementById('chDies'); db.innerHTML='';
-  diesDisponibles().forEach(k=>{ const lab=document.createElement('label');
-    lab.innerHTML='<input type="checkbox" value="'+k+'"'+(gDies.indexOf(k)>=0?' checked':'')+'> '+diaLabel(k); db.appendChild(lab); });
+  const vius=new Set(diesDisponibles());
+  const tots=Array.from(new Set([...vius, ...arxiuDies])).sort().reverse();   // vius + arxiu
+  tots.forEach(k=>{ const lab=document.createElement('label'); const arx=!vius.has(k);
+    lab.innerHTML='<input type="checkbox" value="'+k+'"'+(gDies.indexOf(k)>=0?' checked':'')+'> '+diaLabel(k)+(arx?' <span style="color:#94a3b8">·arxiu</span>':''); db.appendChild(lab); });
 }
-function obreGrafic(idema){
+async function obreGrafic(idema){
   if(!DATA) return;
+  if(!arxiuDies.size) await carregaIndexArxiu();              // perquè el selector mostre els dies d'arxiu
   if(gDies.length===0) gDies=diesDisponibles().slice(0,2);   // avui + ahir per defecte
   if(gEst.indexOf(String(idema))<0){ if(gEst.length<3) gEst.push(String(idema)); else alert('Màxim 3 estacions.'); }
   document.getElementById('chartModal').style.display='flex';
@@ -2793,7 +2813,11 @@ document.getElementById('chAddEst').addEventListener('change',e=>{ const id=e.ta
   if(gEst.length>=3){ alert('Màxim 3 estacions.'); e.target.value=''; return; }
   if(gEst.indexOf(id)<0) gEst.push(id); omplirControls(); dibuixaGrafics(); });
 document.getElementById('chEst').addEventListener('click',e=>{ if(e.target.classList.contains('x')){ const id=e.target.dataset.id; gEst=gEst.filter(x=>x!==id); omplirControls(); dibuixaGrafics(); } });
-document.getElementById('chDies').addEventListener('change',()=>{ gDies=Array.prototype.slice.call(document.querySelectorAll('#chDies input:checked')).map(c=>c.value); dibuixaGrafics(); });
+document.getElementById('chDies').addEventListener('change',async()=>{
+  gDies=Array.prototype.slice.call(document.querySelectorAll('#chDies input:checked')).map(c=>c.value);
+  for(const d of gDies){ await asseguraDiaMeteo(d); }        // carrega dies d'arxiu si cal
+  dibuixaGrafics();
+});
 document.getElementById('chVars').addEventListener('change',dibuixaGrafics);
 document.getElementById('chPrev').addEventListener('change',dibuixaGrafics);
 document.getElementById('chPrevThr').addEventListener('change',dibuixaGrafics);
@@ -3185,7 +3209,7 @@ function focRenderCharts(){
 }
 function focChartsCursor(){
   if(!FD)return; const dk=diaKey(new Date(FD.tSel));
-  if(dk!==FD.chartDay){ focRenderCharts(); return; }
+  if(dk!==FD.chartDay){ asseguraDiaMeteo(dk).then(()=>{ if(FD) focRenderCharts(); }); return; }  // carrega arxiu si el dia és vell
   FD.charts.forEach(c=>{try{c.update();}catch(e){}});
 }
 // colors dels perímetres per antiguitat: el més vell roig, el més nou taronja
