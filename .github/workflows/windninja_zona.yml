@@ -47,7 +47,7 @@ jobs:
         env:
           MAPA_PASS: ${{ secrets.MAPA_PASS }}   # per llegir estacions AEMET/CV publicades on no arriba Meteocat
         run: |
-          python windninja_prep.py --bbox "${{ github.event.inputs.bbox }}" \
+          python windninja_prep.py --bbox="${{ github.event.inputs.bbox }}" \
             --out wn --res 50 --mesh "${{ github.event.inputs.mesh }}" --zona
 
       - name: Descarrega WindNinja
@@ -70,7 +70,7 @@ jobs:
           MAPA_PASS: ${{ secrets.MAPA_PASS }}
         run: |
           python windninja_zona.py --dir wn/zona \
-            --bbox "${{ github.event.inputs.bbox }}" \
+            --bbox="${{ github.event.inputs.bbox }}" \
             --estacions wn/zona/estacions --out vent_zona.enc
           ls -la vent_zona.enc
 
