@@ -602,7 +602,8 @@
       </div>
       <div class="grp">
         <span class="h">Dies (00–24 h)</span>
-        <div class="chks" id="chDies"></div>
+        <div id="chDies"></div>
+        <select id="chAddDia"><option value="">+ afegir dia…</option></select>
       </div>
       <div class="grp">
         <span class="h">Variables</span>
@@ -2795,11 +2796,17 @@ function omplirControls(){
   (DATA?DATA.estacions.slice():[]).filter(e=>e.lat!=null).sort((a,b)=>(a.nom||'').localeCompare(b.nom||'')).forEach(e=>{
     if(gEst.indexOf(String(e.idema))>=0) return;
     const o=document.createElement('option'); o.value=e.idema; o.textContent=(e.nom||e.idema)+' ('+e.font+')'; sel.appendChild(o); });
-  const db=document.getElementById('chDies'); db.innerHTML='';
   const vius=new Set(diesDisponibles());
   const tots=Array.from(new Set([...vius, ...arxiuDies])).sort().reverse();   // vius + arxiu
-  tots.forEach(k=>{ const lab=document.createElement('label'); const arx=!vius.has(k);
-    lab.innerHTML='<input type="checkbox" value="'+k+'"'+(gDies.indexOf(k)>=0?' checked':'')+'> '+diaLabel(k)+(arx?' <span style="color:#94a3b8">·arxiu</span>':''); db.appendChild(lab); });
+  // dies triats com a XIPS (amb ✕); la resta al desplegable "+ afegir dia…"
+  const db=document.getElementById('chDies'); db.innerHTML='';
+  gDies.slice().sort().reverse().forEach(k=>{ const arx=!vius.has(k);
+    const chip=document.createElement('span'); chip.className='estchip';
+    chip.innerHTML=diaLabel(k)+(arx?' <span style="color:#94a3b8">·arxiu</span>':'')+' <span class="x" data-dia="'+k+'">✕</span>';
+    db.appendChild(chip); });
+  const seld=document.getElementById('chAddDia'); seld.innerHTML='<option value="">+ afegir dia…</option>';
+  tots.forEach(k=>{ if(gDies.indexOf(k)>=0) return; const o=document.createElement('option');
+    o.value=k; o.textContent=diaLabel(k)+(vius.has(k)?'':' ·arxiu'); seld.appendChild(o); });
 }
 async function obreGrafic(idema){
   if(!DATA) return;
@@ -2813,10 +2820,16 @@ document.getElementById('chAddEst').addEventListener('change',e=>{ const id=e.ta
   if(gEst.length>=3){ alert('Màxim 3 estacions.'); e.target.value=''; return; }
   if(gEst.indexOf(id)<0) gEst.push(id); omplirControls(); dibuixaGrafics(); });
 document.getElementById('chEst').addEventListener('click',e=>{ if(e.target.classList.contains('x')){ const id=e.target.dataset.id; gEst=gEst.filter(x=>x!==id); omplirControls(); dibuixaGrafics(); } });
-document.getElementById('chDies').addEventListener('change',async()=>{
-  gDies=Array.prototype.slice.call(document.querySelectorAll('#chDies input:checked')).map(c=>c.value);
-  for(const d of gDies){ await asseguraDiaMeteo(d); }        // carrega dies d'arxiu si cal
-  dibuixaGrafics();
+document.getElementById('chAddDia').addEventListener('change',async e=>{   // afegir un dia (viu o d'arxiu)
+  const d=e.target.value; if(!d)return;
+  if(gDies.indexOf(d)<0) gDies.push(d);
+  await asseguraDiaMeteo(d);
+  omplirControls(); dibuixaGrafics();
+});
+document.getElementById('chDies').addEventListener('click',e=>{           // llevar un dia (✕)
+  const x=e.target.closest('.x'); if(!x)return;
+  gDies=gDies.filter(d=>d!==x.dataset.dia);
+  omplirControls(); dibuixaGrafics();
 });
 document.getElementById('chVars').addEventListener('change',dibuixaGrafics);
 document.getElementById('chPrev').addEventListener('change',dibuixaGrafics);
