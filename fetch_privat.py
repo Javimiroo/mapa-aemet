@@ -54,6 +54,9 @@ PROV_CAT = {"BARCELONA", "GIRONA", "LLEIDA", "TARRAGONA"}
 # Comunitat Valenciana com a APÈNDIX opcional (font "AEMET CV", desactivada per defecte
 # al mapa). Normalitzem accents/variants perquè AEMET les etiqueta en castellà.
 PROV_CV = {"VALENCIA", "CASTELLON", "CASTELLO", "ALICANTE", "ALACANT"}
+# Zona centre (Àvila, Toledo, Madrid) com a APÈNDIX opcional (font "AEMET Centre").
+# Només aquestes 3 províncies (no les autonomies senceres) per no ocupar de més.
+PROV_CENTRE = {"AVILA", "TOLEDO", "MADRID"}
 def _norm_prov(s):
     import unicodedata
     return "".join(c for c in unicodedata.normalize("NFD", s or "") if unicodedata.category(c) != "Mn").strip().upper()
@@ -138,6 +141,8 @@ def estacions_aemet():
             dest[e["indicativo"]] = (prov.capitalize(), "AEMET")
         elif prov in PROV_CV:
             dest[e["indicativo"]] = (prov.capitalize(), "AEMET CV")
+        elif prov in PROV_CENTRE:
+            dest[e["indicativo"]] = (prov.capitalize(), "AEMET Centre")
 
     obs = aemet("/observacion/convencional/todas")
     per = {}
