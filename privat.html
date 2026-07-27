@@ -251,8 +251,8 @@
           <button class="btn small" id="perimClear" style="flex:0 0 auto" title="Esborrar perímetre">🗑</button>
         </div>
         <p class="muted" id="perimHint" style="font-size:11px;margin:4px 0 0;display:none">Fes clic al mapa per afegir punts. Arrossega els vèrtexs per moure'ls; clic dret per llevar-ne un. Prem "Acabar" quan estiga.</p>
-        <label class="btn small" style="display:block;width:100%;margin-top:8px;text-align:center;cursor:pointer">📁 Importar perímetre (KML / GeoJSON)
-          <input type="file" id="perimFile" accept=".kml,.json,.geojson" style="display:none">
+        <label class="btn small" style="display:block;width:100%;margin-top:8px;text-align:center;cursor:pointer">📁 Importar perímetre (KML / KMZ / GeoJSON)
+          <input type="file" id="perimFile" accept=".kml,.kmz,.json,.geojson" style="display:none">
         </label>
         <div class="row" style="margin-top:10px;gap:6px">
           <button class="btn primary" id="focGuarda" style="flex:1">💾 Guardar este incendi</button>
@@ -1838,6 +1838,25 @@ async function provaEntrar(){
   }
 }
 // ---------------- incendis: importar perímetre i guardar els 5 últims ----------------
+// Extreu el perímetre d'un KML: agafa el bloc <coordinates> amb MÉS punts (el contorn
+// exterior), tolera prefixos de namespace i, si el DOMParser falla, cau a una regex.
+function parseKMLcoords(txt){
+  let blocks=[];
+  try{
+    const doc=new DOMParser().parseFromString(txt,'text/xml');
+    let co=doc.getElementsByTagName('coordinates');
+    if(!co||!co.length) co=doc.getElementsByTagNameNS('*','coordinates');
+    for(let i=0;i<co.length;i++) blocks.push(co[i].textContent||'');
+  }catch(e){}
+  if(!blocks.length) (txt.match(/<coordinates>[\s\S]*?<\/coordinates>/gi)||[]).forEach(m=>blocks.push(m.replace(/<\/?coordinates>/gi,'')));
+  let best=[];
+  blocks.forEach(b=>{ const pts=[];
+    b.trim().split(/\s+/).forEach(s=>{ const p=s.split(','); if(p.length>=2){ const lo=parseFloat(p[0]),la=parseFloat(p[1]);
+      if(isFinite(lo)&&isFinite(la)) pts.push([la,lo]); } });
+    if(pts.length>best.length) best=pts;
+  });
+  return best;
+}
 function importaPerim(txt, nomFitxer){
   let pts=[];
   if(/^\s*[\{\[]/.test(txt)){                       // GeoJSON
@@ -1852,27 +1871,29 @@ function importaPerim(txt, nomFitxer){
     };
     rec(g);
   } else {                                          // KML
-    const doc=new DOMParser().parseFromString(txt,'text/xml');
-    const co=doc.getElementsByTagName('coordinates');
-    for(let n=0;n<co.length && pts.length<3;n++){
-      pts=[];
-      (co[n].textContent||'').trim().split(/\s+/).forEach(s=>{
-        const p=s.split(','); if(p.length>=2){ const lo=parseFloat(p[0]), la=parseFloat(p[1]);
-          if(isFinite(lo)&&isFinite(la)) pts.push([la,lo]); }
-      });
-    }
+    pts=parseKMLcoords(txt);
   }
-  if(pts.length<3){ alert('No s\'ha trobat cap perímetre al fitxer.\n\nSi és un KMZ, descomprimeix-lo i puja el .kml de dins.'); return; }
+  if(pts.length<3){ alert('No s\'ha trobat cap perímetre al fitxer.'); return; }
   perimLL=pts.map(p=>L.latLng(p[0],p[1])); redibuixaPerim();
   map.fitBounds(L.latLngBounds(perimLL).pad(0.3));
   if(nomFitxer && !$('incident').value.trim()) $('incident').value=nomFitxer.replace(/\.[^.]+$/,'');
 }
-$('perimFile').addEventListener('change',e=>{
-  const f=e.target.files&&e.target.files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=()=>{ try{ importaPerim(String(r.result), f.name); }
-                 catch(ex){ alert('No s\'ha pogut llegir el fitxer: '+(ex.message||ex)); } };
-  r.readAsText(f); e.target.value='';
+$('perimFile').addEventListener('change',async e=>{
+  const f=e.target.files&&e.target.files[0]; if(!f) return; e.target.value='';
+  try{
+    const buf=await f.arrayBuffer(), u8=new Uint8Array(buf);
+    let txt;
+    if(u8[0]===0x50 && u8[1]===0x4b){                 // 'PK' => ZIP (KMZ): el descomprimim ací mateix
+      if(typeof JSZip==='undefined') throw new Error('cal la llibreria ZIP per llegir KMZ');
+      const zip=await JSZip.loadAsync(buf);
+      const nom=Object.keys(zip.files).find(n=>/\.kml$/i.test(n) && !zip.files[n].dir);
+      if(!nom) throw new Error('el KMZ no conté cap fitxer .kml');
+      txt=await zip.files[nom].async('string');
+    } else {
+      txt=new TextDecoder('utf-8').decode(buf);
+    }
+    importaPerim(txt, f.name);
+  }catch(ex){ alert('No s\'ha pogut llegir el fitxer: '+(ex.message||ex)); }
 });
 
 // Es desen al Worker (KV) perquè els veja TOT l'equip. La còpia local només és
