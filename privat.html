@@ -259,7 +259,7 @@
           <button class="btn small" id="focSync" style="flex:0 0 auto" title="Refrescar la llista de l'equip">↻</button>
         </div>
         <div id="focList" style="margin-top:8px"></div>
-        <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>5 últims</b> (nom, flama, perímetres, corregudes de vent) i els veu <b>tot l'equip</b>. Clica un incendi per situar-lo; 📊 obri el seu tauler.</p>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>20 últims</b> (nom, flama, perímetres, corregudes de vent) i els veu <b>tot l'equip</b>. Clica un incendi per situar-lo; 📊 obri el seu tauler.</p>
       </div>
     </div>
 
@@ -1844,7 +1844,7 @@ async function provaEntrar(){
     $('pass').select();
   }
 }
-// ---------------- incendis: importar perímetre i guardar els 5 últims ----------------
+// ---------------- incendis: importar perímetre i guardar els 20 últims ----------------
 // Extreu el perímetre d'un KML: agafa el bloc <coordinates> amb MÉS punts (el contorn
 // exterior), tolera prefixos de namespace i, si el DOMParser falla, cau a una regex.
 function parseKMLcoords(txt){
@@ -1907,7 +1907,7 @@ $('perimFile').addEventListener('change',async e=>{
 // una reserva per si el Worker no respon (així mai et quedes sense veure'ls).
 const FOC_KEY='graf_focs';
 function focsLocal(){ try{ return JSON.parse(localStorage.getItem(FOC_KEY)||'[]'); }catch(e){ return []; } }
-function focsLocalDesa(a){ try{ localStorage.setItem(FOC_KEY, JSON.stringify(a.slice(0,5))); }catch(e){} }
+function focsLocalDesa(a){ try{ localStorage.setItem(FOC_KEY, JSON.stringify(a.slice(0,20))); }catch(e){} }
 let focsCache=focsLocal();
 
 function passEquip(dem){
@@ -1991,7 +1991,7 @@ async function focGuarda(){
     if(meu){ focActualId=meu.id; focActualPerims=focPerimsDe(meu); focActualRuns=meu.runs||[]; }
     b.textContent='✓ Guardat'; }
   else { foc.id=focActualId||('local'+Date.now()); focActualId=foc.id; focActualPerims=perims;
-         foc.ts=Date.now(); focsCache=[foc].concat(focsCache.filter(x=>x.id!==foc.id)).slice(0,5); focsLocalDesa(focsCache);
+         foc.ts=Date.now(); focsCache=[foc].concat(focsCache.filter(x=>x.id!==foc.id)).slice(0,20); focsLocalDesa(focsCache);
          b.textContent='✓ Guardat (només ací)'; }
   focsRender(); setTimeout(()=>{ b.disabled=false; actualitzaBotoGuarda(); },1800);
 }
