@@ -44,6 +44,8 @@ jobs:
         run: pip install numpy pillow rasterio pyproj cryptography
 
       - name: Prepara el DEM i les estacions de la caixa
+        env:
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}   # per llegir estacions AEMET/CV publicades on no arriba Meteocat
         run: |
           python windninja_prep.py --bbox "${{ github.event.inputs.bbox }}" \
             --out wn --res 50 --mesh "${{ github.event.inputs.mesh }}" --zona
