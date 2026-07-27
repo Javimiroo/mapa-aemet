@@ -275,45 +275,112 @@ def escriu_zona(out, mesh, dem_src, n_est, dtiso):
     return d
 
 
-def vent_representatiu(bbox, meta_path="meteocat_estacions.json"):
-    """Fallback quan NO hi ha cap estació amb vent dins de la caixa: agafa l'estació
-    amb vent MÉS PROPERA al centre i el fa servir com a vent mitjà del domini.
-    Retorna (speed_ms, dir_deg, dtiso, nom, dist_km) o None."""
+# ---- estacions de la PUBLICACIÓ (dades_privat.enc) ----
+# Permet fer WindNinja on NO arriba Meteocat (p.ex. País Valencià), usant les estacions
+# AEMET (incloent AEMET CV) que el mapa ja baixa i publica cada 30 min. Requereix MAPA_PASS.
+DADES_URL = "https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/dades_privat.enc"
+_PUB_CACHE = None
+
+
+def _desxifra_dades(blob, password):
+    import base64
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    salt = base64.b64decode(blob["salt"]); iv = base64.b64decode(blob["iv"]); ct = base64.b64decode(blob["ct"])
+    key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt,
+                     iterations=blob.get("it", 200000)).derive(password.encode())
+    return json.loads(AESGCM(key).decrypt(iv, ct, None).decode("utf-8"))
+
+
+def _estacions_publicades(password):
+    global _PUB_CACHE
+    if _PUB_CACHE is not None:
+        return _PUB_CACHE
+    _PUB_CACHE = []
+    if not password:
+        print("  avis: falta MAPA_PASS per llegir les estacions publicades")
+        return _PUB_CACHE
+    try:
+        import time
+        req = urllib.request.Request(DADES_URL + "?_=" + str(int(time.time())), headers={"User-Agent": "graf"})
+        blob = json.loads(urllib.request.urlopen(req, timeout=40).read())
+        _PUB_CACHE = _desxifra_dades(blob, password).get("estacions", [])
+    except Exception as ex:
+        print("  avis: no s'ha pogut llegir la publicació (%s)" % str(ex)[:90])
+    return _PUB_CACHE
+
+
+def _fint_iso(t):
+    if not t:
+        return None
+    s = str(t).strip()
+    if len(s) >= 16 and s[4] == "-" and s[10] in ("T", " "):
+        return s[:10] + "T" + s[11:16] + ":00Z"
+    return None
+
+
+def _escriu_csv_estacio(outdir, codi, nom, lat, lon, sp_ms, dd, ta, dtiso):
+    def q(s):
+        return '"' + str(s) + '"'
+    row = [nom, "GEOGCS", "WGS84", "%.5f" % lat, "%.5f" % lon, "10", "meters",
+           "%.1f" % sp_ms, "mps", "%d" % round(dd), "%.1f" % ta, "C", "0", "-1", "km", dtiso]
+    with open(os.path.join(outdir, "%s.csv" % codi), "w", encoding="utf-8", newline="\n") as f:
+        f.write(",".join(q(h) for h in HDR) + "\n")
+        f.write(",".join(q(c) for c in row) + "\n")
+
+
+def estacions_aemet_csv(bbox, outdir, password):
+    """CSVs de WindNinja des de les estacions AEMET (inclou AEMET CV) de la publicació,
+    per a zones sense Meteocat. Retorna (n, dtiso_max)."""
+    lon0, lat0, lon1, lat1 = bbox
+    ests = [e for e in _estacions_publicades(password)
+            if str(e.get("font", "")).startswith("AEMET")
+            and e.get("lat") is not None and e.get("lon") is not None
+            and lon0 <= e["lon"] <= lon1 and lat0 <= e["lat"] <= lat1]
+    if not ests:
+        return 0, None
+    os.makedirs(outdir, exist_ok=True)
+    for fn in os.listdir(outdir):
+        if fn.endswith(".csv"):
+            os.remove(os.path.join(outdir, fn))
+    n = 0
+    tmax = None
+    for e in ests:
+        a = e.get("actual") or {}
+        vv, dv = a.get("vv"), a.get("dv")
+        dtiso = _fint_iso(a.get("fint"))
+        if vv is None or dv is None or not dtiso:
+            continue
+        ta = a.get("ta") if a.get("ta") is not None else 20.0
+        nom = (e.get("nom") or e.get("idema")).split(" - ")[0].replace(",", "")
+        _escriu_csv_estacio(outdir, e["idema"], nom, e["lat"], e["lon"], vv / 3.6, dv, ta, dtiso)
+        tmax = max(tmax or dtiso, dtiso)
+        n += 1
+    print("  estacions AEMET (publicació) dins del bbox: %d (obs %s)" % (n, tmax))
+    return n, tmax
+
+
+def vent_representatiu(bbox, password=None):
+    """Fallback: estació amb vent MÉS PROPERA al centre (qualsevol xarxa, de la
+    publicació), per al mode vent mitjà. Retorna (speed_ms, dir_deg, dtiso, nom, dist_km)."""
     lon0, lat0, lon1, lat1 = bbox
     cx, cy = 0.5 * (lon0 + lon1), 0.5 * (lat0 + lat1)
-    try:
-        from xema_obert import descarrega
-    except Exception as ex:
-        print("  avis: xema_obert no disponible (%s)" % ex)
-        return None
-    if not os.path.exists(meta_path):
-        print("  avis: no trobe %s" % meta_path)
-        return None
-    meta = json.load(open(meta_path, encoding="utf-8"))
-    ests = {k: v for k, v in meta.items() if v.get("lat") is not None and v.get("lon") is not None}
+    ests = [e for e in _estacions_publicades(password)
+            if e.get("lat") is not None and e.get("lon") is not None
+            and (e.get("actual") or {}).get("vv") is not None
+            and (e.get("actual") or {}).get("dv") is not None]
     if not ests:
         return None
-    VARS = {46: ("vv", 3.6), 47: ("dv", 1.0), 48: ("vv", 3.6), 49: ("dv", 1.0), 30: ("vv", 3.6), 31: ("dv", 1.0)}
-    ara = datetime.now(timezone.utc)
-    dat = descarrega([ara - timedelta(days=1), ara], VARS, _num, verbose=False)
 
-    def dist(m):
-        return math.hypot((m["lon"] - cx) * math.cos(math.radians(cy)), m["lat"] - cy)
+    def dist(e):
+        return math.hypot((e["lon"] - cx) * math.cos(math.radians(cy)), e["lat"] - cy)
 
-    for codi, m in sorted(ests.items(), key=lambda kv: dist(kv[1])):
-        camps = dat.get(codi) or {}
-        vv, dv = camps.get("vv") or [], camps.get("dv") or []
-        if not vv or not dv:
-            continue
-        t_vv, v_vv = max(vv, key=lambda p: p[0])
-        dd = dict(dv).get(t_vv)
-        if dd is None:
-            continue
-        sp = (v_vv or 0) / 3.6                       # km/h -> m/s
-        dtiso = t_vv[:16].replace(" ", "T") + ":00Z" if len(t_vv) == 16 else t_vv
-        nom = (m.get("nom") or codi).split(" - ")[0].replace(",", "")
-        return (sp, float(dd), dtiso, nom, 111.0 * dist(m))
-    return None
+    e = min(ests, key=dist)
+    a = e["actual"]
+    dtiso = _fint_iso(a.get("fint")) or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:00Z")
+    nom = (e.get("nom") or e.get("idema")).split(" - ")[0].replace(",", "")
+    return (a["vv"] / 3.6, float(a["dv"]), dtiso, nom, 111.0 * dist(e))
 
 
 def escriu_zona_domini(out, mesh, dem_src, speed, direction, dtiso, nom, dkm):
@@ -342,17 +409,21 @@ def main():
                     help="mode producció: una sola execució amb estacions reals")
     a = ap.parse_args()
     bbox = tuple(float(x) for x in a.bbox.split(","))
+    pwd = os.environ.get("MAPA_PASS")
     os.makedirs(a.out, exist_ok=True)
     print("Preparant WindNinja per al bbox", bbox)
     big, tr = baixa_dem(bbox, a.zoom)
     dem = os.path.join(a.out, "dem.tif")
     escriu_dem_utm(big, tr, bbox, dem, a.res)
-    n, dtiso = estacions_csv(bbox, os.path.join(a.out, "estacions"))
+    estdir = os.path.join(a.out, "estacions")
+    n, dtiso = estacions_csv(bbox, estdir)                      # Meteocat (Dades Obertes) — Catalunya
     if a.zona:
+        if n == 0:                                             # sense Meteocat dins (p.ex. País Valencià):
+            n, dtiso = estacions_aemet_csv(bbox, estdir, pwd)  # prova AEMET (inclou AEMET CV) publicat
         if n >= 1 and dtiso:
             escriu_zona(a.out, a.mesh, dem, n, dtiso)          # inicialització per estacions
         else:                                                  # cap estació dins: vent mitjà de la més propera
-            rep = vent_representatiu(bbox)
+            rep = vent_representatiu(bbox, pwd)
             if not rep:
                 raise SystemExit("cap estació amb vent ni dins ni prop de la caixa")
             escriu_zona_domini(a.out, a.mesh, dem, rep[0], rep[1], rep[2], rep[3], rep[4])
