@@ -21,6 +21,18 @@ on:
         description: "Resolució de malla de WindNinja (m)"
         required: false
         default: "100"
+      punts:
+        description: "PREVISIÓ: JSON [{lat,lon,vel,dir,temp,nuv}] d'estacions virtuals (buit = mode observat)"
+        required: false
+        default: ""
+      hora:
+        description: "PREVISIÓ: hora vàlida ISO UTC (p.ex. 2026-07-28T15:00:00Z)"
+        required: false
+        default: ""
+      diurn:
+        description: "PREVISIÓ: vents tèrmics diürns (true/false)"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -46,9 +58,21 @@ jobs:
       - name: Prepara el DEM i les estacions de la caixa
         env:
           MAPA_PASS: ${{ secrets.MAPA_PASS }}   # per llegir estacions AEMET/CV publicades on no arriba Meteocat
+          PUNTS: ${{ github.event.inputs.punts }}   # PREVISIÓ: estacions virtuals (JSON) — per env, no inline (injecció)
+          HORA: ${{ github.event.inputs.hora }}
+          DIURN: ${{ github.event.inputs.diurn }}
         run: |
-          python windninja_prep.py --bbox="${{ github.event.inputs.bbox }}" \
-            --out wn --res 50 --mesh "${{ github.event.inputs.mesh }}" --zona
+          if [ -n "$PUNTS" ]; then
+            printf '%s' "$PUNTS" > punts.json
+            echo "Mode PREVISIÓ ($(wc -c < punts.json) bytes de punts, hora $HORA, diürn $DIURN)"
+            DF=""; [ "$DIURN" = "true" ] && DF="--diurn"
+            python windninja_prep.py --bbox="${{ github.event.inputs.bbox }}" \
+              --out wn --res 50 --mesh "${{ github.event.inputs.mesh }}" --zona \
+              --punts punts.json --hora "$HORA" $DF
+          else
+            python windninja_prep.py --bbox="${{ github.event.inputs.bbox }}" \
+              --out wn --res 50 --mesh "${{ github.event.inputs.mesh }}" --zona
+          fi
 
       - name: Descarrega WindNinja
         run: |
