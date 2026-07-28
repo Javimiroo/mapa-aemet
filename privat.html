@@ -577,6 +577,7 @@
           <button class="btn small" id="focPrevCalc" disabled title="Calcular el camp de vent previst amb WindNinja">🌬️ Calcular previsió</button>
           <span id="focPrevInfo" style="font-size:11px;color:#94a3b8;flex:1"></span>
         </div>
+        <div id="focPrevSaved" style="margin-top:4px"></div>
       </div>
       <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
         <b style="font-size:13px">Perímetres desats</b>
@@ -3098,7 +3099,7 @@ async function obreFocTauler(id){
   FD={foc:f,centre:centre,charts:[],chartIds:[],chartDay:null,estMarkers:[],perimLayers:[],flameM:null,
       runs:(f.runs||[]).slice().sort((a,b)=>a.ts-b.ts),runIdx:-1,runData:null,map:null,ventLayer:null,
       annotLayer:null,arrows:[],arrowPreview:null,
-      prevBox:null,prevBoxLayer:null,prevBoxDraw:false,prevBoxA:null,prevPts:[],prevAddMode:false};
+      prevBox:null,prevBoxLayer:null,prevBoxDraw:false,prevBoxA:null,prevPts:[],prevAddMode:false,prevActiveRid:null};
   const mp=FD.map=L.map('focMap',{zoomControl:true}).setView(centre,12);
   L.tileLayer(BASEMAPS.satellite.u,Object.assign({crossOrigin:true},BASEMAPS.satellite.o)).addTo(mp);
   FD.ventLayer=new FocVentLayer(); FD.ventLayer.addTo(mp);
@@ -3118,8 +3119,9 @@ async function obreFocTauler(id){
   $('focPrevHora').value=msToLocalDatetime(Date.now()); $('focPrevDiurn').checked=false; $('focPrevInfo').textContent=''; focPrevRender();
   $('focIniciInput').value = f.inici!=null ? msToLocalDatetime(f.inici) : '';
   focRecalculaTimeline(true);                     // fixa el rang i posa el cursor al final
-  focMarks();
-  if(FD.runs.length){ await focLoadRun(FD.runs.length-1); }
+  focMarks(); focPrevRenderSaved();
+  const obsRuns=FD.runs.filter(r=>r.tipus!=='previsio');   // a l'obrir, mostrem l'últim OBSERVAT (no cap previsió futura)
+  if(obsRuns.length){ await focLoadRun(FD.runs.indexOf(obsRuns[obsRuns.length-1])); }
   else { FD.runData=null; $('focRunInfo').textContent='Cap camp fi calculat encara. Prem «🌬️ Calcular camp fi».'; if(FD.ventLayer)FD.ventLayer.redraw(); }
   await focScrub();
   focRenderCharts();
@@ -3130,11 +3132,8 @@ async function obreFocTauler(id){
 // rang de la línia de temps: de (inici-2h) fins a min(fi, última observació meteo)
 function focRecalculaTimeline(alFinal){
   const f=FD.foc, ultimObs=focUltimaObs();
-  let fiBase=Math.min(f.fi||ultimObs, ultimObs);
-  // si hi ha corregudes de PREVISIÓ en el futur, estén el rang perquè hi caben les seues marques
-  const prevMax=(FD.runs||[]).filter(r=>r.tipus==='previsio').reduce((m,r)=>Math.max(m,focRunTemps(r)),0);
-  if(prevMax>fiBase) fiBase=prevMax;
-  const ini=f.inici?(f.inici-2*3600000):(ultimObs-6*3600000), fi=fiBase;
+  // NOMÉS observat: la línia de temps NO s'estén amb les previsions (són el futur)
+  const ini=f.inici?(f.inici-2*3600000):(ultimObs-6*3600000), fi=Math.min(f.fi||ultimObs, ultimObs);
   FD.tMin=Math.floor(ini/3600000)*3600000; FD.tMax=Math.max(FD.tMin+3600000,Math.floor(fi/3600000)*3600000);
   FD.tSteps=Math.round((FD.tMax-FD.tMin)/3600000);
   $('focTRange').max=FD.tSteps;
@@ -3154,10 +3153,9 @@ async function focSetInici(){
 function focRunTemps(r){ return r.obs || r.ts; }
 function focMarks(){
   const box=$('focTMarks'); if(!box)return; box.innerHTML=''; const span=(FD.tMax-FD.tMin)||1;
-  FD.runs.forEach((r,k)=>{ const t=focRunTemps(r), x=Math.max(0,Math.min(100,(t-FD.tMin)/span*100)), act=(k===FD.runIdx), prev=(r.tipus==='previsio');
-    const col=prev?(act?'#7dd3fc':'#0ea5e9'):(act?'#86efac':'#16a34a'), glyph=prev?'▽':'▮';
-    const titol=(prev?'Previsió WindNinja · vàlida per a les ':'Correguda WindNinja · dades de les ')+new Date(t).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' · clica per veure-la';
-    box.insertAdjacentHTML('beforeend','<span class="focRunMark" data-k="'+k+'" title="'+titol+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:'+col+';font-size:'+(act?16:13)+'px;line-height:1;font-weight:900;cursor:pointer;pointer-events:auto">'+glyph+'</span>'); });
+  FD.runs.forEach((r,k)=>{ if(r.tipus==='previsio') return;   // les previsions NO van a la línia de temps observada
+    const t=focRunTemps(r), x=Math.max(0,Math.min(100,(t-FD.tMin)/span*100)), act=(k===FD.runIdx);
+    box.insertAdjacentHTML('beforeend','<span class="focRunMark" data-k="'+k+'" title="Correguda WindNinja · dades de les '+new Date(t).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+' · clica per veure-la" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:'+(act?'#86efac':'#16a34a')+';font-size:'+(act?16:13)+'px;line-height:1;font-weight:900;cursor:pointer;pointer-events:auto">▮</span>'); });
   focPerimsList().forEach(p=>{ const x=Math.max(0,Math.min(100,(p.ts-FD.tMin)/span*100));
     box.insertAdjacentHTML('beforeend','<span title="Perímetre · '+new Date(p.ts).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#f87171;font-size:10px;line-height:1">◆</span>'); });
 }
@@ -3178,7 +3176,8 @@ async function focScrub(forcaRun){
   const i=parseInt($('focTRange').value,10); FD.tSel=FD.tMin+i*3600000;
   $('focTLabel').textContent=new Date(FD.tSel).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
   if(forcaRun!=null && FD.runs[forcaRun]){ if(forcaRun!==FD.runIdx) await focLoadRun(forcaRun); }
-  else if(FD.runs.length){ let best=-1,bd=Infinity; FD.runs.forEach((r,k)=>{const d=Math.abs(focRunTemps(r)-FD.tSel);if(d<bd){bd=d;best=k;}});
+  else if(!FD.prevActiveRid && FD.runs.length){   // si hi ha una previsió fixada al mapa, no la sobreescrivim amb l'observat
+    let best=-1,bd=Infinity; FD.runs.forEach((r,k)=>{ if(r.tipus==='previsio') return; const d=Math.abs(focRunTemps(r)-FD.tSel);if(d<bd){bd=d;best=k;}});
     if(best>=0&&best!==FD.runIdx) await focLoadRun(best); }
   focMarks();                             // refresca el ressaltat de la correguda activa
   focDrawStations(); focDrawPerims(); focFlame(); focChartsCursor();
@@ -3540,11 +3539,10 @@ async function focCalculaPrevisio(){
         const a=await focsAPI('run_add',{id:f.id,enc:enc,meta:meta});
         if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id));
           if(g){ FD.foc=g; FD.runs=(g.runs||[]).slice().sort((x,y)=>focRunTemps(x)-focRunTemps(y)); focActualRuns=g.runs||[]; } focsRender(); }
-        focRecalculaTimeline(false); focMarks();
-        const nou=FD.runs.find(r=>r.tipus==='previsio'&&Math.abs(focRunTemps(r)-horaMs)<60000)||FD.runs[FD.runs.length-1];
-        if(nou){ const idx=Math.round((focRunTemps(nou)-FD.tMin)/3600000); $('focTRange').value=Math.max(0,Math.min(FD.tSteps,idx)); }
-        await focScrub(); focMostraUltimRun();
-        btn.textContent='✓ Previsió llesta'; inf.textContent='Previsió desada (marca blava ▽ al temps de la previsió). Clica-la per veure-la.';
+        focPrevRenderSaved();
+        const nou=FD.runs.find(r=>r.tipus==='previsio'&&Math.abs(focRunTemps(r)-horaMs)<60000);
+        if(nou) await focPrevMostra(nou.rid);        // mostra la previsió acabada de fer, SENSE tocar el time-scroll
+        btn.textContent='✓ Previsió llesta'; inf.textContent='Previsió desada. Als xips de baix pots triar quina veure al mapa o amagar-la.';
         setTimeout(()=>{btn.textContent=old;btn.disabled=false;},4000); return;
       }
       btn.textContent='calculat, no s\'ha pogut desar'; inf.textContent='El càlcul ha anat bé però no s\'ha pogut llegir el fitxer. Torna a provar en un minut.';
@@ -3552,6 +3550,39 @@ async function focCalculaPrevisio(){
     }
   }
   btn.textContent='Tarda més del previst'; setTimeout(()=>{btn.textContent=old;btn.disabled=false;},5000);
+}
+// llista de previsions desades (xips) — tries quina veure al mapa; per defecte cap
+function focPrevRenderSaved(){
+  const box=$('focPrevSaved'); if(!box||!FD)return;
+  const prevs=(FD.runs||[]).filter(r=>r.tipus==='previsio').sort((a,b)=>focRunTemps(a)-focRunTemps(b));
+  if(!prevs.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div style="font-size:11px;color:#94a3b8;margin:4px 0 2px">Previsions desades (clica per veure-la al mapa; torna a clicar per amagar):</div>'
+    +prevs.map(r=>{ const act=(r.rid===FD.prevActiveRid),
+        lab=new Date(focRunTemps(r)).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      return '<span class="focPrevChip" data-rid="'+r.rid+'" title="Previsió vàlida per a les '+lab+'" '
+        +'style="display:inline-flex;align-items:center;gap:5px;margin:2px 5px 2px 0;padding:2px 8px;border-radius:12px;cursor:pointer;font-size:11px;'
+        +'border:1px solid '+(act?'#38bdf8':'#334155')+';background:'+(act?'#0369a1':'#0b1220')+';color:'+(act?'#e0f2fe':'#cbd5e1')+'">'
+        +'🔮 '+lab+'<b class="focPrevChipDel" data-rid="'+r.rid+'" title="Esborrar esta previsió" style="color:#f87171;cursor:pointer">✕</b></span>'; }).join('');
+}
+async function focPrevMostra(rid){
+  if(!FD)return; const idx=FD.runs.findIndex(r=>r.rid===rid); if(idx<0)return;
+  FD.prevActiveRid=rid;
+  await focLoadRun(idx);                    // carrega el camp de la previsió a la capa de vent
+  focPrevRenderSaved(); focVentLegShow();
+}
+function focPrevOculta(){
+  if(!FD)return; FD.prevActiveRid=null;
+  FD.runIdx=-1; FD.runData=null;
+  focPrevRenderSaved();
+  focScrub();                               // torna a l'observat de l'hora del cursor (o res si no n'hi ha)
+}
+async function focPrevEsborraSaved(rid){
+  if(!FD)return; if(!confirm('Esborrar esta previsió?')) return;
+  const f=FD.foc, a=await focsAPI('run_del',{id:f.id,rid:rid});
+  if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id));
+    if(g){ FD.foc=g; FD.runs=(g.runs||[]).slice().sort((x,y)=>focRunTemps(x)-focRunTemps(y)); focActualRuns=g.runs||[]; } focsRender(); }
+  if(FD.prevActiveRid===rid){ FD.prevActiveRid=null; FD.runIdx=-1; FD.runData=null; focScrub(); }
+  focPrevRenderSaved();
 }
 async function focCalculaVent(){
   const f=FD.foc, c=focCentreDe(f);
@@ -3619,6 +3650,10 @@ $('focPrevAddBtn').addEventListener('click',focPrevAddToggle);
 $('focPrevCalc').addEventListener('click',focCalculaPrevisio);
 $('focPrevList').addEventListener('input',e=>{ const inp=e.target.closest('.fpV'); if(!inp||!FD)return; const row=e.target.closest('.focPrevRow'); const o=FD.prevPts.find(x=>x.id===row.dataset.id); if(o) o[inp.dataset.f]=inp.value; });
 $('focPrevList').addEventListener('click',e=>{ const b=e.target.closest('.focPrevDel'); if(!b||!FD)return; const row=e.target.closest('.focPrevRow'); focPrevEsborraPunt(row.dataset.id); });
+$('focPrevSaved').addEventListener('click',e=>{ if(!FD)return;
+  const del=e.target.closest('.focPrevChipDel'); if(del){ e.stopPropagation(); focPrevEsborraSaved(del.dataset.rid); return; }
+  const chip=e.target.closest('.focPrevChip'); if(!chip)return; const rid=chip.dataset.rid;
+  if(FD.prevActiveRid===rid) focPrevOculta(); else focPrevMostra(rid); });
 $('focDataBtn').addEventListener('click',focActualitzaDades);
 $('focIniciInput').addEventListener('change',focSetInici);
 $('focArrowBtn').addEventListener('click',focArrowToggle);
@@ -3630,6 +3665,7 @@ $('focTNext').addEventListener('click',()=>{ const r=$('focTRange'); r.value=Mat
 $('focTMarks').addEventListener('click',async e=>{     // clic a una marca de correguda → veure eixa correguda
   const m=e.target.closest('.focRunMark'); if(!m||!FD)return;
   const k=+m.dataset.k, r=FD.runs[k]; if(!r)return;
+  if(FD.prevActiveRid){ FD.prevActiveRid=null; focPrevRenderSaved(); }   // clicar una observada desfixa la previsió
   const idx=Math.round((focRunTemps(r)-FD.tMin)/3600000);
   $('focTRange').value=Math.max(0,Math.min(FD.tSteps,idx));
   await focScrub(k);
