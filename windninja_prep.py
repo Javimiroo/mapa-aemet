@@ -320,11 +320,12 @@ def _fint_iso(t):
     return None
 
 
-def _escriu_csv_estacio(outdir, codi, nom, lat, lon, sp_ms, dd, ta, dtiso):
+def _escriu_csv_estacio(outdir, codi, nom, lat, lon, sp_ms, dd, ta, dtiso, cloud=0):
     def q(s):
         return '"' + str(s) + '"'
     row = [nom, "GEOGCS", "WGS84", "%.5f" % lat, "%.5f" % lon, "10", "meters",
-           "%.1f" % sp_ms, "mps", "%d" % round(dd), "%.1f" % ta, "C", "0", "-1", "km", dtiso]
+           "%.1f" % sp_ms, "mps", "%d" % round(dd), "%.1f" % ta, "C",
+           "%d" % int(round(max(0, min(100, cloud)))), "-1", "km", dtiso]
     with open(os.path.join(outdir, "%s.csv" % codi), "w", encoding="utf-8", newline="\n") as f:
         f.write(",".join(q(h) for h in HDR) + "\n")
         f.write(",".join(q(c) for c in row) + "\n")
@@ -398,6 +399,45 @@ def escriu_zona_domini(out, mesh, dem_src, speed, direction, dtiso, nom, dkm):
     return d
 
 
+def escriu_previsio(out, mesh, dem_src, punts, hora_iso, diurn=False):
+    """Mode PREVISIÓ: estacions VIRTUALS posades pel meteoròleg. pointInitialization
+    amb els vents que ell PREVEU a cada punt (fons de vall, carena, vessant…). L'elevació
+    de cada punt ja la dóna el DEM per la seua posició al terreny; el meteoròleg només
+    dóna vent i direcció (+ temperatura i nuvolositat opcionals, que activen els vents
+    tèrmics diürns de vessant/vall). WindNinja els interpola respectant el relleu.
+
+    punts: llista de dicts {lat, lon, vel(km/h), dir(graus), temp(°C, opc), nuv(%, opc)}
+    hora_iso: hora vàlida de la previsió (ISO UTC), p.ex. '2026-07-28T15:00:00Z'
+    """
+    if not punts:
+        raise SystemExit("cal almenys un punt de previsió")
+    if not hora_iso:
+        raise SystemExit("cal l'hora vàlida de la previsió (--hora)")
+    d = os.path.join(out, "zona")
+    os.makedirs(d, exist_ok=True)
+    shutil.copy(dem_src, os.path.join(d, "dem.tif"))
+    est = os.path.join(d, "estacions")
+    if os.path.isdir(est):
+        shutil.rmtree(est)
+    os.makedirs(est, exist_ok=True)
+    for i, p in enumerate(punts):
+        vel = float(p.get("vel", 0) or 0)              # km/h
+        dire = float(p.get("dir", 0) or 0) % 360
+        ta = p.get("temp")
+        ta = 20.0 if ta in (None, "") else float(ta)
+        nuv = p.get("nuv")
+        nuv = 0 if nuv in (None, "") else float(nuv)
+        _escriu_csv_estacio(est, "P%d" % (i + 1), "prev%d" % (i + 1),
+                            float(p["lat"]), float(p["lon"]), vel / 3.6, dire, ta, hora_iso, nuv)
+    cfg = BASE_CFG.format(mesh=mesh) + cfg_punts(hora_iso)
+    if diurn:
+        cfg += "diurnal_winds = true\n"
+    with open(os.path.join(d, "run.cfg"), "w", encoding="utf-8") as f:
+        f.write(cfg)
+    print("  PREVISIÓ: %d punts virtuals, hora %s, diürn=%s" % (len(punts), hora_iso, diurn))
+    return d
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", default="0.68,41.08,1.18,41.45", help="lon0,lat0,lon1,lat1")
@@ -407,6 +447,12 @@ def main():
     ap.add_argument("--mesh", type=float, default=100.0, help="mesh_resolution de WindNinja (m)")
     ap.add_argument("--zona", action="store_true",
                     help="mode producció: una sola execució amb estacions reals")
+    ap.add_argument("--punts", default=None,
+                    help="mode PREVISIÓ: fitxer JSON amb punts virtuals [{lat,lon,vel,dir,temp,nuv}]")
+    ap.add_argument("--hora", default=None,
+                    help="mode PREVISIÓ: hora vàlida ISO UTC (p.ex. 2026-07-28T15:00:00Z)")
+    ap.add_argument("--diurn", action="store_true",
+                    help="mode PREVISIÓ: activa els vents tèrmics diürns (vessant/vall)")
     a = ap.parse_args()
     bbox = tuple(float(x) for x in a.bbox.split(","))
     pwd = os.environ.get("MAPA_PASS")
@@ -416,19 +462,24 @@ def main():
     dem = os.path.join(a.out, "dem.tif")
     escriu_dem_utm(big, tr, bbox, dem, a.res)
     estdir = os.path.join(a.out, "estacions")
-    n, dtiso = estacions_csv(bbox, estdir)                      # Meteocat (Dades Obertes) — Catalunya
-    if a.zona:
-        if n == 0:                                             # sense Meteocat dins (p.ex. País Valencià):
-            n, dtiso = estacions_aemet_csv(bbox, estdir, pwd)  # prova AEMET (inclou AEMET CV) publicat
-        if n >= 1 and dtiso:
-            escriu_zona(a.out, a.mesh, dem, n, dtiso)          # inicialització per estacions
-        else:                                                  # cap estació dins: vent mitjà de la més propera
-            rep = vent_representatiu(bbox, pwd)
-            if not rep:
-                raise SystemExit("cap estació amb vent ni dins ni prop de la caixa")
-            escriu_zona_domini(a.out, a.mesh, dem, rep[0], rep[1], rep[2], rep[3], rep[4])
+    if a.zona and a.punts:                                     # mode PREVISIÓ: estacions virtuals del meteoròleg
+        with open(a.punts, encoding="utf-8") as fp:
+            punts = json.load(fp)
+        escriu_previsio(a.out, a.mesh, dem, punts, a.hora, a.diurn)
     else:
-        escriu_proves(a.out, a.mesh, dem, n, dtiso)
+        n, dtiso = estacions_csv(bbox, estdir)                  # Meteocat (Dades Obertes) — Catalunya
+        if a.zona:
+            if n == 0:                                          # sense Meteocat dins (p.ex. País Valencià):
+                n, dtiso = estacions_aemet_csv(bbox, estdir, pwd)  # prova AEMET (inclou AEMET CV) publicat
+            if n >= 1 and dtiso:
+                escriu_zona(a.out, a.mesh, dem, n, dtiso)       # inicialització per estacions
+            else:                                               # cap estació dins: vent mitjà de la més propera
+                rep = vent_representatiu(bbox, pwd)
+                if not rep:
+                    raise SystemExit("cap estació amb vent ni dins ni prop de la caixa")
+                escriu_zona_domini(a.out, a.mesh, dem, rep[0], rep[1], rep[2], rep[3], rep[4])
+        else:
+            escriu_proves(a.out, a.mesh, dem, n, dtiso)
     print("Fet.")
 
 
