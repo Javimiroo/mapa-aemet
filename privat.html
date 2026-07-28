@@ -539,6 +539,16 @@
   <div style="flex:1;display:flex;min-height:0">
     <div style="flex:1.4;position:relative;min-width:0;display:flex;flex-direction:column;border-right:1px solid #334155">
       <div style="display:flex;gap:10px;align-items:center;padding:6px 10px;background:#0f172a;border-bottom:1px solid #1e293b;flex-wrap:wrap">
+        <label style="font-size:12px;color:#cbd5e1">Fons:</label>
+        <select id="focBase" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:4px 6px;font-size:12px">
+          <option value="satellite">Satèl·lit</option>
+          <option value="icgctopo">ICGC topogràfic</option>
+          <option value="icgc">ICGC base</option>
+          <option value="topo">Topogràfic (OTM)</option>
+          <option value="dark">Fosc</option>
+          <option value="light">Clar</option>
+          <option value="streets">Carrers (OSM)</option>
+        </select>
         <label style="font-size:12px;color:#cbd5e1">Variable:</label>
         <select id="focVar" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:4px 6px;font-size:12px"></select>
         <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="focVentOn" checked> Vent WindNinja</label>
@@ -3098,10 +3108,10 @@ async function obreFocTauler(id){
   if(FD){ FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); if(FD.map){try{FD.map.remove();}catch(e){} FD.map=null;} }
   FD={foc:f,centre:centre,charts:[],chartIds:[],chartDay:null,estMarkers:[],perimLayers:[],flameM:null,
       runs:(f.runs||[]).slice().sort((a,b)=>a.ts-b.ts),runIdx:-1,runData:null,map:null,ventLayer:null,
-      annotLayer:null,arrows:[],arrowPreview:null,
+      annotLayer:null,arrows:[],arrowPreview:null,baseLayer:null,
       prevBox:null,prevBoxLayer:null,prevBoxDraw:false,prevBoxA:null,prevPts:[],prevAddMode:false,prevActiveRid:null};
   const mp=FD.map=L.map('focMap',{zoomControl:true}).setView(centre,12);
-  L.tileLayer(BASEMAPS.satellite.u,Object.assign({crossOrigin:true},BASEMAPS.satellite.o)).addTo(mp);
+  focSetBase($('focBase')?$('focBase').value:'satellite');
   FD.ventLayer=new FocVentLayer(); FD.ventLayer.addTo(mp);
   FD.perimLayer=new FocPerimLayer(); FD.perimLayer.addTo(mp);
   FD.annotLayer=new FocAnnotLayer(); FD.annotLayer.addTo(mp);
@@ -3641,7 +3651,14 @@ async function focActualitzaDades(){
   catch(e){ alert('No s\'han pogut recarregar les dades.'); }
   b.disabled=false; b.textContent=old;
 }
+function focSetBase(key){
+  if(!FD||!FD.map)return;
+  const b=BASEMAPS[key]||BASEMAPS.satellite, opt=Object.assign({crossOrigin:true},b.o);
+  if(FD.baseLayer){ try{FD.map.removeLayer(FD.baseLayer);}catch(e){} }
+  FD.baseLayer=L.tileLayer(b.u,opt).addTo(FD.map); FD.baseLayer.bringToBack();
+}
 function focTanca(){ if(FD){ FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); if(FD.map){try{FD.map.remove();}catch(e){} FD.map=null;} } $('focModal').style.display='none'; FD=null; }
+$('focBase').addEventListener('change',()=>focSetBase($('focBase').value));
 $('focVar').addEventListener('change',()=>{ focDrawStations(); });
 $('focVentOn').addEventListener('change',()=>{ if(FD&&FD.ventLayer) FD.ventLayer.redraw(); focVentLegShow(); });
 $('focCalcBtn').addEventListener('click',focCalculaVent);
