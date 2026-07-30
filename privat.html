@@ -531,6 +531,7 @@
     <span id="focSub" style="font-size:12px;color:#94a3b8"></span>
     <span id="focUltimRun" style="font-size:12px;color:#22c55e;font-weight:600"></span>
     <span style="flex:1"></span>
+    <button class="btn small" id="focFull" title="Mapa a pantalla completa (amaga el panell dret)">⛶ Mapa gran</button>
     <button class="btn small" id="focFinalitzar">🏁 Marcar finalitzat</button>
     <button class="btn small" id="focExport">📷 Exportar imatge</button>
     <button class="btn small" id="focZipBtn">🗜 ZIP</button>
@@ -571,7 +572,7 @@
         <span id="focTLabel" style="font-size:12px;min-width:132px;text-align:right;color:#e5e7eb">—</span>
       </div>
     </div>
-    <div style="flex:1;min-width:330px;max-width:560px;display:flex;flex-direction:column;background:#0b1220;overflow:auto">
+    <div id="focRight" style="flex:1;min-width:330px;max-width:560px;display:flex;flex-direction:column;background:#0b1220;overflow:auto">
       <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
         <b style="font-size:13px">🔮 Previsió (WindNinja)</b>
         <span style="font-size:11px;color:#94a3b8"> · dibuixa una caixa i posa punts amb el vent que preveus a cada lloc</span>
@@ -801,7 +802,7 @@ let DATA=null, markers=[], activeFilter=null;
 let streakMode=null, countMode=null;
 let timeT=null, tDomain=null;   // màquina del temps (timeT=null → en directe)
 let reviewMode=null;            // dia de l'arxiu que s'està revisant (null → dades en directe)
-const map=L.map('map',{zoomControl:true}).setView([41.75,1.75],8);
+const map=L.map('map',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView([41.75,1.75],8);
 const BASEMAPS={
   icgc:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
   icgctopo:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=estandard&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
@@ -1376,7 +1377,7 @@ function syncMaps(a,b){
 }
 function ensureMap2(){
   if(map2)return;
-  map2=L.map('map2',{zoomControl:true}).setView(map.getCenter(),map.getZoom());
+  map2=L.map('map2',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView(map.getCenter(),map.getZoom());
   const b=BASEMAPS[$('basemap').value]||BASEMAPS.dark;
   baseLayer2=L.tileLayer(b.u,Object.assign({crossOrigin:true},b.o)).addTo(map2); baseLayer2.bringToBack();
   syncMaps(map,map2); syncMaps(map2,map);
@@ -3112,7 +3113,7 @@ async function obreFocTauler(id){
       runs:(f.runs||[]).slice().sort((a,b)=>a.ts-b.ts),runIdx:-1,runData:null,map:null,ventLayer:null,
       annotLayer:null,arrows:[],arrowPreview:null,baseLayer:null,
       prevBox:null,prevBoxLayer:null,prevBoxDraw:false,prevBoxA:null,prevPts:[],prevAddMode:false,prevActiveRid:null,prevShowMarkers:[]};
-  const mp=FD.map=L.map('focMap',{zoomControl:true}).setView(centre,12);
+  const mp=FD.map=L.map('focMap',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView(centre,12);
   focSetBase($('focBase')?$('focBase').value:'satellite');
   FD.ventLayer=new FocVentLayer(); FD.ventLayer.addTo(mp);
   FD.perimLayer=new FocPerimLayer(); FD.perimLayer.addTo(mp);
@@ -3683,8 +3684,23 @@ function focSetBase(key){
   if(FD.baseLayer){ try{FD.map.removeLayer(FD.baseLayer);}catch(e){} }
   FD.baseLayer=L.tileLayer(b.u,opt).addTo(FD.map); FD.baseLayer.bringToBack();
 }
-function focTanca(){ if(FD){ FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); if(FD.map){try{FD.map.remove();}catch(e){} FD.map=null;} } $('focModal').style.display='none'; FD=null; }
+let focFullOn=false;
+function focFullAplica(on){
+  focFullOn=on; const r=$('focRight'); if(r) r.style.display=on?'none':'';
+  const b=$('focFull'); if(b) b.textContent=on?'⛶ Restaurar':'⛶ Mapa gran';
+  setTimeout(()=>{ if(FD&&FD.map) FD.map.invalidateSize(); },140);
+}
+function focFullToggle(){
+  const anar=!focFullOn; focFullAplica(anar);
+  try{ const md=$('focModal');
+    if(anar){ if(md.requestFullscreen) md.requestFullscreen(); }
+    else if(document.fullscreenElement && document.exitFullscreen){ document.exitFullscreen(); } }catch(e){}
+}
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement && focFullOn) focFullAplica(false); });
+function focTanca(){ if(document.fullscreenElement){try{document.exitFullscreen();}catch(e){}} focFullAplica(false);
+  if(FD){ FD.charts.forEach(c=>{try{c.destroy();}catch(e){}}); if(FD.map){try{FD.map.remove();}catch(e){} FD.map=null;} } $('focModal').style.display='none'; FD=null; }
 $('focBase').addEventListener('change',()=>focSetBase($('focBase').value));
+$('focFull').addEventListener('click',focFullToggle);
 $('focVar').addEventListener('change',()=>{ focDrawStations(); });
 $('focVentOn').addEventListener('change',()=>{ if(FD&&FD.ventLayer) FD.ventLayer.redraw(); focVentLegShow(); });
 $('focCalcBtn').addEventListener('click',focCalculaVent);
