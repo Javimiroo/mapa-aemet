@@ -4,16 +4,15 @@ on:
   workflow_dispatch: {}   # manual (des del botó del mapa o des de la pestanya Actions)
   schedule:
     # Cadència PRINCIPAL: cada 30 min via un disparador extern (cron-job.org), perquè
-    # el cron de GitHub Actions és "best-effort" i de vegades salta hores (p.ex. el
-    # 24/07 no va córrer de 09:10 a 11:28 local i el camp de vent no es va generar).
-    # Amb Dades Obertes (semihorari, ~5 min de retard) cada 30 min SÍ que dona dades
-    # més fresques. Este cron de GitHub queda com a XARXA DE SEGURETAT (cada 30 min,
-    # encara que en salte alguna). El repo no creix: les dades vives van a la branca
-    # 'dades' amb force-push; a 'main' només hi va l'arxiu.
-    # MINUTS :25 i :55 a posta: el portal publica cada bloc (:00 i :30) amb ~50 min
-    # de retard, així que el bloc :30 aterra cap a :20 i el :00 cap a :50; disparant
-    # a :25 i :55 caces el bloc acabat de publicar (mesurat 24/07: retard 53 min).
-    - cron: "25,55 * * * *"
+    # el cron de GitHub Actions és "best-effort" i de vegades salta hores. Este cron de
+    # GitHub queda com a XARXA DE SEGURETAT. El repo no creix: les dades vives van a la
+    # branca 'dades' amb force-push; a 'main' només hi va l'arxiu.
+    # MINUTS :05 i :35: ara la font principal és l'API de Meteocat (semihorària, amb pocs
+    # minuts de retard), no el portal. Meteocat mesura a :00 i :30 (UTC); disparant a :05
+    # i :35 agafem el bloc acabat de publicar amb la MÀXIMA frescor. (Abans era :25/:55
+    # per compensar el retard gran del portal de transparència, que ja no fem servir.)
+    # NOTA: si algun run agafa dades un pas endarrere, retarda uns minuts (p.ex. :10/:40).
+    - cron: "5,35 * * * *"
 
 permissions:
   contents: write
