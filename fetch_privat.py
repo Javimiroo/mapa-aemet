@@ -201,7 +201,25 @@ def meteocat_metadades():
     if os.path.exists(EST_FILE):
         with open(EST_FILE, encoding="utf-8") as f:
             return json.load(f)
-    try:                     # sense clau: metadades per Dades Obertes
+    # PRIMÀRIA: metadades per l'API XEMA (ara tenim accés complet a l'API).
+    try:
+        est = mc_get("/xema/v1/estacions/metadades")
+        meta = {}
+        for e in est:
+            c = e.get("coordenades") or {}
+            meta[e["codi"]] = {
+                "nom": e.get("nom", e["codi"]),
+                "lat": c.get("latitud"), "lon": c.get("longitud"), "alt": e.get("altitud"),
+                "provincia": ((e.get("provincia") or {}).get("nom") or ""),
+            }
+        if meta:
+            with open(EST_FILE, "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False)
+            return meta
+    except Exception as ex:  # noqa
+        print("  avis: metadades per l'API no disponibles (%s)" % str(ex)[:90])
+    # RESERVA: metadades per Dades Obertes (sense clau)
+    try:
         from xema_obert import metadades_obertes
         meta = metadades_obertes()
         if meta:
@@ -210,18 +228,32 @@ def meteocat_metadades():
             return meta
     except Exception as ex:  # noqa
         print("  avis: metadades per Dades Obertes no disponibles (%s)" % str(ex)[:90])
-    est = mc_get("/xema/v1/estacions/metadades")
-    meta = {}
-    for e in est:
-        c = e.get("coordenades") or {}
-        meta[e["codi"]] = {
-            "nom": e.get("nom", e["codi"]),
-            "lat": c.get("latitud"), "lon": c.get("longitud"), "alt": e.get("altitud"),
-            "provincia": ((e.get("provincia") or {}).get("nom") or ""),
-        }
-    with open(EST_FILE, "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False)
-    return meta
+    return {}
+
+
+def _descarrega_api_meteocat(dates):
+    """Baixa totes les variables de MC_VARS per l'API XEMA. Una crida per variable i dia
+    torna TOTES les estacions. Retorna codi -> {camp: [(data, valor)]}."""
+    dat = {}
+    for code, (camp, factor) in MC_VARS.items():
+        for dref in dates:
+            try:
+                resp = mc_get("/xema/v1/variables/mesurades/%d/%04d/%02d/%02d"
+                              % (code, dref.year, dref.month, dref.day))
+            except Exception as ex:  # noqa
+                print("  avis: variable %d dia %s no baixada (%s)" % (code, dref.date(), ex))
+                continue
+            for el in (resp or []):
+                st = el.get("codi")
+                vs = el.get("variables") or []
+                if not vs:
+                    continue
+                for lect in (vs[0].get("lectures") or []):
+                    v = lect.get("valor")
+                    if v is None:
+                        continue
+                    dat.setdefault(st, {}).setdefault(camp, []).append((lect.get("data"), _num(v, factor)))
+    return dat
 
 
 def estacions_meteocat(baixa_ahir=True):
@@ -234,35 +266,22 @@ def estacions_meteocat(baixa_ahir=True):
     dates = [ara - timedelta(days=1), ara] if baixa_ahir else [ara]
 
     # acumulem per estació: camp -> llista de (data, valor)
-    # FONT PRINCIPAL: Dades Obertes (mateixes dades, UTC, SENSE QUOTA mensual).
-    # Com que és gratuïta, sempre baixem ahir+hui (històric més robust).
+    # FONT PRINCIPAL: API de Meteocat (XEMA). Meteocat ens ha obert l'API completa, així
+    # que ara la fem servir directament: dades SEMIHORÀRIES amb pocs minuts de retard —
+    # molt més fresques que el portal de transparència (que arribava força més tard).
     dat = {}   # codi -> {camp: [(data,valor)]}
     try:
-        from xema_obert import descarrega
-        dat = descarrega([ara - timedelta(days=1), ara], MC_VARS, _num)
+        dat = _descarrega_api_meteocat(dates)
     except Exception as ex:  # noqa
-        print("  avis: Dades Obertes no disponible (%s)" % str(ex)[:90])
+        print("  avis: API de Meteocat ha fallat (%s)" % str(ex)[:90])
 
-    if not dat:   # RESERVA: API amb clau (consumeix quota)
-        print("  reserva: baixant per l'API de Meteocat (gasta quota)...")
-        for code, (camp, factor) in MC_VARS.items():
-            for dref in dates:
-                try:
-                    resp = mc_get("/xema/v1/variables/mesurades/%d/%04d/%02d/%02d"
-                                  % (code, dref.year, dref.month, dref.day))
-                except Exception as ex:  # noqa
-                    print("  avis: variable %d dia %s no baixada (%s)" % (code, dref.date(), ex))
-                    continue
-                for el in resp:
-                    st = el.get("codi")
-                    vs = el.get("variables") or []
-                    if not vs:
-                        continue
-                    for lect in (vs[0].get("lectures") or []):
-                        v = lect.get("valor")
-                        if v is None:
-                            continue
-                        dat.setdefault(st, {}).setdefault(camp, []).append((lect.get("data"), _num(v, factor)))
+    if not dat:   # RESERVA (perquè el mapa no quede mai buit): portal de transparència
+        print("  reserva: baixant per Dades Obertes (portal de transparència)...")
+        try:
+            from xema_obert import descarrega
+            dat = descarrega([ara - timedelta(days=1), ara], MC_VARS, _num)
+        except Exception as ex:  # noqa
+            print("  avis: Dades Obertes tampoc no ha respost (%s)" % str(ex)[:90])
 
     out = []
     for st, camps in dat.items():
