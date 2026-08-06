@@ -80,21 +80,20 @@ def extreu_rn1(tar_bytes):
                 if not meta_bolcat:                 # BOLCAT de metadades del 1r node: ESCALA + taula de color
                     meta_bolcat = True
                     print("  --- METADADES del producte RN1 (node %s) ---" % radar)
+                    print("     dtype=%s · nodata=%s · scales=%s · offsets=%s"
+                          % (ds.dtypes[0], ds.nodata, ds.scales, ds.offsets))
+                    _raw = ds.read(1)
+                    print("     RAW byte: min=%s max=%s · valors distints=%s"
+                          % (int(_raw.min()), int(_raw.max()), len(np.unique(_raw))))
                     try:
-                        tg = ds.tags()
-                        for k, v in tg.items():
-                            print("     tag %s = %s" % (k, str(v)[:300]))
+                        esc = ds.tags().get("ESCALA")
+                        if esc:
+                            print("     ESCALA (sencera): %s" % esc)
+                        for k, v in ds.tags().items():
+                            if k != "ESCALA":
+                                print("     tag %s = %s" % (k, str(v)[:120]))
                     except Exception as ex:  # noqa
                         print("     (sense tags: %s)" % ex)
-                    try:
-                        cm = ds.colormap(1)
-                        items = sorted(cm.items())
-                        print("     colormap (valor -> RGBA), valors usats 239-254:")
-                        for val in range(238, 255):
-                            if val in cm:
-                                print("       %d -> %s" % (val, cm[val]))
-                    except Exception as ex:  # noqa
-                        print("     (sense colormap: %s)" % ex)
                     print("  --- fi metadades ---")
                 raw = ds.read(1)
                 band = raw.astype(np.float32)
