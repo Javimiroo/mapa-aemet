@@ -1,0 +1,63 @@
+name: QPE pluja (radar AEMET + estacions)
+
+# Cada ~15 min: baixa l'últim RN1 d'AEMET, actualitza el buffer de tiles horaris,
+# acumula les finestres (1h/3h/6h/24h/dia/setmana), les ajusta amb el biaix de les
+# estacions Meteocat i publica els ràsters xifrats a la branca 'qpe' (força-push, sense
+# historial, per no fer créixer el repo ni disparar Pages).
+# Disparador extern (cron-job.org) recomanat, com amb 'privat'.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "8,23,38,53 * * * *"     # ~cada 15 min (xarxa de seguretat; el cron de GitHub salta)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpe
+  cancel-in-progress: false
+
+jobs:
+  qpe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5           # scripts (main)
+
+      - name: Recupera el buffer (branca 'qpe')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git clone --branch qpe --depth 1 \
+               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" qpe_store 2>/dev/null; then
+            echo "buffer recuperat ($(ls qpe_store/tiles 2>/dev/null | wc -l) tiles)"
+          else
+            echo "encara no hi ha branca 'qpe'; començo de zero"
+            mkdir -p qpe_store/tiles
+          fi
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Dependències
+        run: pip install numpy pillow cryptography rasterio
+
+      - name: Genera la QPE
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: python qpe_prod.py --store qpe_store
+
+      - name: Publica a la branca 'qpe'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd qpe_store
+          rm -rf .git
+          git init -q -b qpe
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "QPE $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" qpe
+          echo "publicat a la branca 'qpe'"
