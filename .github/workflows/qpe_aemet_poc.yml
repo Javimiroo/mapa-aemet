@@ -1,0 +1,35 @@
+name: PoC QPE producte pluja AEMET (fase 2A)
+
+# Baixa l'últim producte de pluja d'AEMET (RN1.1HR, 1 h en mm), el porta a Catalunya,
+# l'ajusta amb el biaix de les estacions i penja el PNG + les estadístiques de valors
+# reals com a artefacte. Serveix per confirmar l'escala abans del buffer acumulador.
+# Executa-ho QUAN HI HAJA PLOGUT (si no, tot ix a zero).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  qpe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Dependències
+        run: pip install numpy pillow cryptography rasterio
+      - name: Genera la QPE (producte AEMET)
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: python qpe_aemet.py --out qpe_aemet_1h.png
+      - name: Penja el resultat
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpe-aemet-1h
+          retention-days: 7
+          path: qpe_aemet_1h.png
