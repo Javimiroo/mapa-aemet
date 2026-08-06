@@ -73,9 +73,29 @@ def extreu_rn1(tar_bytes):
     tmax = max(dt for (_, dt, _) in cand)
     frescos = [(r, dt, m) for (r, dt, m) in cand if (tmax - dt).total_seconds() <= 3 * 3600]
     out = []
+    meta_bolcat = False
     for radar, dt, m in frescos:
         try:
             with MemoryFile(tf.extractfile(m).read()) as mf, mf.open() as ds:
+                if not meta_bolcat:                 # BOLCAT de metadades del 1r node: ESCALA + taula de color
+                    meta_bolcat = True
+                    print("  --- METADADES del producte RN1 (node %s) ---" % radar)
+                    try:
+                        tg = ds.tags()
+                        for k, v in tg.items():
+                            print("     tag %s = %s" % (k, str(v)[:300]))
+                    except Exception as ex:  # noqa
+                        print("     (sense tags: %s)" % ex)
+                    try:
+                        cm = ds.colormap(1)
+                        items = sorted(cm.items())
+                        print("     colormap (valor -> RGBA), valors usats 239-254:")
+                        for val in range(238, 255):
+                            if val in cm:
+                                print("       %d -> %s" % (val, cm[val]))
+                    except Exception as ex:  # noqa
+                        print("     (sense colormap: %s)" % ex)
+                    print("  --- fi metadades ---")
                 raw = ds.read(1)
                 band = raw.astype(np.float32)
                 nod = ds.nodata
