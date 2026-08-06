@@ -76,9 +76,10 @@ def _parse_iso(s):
 
 
 # ----------------------------------------------------------------- estacions (biaix)
-def estacions_pacum(finestra, password):
-    """Torna [(lat, lon, mm)] de la pluja acumulada de les estacions per a la finestra,
-    llegint dades_privat.enc (mateix camp 'pacum' que calcula fetch_privat.py)."""
+MC_BASE = "https://api.meteo.cat"
+
+
+def _desxifra_dades(password):
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -87,7 +88,13 @@ def estacions_pacum(finestra, password):
     salt = base64.b64decode(blob["salt"]); iv = base64.b64decode(blob["iv"]); ct = base64.b64decode(blob["ct"])
     key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt,
                      iterations=blob.get("it", 200000)).derive(password.encode())
-    dades = json.loads(AESGCM(key).decrypt(iv, ct, None).decode("utf-8"))
+    return json.loads(AESGCM(key).decrypt(iv, ct, None).decode("utf-8"))
+
+
+def estacions_pacum(finestra, password):
+    """[(lat, lon, mm)] de la pluja acumulada ACTUAL de les estacions per a la finestra
+    (camp 'pacum' de dades_privat.enc). Per a finestres mòbils recents."""
+    dades = _desxifra_dades(password)
     out = []
     for e in dades.get("estacions", []):
         pac = (e.get("actual") or {}).get("pacum") or {}
@@ -95,6 +102,51 @@ def estacions_pacum(finestra, password):
         if v is not None and e.get("lat") is not None and e.get("lon") is not None:
             out.append((float(e["lat"]), float(e["lon"]), float(v)))
     return out
+
+
+def estacions_coords(password):
+    """{codi_meteocat: (lat, lon)} de dades_privat.enc."""
+    dades = _desxifra_dades(password)
+    out = {}
+    for e in dades.get("estacions", []):
+        idema = str(e.get("idema", ""))
+        if idema.startswith("MC_") and e.get("lat") is not None and e.get("lon") is not None:
+            out[idema[3:]] = (float(e["lat"]), float(e["lon"]))
+    return out
+
+
+def _mc_get(path, key):
+    req = urllib.request.Request(MC_BASE + path, headers={"X-Api-Key": key, "User-Agent": "graf-qpe"})
+    return json.loads(urllib.request.urlopen(req, timeout=60).read())
+
+
+def gauge_periode_api(desde_utc, fins_utc, coords, key):
+    """Suma la precipitació (codi 35) de cada estació entre desde_utc i fins_utc per l'API
+    de Meteocat. Torna [(lat, lon, mm)]. Per a comparar un DIA passat concret."""
+    dies = set()
+    d = desde_utc
+    while d <= fins_utc:
+        dies.add((d.year, d.month, d.day)); d += timedelta(hours=6)
+    ser = {}
+    for (Y, M, D) in sorted(dies):
+        try:
+            resp = _mc_get("/xema/v1/variables/mesurades/35/%04d/%02d/%02d" % (Y, M, D), key)
+        except Exception as ex:  # noqa
+            print("  avis: pcp API dia %04d-%02d-%02d no baixada (%s)" % (Y, M, D, str(ex)[:60])); continue
+        for el in (resp or []):
+            st = el.get("codi"); vs = el.get("variables") or []
+            if not vs:
+                continue
+            for lect in (vs[0].get("lectures") or []):
+                v = lect.get("valor"); t = lect.get("data")
+                if v is None or not t:
+                    continue
+                if desde_utc < _parse_iso(t) <= fins_utc:
+                    try:
+                        ser[st] = ser.get(st, 0.0) + float(v)
+                    except (TypeError, ValueError):
+                        pass
+    return [(coords[st][0], coords[st][1], round(mm, 1)) for st, mm in ser.items() if st in coords]
 
 
 # ----------------------------------------------------------------- radar
@@ -178,8 +230,10 @@ def main():
     ap.add_argument("--finestra", default="6h", choices=list(FIN_HORES.keys()))
     ap.add_argument("--out", default="qpe.png")
     ap.add_argument("--no-biaix", action="store_true", help="no aplicar el biaix d'estacions (radar cru)")
+    ap.add_argument("--dia", default=None, help="YYYY-MM-DD: QPE del DIA sencer (00-24 local) per comparar amb Meteocat/AEMET; biaix per l'API")
     a = ap.parse_args()
     pwd = os.environ.get("MAPA_PASS")
+    mckey = os.environ.get("METEOCAT_KEY")
 
     print("Baixant manifest del radar-arxiu…")
     man = json.loads(_get_bytes(RADAR_BASE + "manifest.json?_=" + str(int(datetime.now().timestamp()))))
@@ -187,19 +241,32 @@ def main():
     if not comp:
         raise SystemExit("el manifest no té 'composit' (reflectivitat)")
     temps = sorted((_parse_iso(t), p) for t, p in comp.items())
-    tref = temps[-1][0]
-    if a.finestra == "dia":
-        try:
-            from zoneinfo import ZoneInfo
-            desde = tref.astimezone(ZoneInfo("Europe/Madrid")).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-        except Exception:  # noqa
-            desde = tref.replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        from zoneinfo import ZoneInfo
+        TZ = ZoneInfo("Europe/Madrid")
+    except Exception:  # noqa
+        TZ = None
+    if a.dia:                                   # DIA passat concret: 00-24 h local -> UTC
+        y, mo, d = (int(x) for x in a.dia.split("-"))
+        if TZ:
+            desde = datetime(y, mo, d, 0, 0, tzinfo=TZ).astimezone(timezone.utc)
+            tref = datetime(y, mo, d, 0, 0, tzinfo=TZ) + timedelta(days=1)
+            tref = tref.astimezone(timezone.utc)
+        else:
+            desde = datetime(y, mo, d, 0, 0, tzinfo=timezone.utc)
+            tref = desde + timedelta(days=1)
     else:
-        desde = tref - timedelta(hours=FIN_HORES[a.finestra])
+        tref = temps[-1][0]
+        if a.finestra == "dia":
+            desde = (tref.astimezone(TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+                     if TZ else tref.replace(hour=0, minute=0, second=0, microsecond=0))
+        else:
+            desde = tref - timedelta(hours=FIN_HORES[a.finestra])
     frames = [(t, p) for (t, p) in temps if desde <= t <= tref]
     if len(frames) < 2:
-        raise SystemExit("pocs frames de radar a la finestra (%d)" % len(frames))
-    print("Finestra %s: %d frames de %s a %s UTC" % (a.finestra, len(frames),
+        raise SystemExit("pocs frames de radar a la finestra (%d). Si és un dia passat, potser ja no és a l'arxiu del radar." % len(frames))
+    etiqueta = ("dia " + a.dia) if a.dia else ("finestra " + a.finestra)
+    print("%s: %d frames de %s a %s UTC" % (etiqueta, len(frames),
           frames[0][0].strftime("%m-%d %H:%M"), frames[-1][0].strftime("%m-%d %H:%M")))
 
     # acumulació: cada frame val fins al següent (dt en minuts)
@@ -225,7 +292,12 @@ def main():
     factor = 1.0
     if not a.no_biaix and pwd:
         try:
-            ests = estacions_pacum(a.finestra if a.finestra in ("1h", "3h", "6h", "24h") else "24h", pwd)
+            if a.dia:                          # dia passat: pluja de les estacions per l'API
+                if not mckey:
+                    raise RuntimeError("cal METEOCAT_KEY per al biaix d'un dia passat")
+                ests = gauge_periode_api(desde, tref, estacions_coords(pwd), mckey)
+            else:                              # finestra mòbil recent: camp 'pacum' ja calculat
+                ests = estacions_pacum(a.finestra if a.finestra in ("1h", "3h", "6h", "24h") else "24h", pwd)
             sg = sr = 0.0; nfit = 0
             for lat, lon, mm in ests:
                 if mm is None or mm < 0.2:
