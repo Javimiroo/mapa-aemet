@@ -1849,7 +1849,7 @@ async function carregar(pass){
   setUpdated(); setTimeT(null);
 }
 // ---------------- visor de dies antics (arxiu) ----------------
-const ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/arxiu/';
+const ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/arxiu/arxiu/';
 let arxiuDies=new Set(), calMes=null;   // dies amb dades + mes mostrat al calendari {y,m}
 function diaLabelLlarg(k){ const p=String(k).split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]); return d.toLocaleDateString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}); }
 function claDia(y,m,d){ return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
@@ -2485,7 +2485,7 @@ $('estPNG') && $('estPNG').addEventListener('click',()=>{ const a=document.creat
 const VENT_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/vent_privat.enc';
 let ventData=null, ventLayer=null, ventClickOn=false;
 // --- arxiu horari del camp de vents (mode revisió) ---
-const VENT_ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/main/arxiu-vent/';
+const VENT_ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/arxiu/arxiu-vent/';
 let ventArxiu=null, ventArxiuDia=null;
 function _b64u8(s){const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
 function decodeVentHores(p){        // format horari compacte (directe i arxiu)
