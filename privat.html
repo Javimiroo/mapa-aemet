@@ -719,6 +719,8 @@ const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pacum','pres','
 let pacumPeriode = '24h';
 let pacumFont = 'idw';                       // 'idw' (estacions) | 'qpe' (radar+estacions)
 const qpeCache = {};                          // ràsters QPE ja desxifrats per període
+const qpeMetaCache = {};                       // {period: {obs, biaix}}
+let qpeInfo = null;                            // meta de la QPE mostrada ara (per a la llegenda/hora)
 const QPE_URL = 'https://raw.githubusercontent.com/Javimiroo/mapa-aemet/qpe/';
 const PACUM_LAB = {'1h':'1 h','3h':'3 h','6h':'6 h','24h':'24 h','dia':'del dia (des de 00 h)','7d':'7 dies'};
 
@@ -963,7 +965,8 @@ function renderLegend(){
   else {
     sc=SCALES[VARS[vk].scale]; unit=VARS[vk].unit;
     if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
-    if(vk==='pacum') nota=' · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode)+(pacumFont==='qpe'?' · radar+estacions':' · estacions IDW');
+    if(vk==='pacum'){ nota=' · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode)+(pacumFont==='qpe'?' · radar+estacions':' · estacions IDW');
+      if(pacumFont==='qpe' && qpeInfo && qpeInfo.obs) nota+=' · radar de les '+new Date(qpeInfo.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
   }
   const min=sc[0][0], max=sc[sc.length-1][0], span=max-min||1;
   const stops=sc.map(s=>rgb(s[1])+' '+Math.round((s[0]-min)/span*100)+'%').join(',');
@@ -1447,7 +1450,7 @@ $('pacumFont').onchange=()=>{ pacumFont=$('pacumFont').value; precGrid=null;
 $('pacumSurf').onchange=()=>actualitzaPrecLayer();
 async function carregaQPE(period){
   if(pacumFont!=='qpe') return;
-  if(qpeCache[period]){ precGrid=qpeCache[period]; if(precLayer)precLayer.redraw(); return; }
+  if(qpeCache[period]){ precGrid=qpeCache[period]; qpeInfo=qpeMetaCache[period]||null; renderLegend(); if(precLayer)precLayer.redraw(); return; }
   if(!PASS){ $('legend').innerHTML='<div class="muted">Cal entrar amb contrasenya per veure la QPE de radar (xifrada).</div>'; return; }
   try{
     const r=await fetch(QPE_URL+'qpe_'+period+'.enc?_='+Date.now(),{cache:'no-store'});
@@ -1457,8 +1460,10 @@ async function carregaQPE(period){
     const mb=b64(p.mask), dd=b64(p.d), tot=p.nx*p.ny, val=new Float32Array(tot); val.fill(NaN);
     let k=0; for(let i=0;i<tot;i++){ if((mb[i>>3]>>(7-(i&7)))&1) val[i]=dd[k++]*p.esc; }
     const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val}; qpeCache[period]=G; precGrid=G;
-    if(precLayer)precLayer.redraw();
-    $('status').innerHTML='Pluja acumulada · <b>QPE radar+estacions</b> · '+(PACUM_LAB[period]||period)+(p.biaix!=null?(' · biaix estacions ×'+p.biaix):'');
+    qpeMetaCache[period]={obs:p.obs,biaix:p.biaix}; qpeInfo=qpeMetaCache[period];
+    if(precLayer)precLayer.redraw(); renderLegend();
+    const hh=p.obs?new Date(p.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'?';
+    $('status').innerHTML='Pluja acumulada · <b>QPE radar+estacions</b> · '+(PACUM_LAB[period]||period)+' · <b>radar de les '+hh+'</b>'+(p.biaix!=null?(' · biaix estacions ×'+p.biaix):'');
   }catch(e){ precGrid=null; if(precLayer)precLayer.redraw(); $('status').innerHTML='No s\'ha pogut carregar la QPE ('+(e.message||e)+').'; }
 }
 ['showVal','onlyVar','fade','hideNoMatch','stale','netAemet','netMeteocat','netAemetCV','netAemetCentre'].forEach(id=>$(id).addEventListener('change',render));
