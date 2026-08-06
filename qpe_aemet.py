@@ -76,10 +76,12 @@ def extreu_rn1(tar_bytes):
     for radar, dt, m in frescos:
         try:
             with MemoryFile(tf.extractfile(m).read()) as mf, mf.open() as ds:
-                band = ds.read(1).astype(np.float32)
+                raw = ds.read(1)
+                band = raw.astype(np.float32)
                 nod = ds.nodata
                 if nod is not None:
                     band[band == nod] = np.nan
+                band[band >= 255] = np.nan          # 255 = farciment de buit (nodata) del producte byte
                 b = ds.bounds
                 out.append((radar, dt, band, (b.left, b.bottom, b.right, b.top)))
         except Exception as ex:  # noqa
@@ -180,6 +182,13 @@ def main():
           % (vals.size, float(np.nanmax(mos)) if vals.size else 0,
              float(np.nanmean(mos)) if vals.size else 0,
              float(np.percentile(vals, 99)) if vals.size else 0))
+    # DIAGNÒSTIC d'escala: quins valors byte apareixen (per saber si són mm o classes)
+    if vals.size:
+        u, c = np.unique(vals, return_counts=True)
+        parell = sorted(zip(u.tolist(), c.tolist()), key=lambda x: -x[1])[:15]
+        print("  valors presents (valor: nº cel·les), més freqüents:")
+        print("   " + "  ".join("%g:%d" % (v, n) for v, n in parell))
+        print("  (valors distints: %d · mínim>0: %g)" % (u.size, float(u[u > 0].min()) if (u > 0).any() else 0))
 
     factor = 1.0
     if not a.no_biaix and pwd:
