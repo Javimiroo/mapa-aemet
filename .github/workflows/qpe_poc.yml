@@ -8,10 +8,14 @@ on:
   workflow_dispatch:
     inputs:
       finestra:
-        description: "Finestra acumulada"
+        description: "Finestra acumulada (s'ignora si poses un dia)"
         type: choice
         default: "6h"
         options: ["1h", "3h", "6h", "24h", "dia"]
+      dia:
+        description: "Dia passat YYYY-MM-DD (00-24 h local) per comparar amb Meteocat/AEMET. Buit = finestra mòbil"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -29,13 +33,19 @@ jobs:
         run: pip install numpy pillow cryptography
       - name: Genera la QPE
         env:
-          MAPA_PASS: ${{ secrets.MAPA_PASS }}   # per llegir la pluja de les estacions (biaix)
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}       # pluja de les estacions (biaix)
+          METEOCAT_KEY: ${{ secrets.METEOCAT_KEY }} # biaix d'un dia passat (API)
+          DIA: ${{ github.event.inputs.dia }}
+          FIN: ${{ github.event.inputs.finestra }}
         run: |
-          python qpe_radar.py --finestra "${{ github.event.inputs.finestra }}" \
-            --out "qpe_${{ github.event.inputs.finestra }}.png"
+          if [ -n "$DIA" ]; then
+            python qpe_radar.py --dia "$DIA" --out "qpe_dia_${DIA}.png"
+          else
+            python qpe_radar.py --finestra "$FIN" --out "qpe_${FIN}.png"
+          fi
       - name: Penja el resultat
         uses: actions/upload-artifact@v4
         with:
-          name: qpe-${{ github.event.inputs.finestra }}
+          name: qpe-${{ github.event.inputs.dia && github.event.inputs.dia || github.event.inputs.finestra }}
           retention-days: 7
           path: qpe_*.png
