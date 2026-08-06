@@ -1,0 +1,41 @@
+name: PoC QPE radar (fase 2)
+
+# Genera l'estimació de pluja acumulada (radar AEMET + biaix d'estacions) d'una finestra
+# i la penja com a artefacte PNG per comparar-la amb la imatge de Meteocat.
+# Es dispara a mà (Actions -> PoC QPE radar -> Run workflow).
+
+on:
+  workflow_dispatch:
+    inputs:
+      finestra:
+        description: "Finestra acumulada"
+        type: choice
+        default: "6h"
+        options: ["1h", "3h", "6h", "24h", "dia"]
+
+permissions:
+  contents: read
+
+jobs:
+  qpe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Dependències
+        run: pip install numpy pillow cryptography
+      - name: Genera la QPE
+        env:
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}   # per llegir la pluja de les estacions (biaix)
+        run: |
+          python qpe_radar.py --finestra "${{ github.event.inputs.finestra }}" \
+            --out "qpe_${{ github.event.inputs.finestra }}.png"
+      - name: Penja el resultat
+        uses: actions/upload-artifact@v4
+        with:
+          name: qpe-${{ github.event.inputs.finestra }}
+          retention-days: 7
+          path: qpe_*.png
