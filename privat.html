@@ -330,6 +330,16 @@
     <div class="card">
       <h2>Variable al mapa</h2>
       <select id="var"></select>
+      <select id="pacumPer" style="display:none;margin-top:6px">
+        <option value="1h">Acumulat última 1 h</option>
+        <option value="3h">Acumulat últimes 3 h</option>
+        <option value="6h">Acumulat últimes 6 h</option>
+        <option value="24h" selected>Acumulat últimes 24 h</option>
+        <option value="dia">Acumulat del dia (des de 00 h)</option>
+        <option value="7d">Acumulat 7 dies</option>
+      </select>
+      <label id="pacumSurfWrap" class="switch" style="display:none;margin-top:6px;font-size:12px">
+        <input type="checkbox" id="pacumSurf" checked> Superfície interpolada (IDW)</label>
       <div class="legend" id="legend"></div>
     </div>
 
@@ -696,17 +706,21 @@ const VARS = {
   vmax:  {label:'Ratxa màxima',     unit:'km/h', dir:'>', scale:'wind', presets:[50,70,90],       dec:1},
   dv:    {label:'Direcció vent',    unit:'°',    dir:'>', scale:'dir',  presets:[],               dec:0},
   prec:  {label:'Precipitació',     unit:'mm',   dir:'>', scale:'prec', presets:[0.1,1,5,10],     dec:1},
+  pacum: {label:'Precipitació acumulada', unit:'mm', dir:'>', scale:'precacum', presets:[1,5,10,25,50], dec:1, periode:true},
   pres:  {label:'Pressió (mar)',    unit:'hPa',  dir:'>', scale:'pres', presets:[],               dec:1},
   tamax: {label:'Temp. màx (24 h)', unit:'°C',   dir:'>', scale:'temp', presets:[25,30,35,40],    dec:1},
   tamin: {label:'Temp. mín (24 h)', unit:'°C',   dir:'>', scale:'temp', presets:[15,20,25],       dec:1},
 };
-const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pres','tamax','tamin'];
+const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pacum','pres','tamax','tamin'];
+let pacumPeriode = '24h';
+const PACUM_LAB = {'1h':'1 h','3h':'3 h','6h':'6 h','24h':'24 h','dia':'del dia (des de 00 h)','7d':'7 dies'};
 
 const SCALES = {
   temp:[[6,[150,225,230]],[12,[130,205,190]],[16,[150,210,150]],[20,[200,225,120]],[24,[250,240,110]],[28,[252,205,80]],[32,[250,150,60]],[36,[235,85,50]],[40,[195,25,35]],[44,[150,10,30]]],
   hum:[[5,[140,10,25]],[15,[205,35,35]],[25,[240,95,45]],[35,[250,160,60]],[45,[250,225,110]],[55,[150,210,100]],[65,[70,195,180]],[75,[60,140,205]],[85,[70,85,190]],[95,[140,60,180]],[100,[180,90,200]]],
   wind:[[0,[150,230,230]],[10,[110,180,235]],[20,[70,120,220]],[30,[60,80,190]],[40,[90,175,95]],[50,[160,205,90]],[60,[235,225,90]],[70,[250,190,70]],[90,[240,110,50]],[110,[205,35,40]]],
   prec:[[0,[237,248,251]],[0.4,[189,215,231]],[2,[116,169,207]],[8,[43,113,181]],[20,[8,64,129]]],
+  precacum:[[0,[240,248,255]],[0.5,[190,225,240]],[2,[120,190,225]],[5,[70,150,215]],[10,[45,110,190]],[20,[70,175,95]],[35,[170,210,80]],[50,[245,230,90]],[75,[245,175,65]],[100,[235,110,50]],[150,[210,40,45]],[200,[170,30,110]]],
   pres:[[985,[84,39,143]],[1000,[158,154,200]],[1013,[235,235,235]],[1025,[102,194,164]],[1035,[0,109,44]]],
   dir:'wheel'
 };
@@ -732,6 +746,7 @@ function getVal(st,vk){
   const a=st.actual;
   if(vk==='tamax') return a.tamax_dia!=null?a.tamax_dia:a.tamax;
   if(vk==='tamin') return a.tamin_dia!=null?a.tamin_dia:a.tamin;
+  if(vk==='pacum'){ const p=a.pacum; return (p&&p[pacumPeriode]!=null)?p[pacumPeriode]:null; }
   return a[vk];
 }
 function streakHores(st,vk,op,val){
@@ -941,6 +956,7 @@ function renderLegend(){
   else {
     sc=SCALES[VARS[vk].scale]; unit=VARS[vk].unit;
     if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
+    if(vk==='pacum') nota=' · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode);
   }
   const min=sc[0][0], max=sc[sc.length-1][0], span=max-min||1;
   const stops=sc.map(s=>rgb(s[1])+' '+Math.round((s[0]-min)/span*100)+'%').join(',');
@@ -1286,6 +1302,7 @@ function render(){
   if(streakMode){ renderStreak(); return; }
   if(countMode){ renderCount(); return; }
   const vk=selVar.value, barbMode=(vk==='barbes');
+  if(vk==='pacum'){ precGrid=null; if(precLayer) precLayer.redraw(); }   // superfície IDW al dia amb les dades/filtres actuals
   if(vk==='cap'){                                  // sense variable: mapa net (només base + capes de vent/radar)
     $('status').innerHTML='Sense variable · només base'+(ventClickOn?' i vent':'');
     return;
@@ -1410,7 +1427,13 @@ function aplicaCombo(key){
   setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); if(flameLL) posaFlames(); if(perimLL.length) redibuixaPerim(); },260);
 }
 
-selVar.onchange=()=>{surtModes();renderPresets();renderLegend();highlightChip(null);render();};
+selVar.onchange=()=>{surtModes();
+  const esP=(selVar.value==='pacum');
+  $('pacumPer').style.display=esP?'':'none'; $('pacumSurfWrap').style.display=esP?'':'none';
+  actualitzaPrecLayer();
+  renderPresets();renderLegend();highlightChip(null);render();};
+$('pacumPer').onchange=()=>{ pacumPeriode=$('pacumPer').value; precGrid=null; renderLegend(); actualitzaPrecLayer(); render(); };
+$('pacumSurf').onchange=()=>actualitzaPrecLayer();
 ['showVal','onlyVar','fade','hideNoMatch','stale','netAemet','netMeteocat','netAemetCV','netAemetCentre'].forEach(id=>$(id).addEventListener('change',render));
 $('staleH').addEventListener('input',render);
 document.querySelectorAll('.banda').forEach(c=>c.addEventListener('change',render));
@@ -2530,6 +2553,55 @@ const VentLayer=L.Layer.extend({
     ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;
     }
 });
+// ---- superfície interpolada (IDW) de precipitació acumulada ----
+let precLayer=null, precGrid=null;
+const PREC_BBOX=[0.05,3.40,40.45,42.95];   // lon0,lon1,lat0,lat1 (Catalunya + marge)
+function calculaPrecGrid(){
+  precGrid=null; if(!DATA) return;
+  const pts=[];
+  DATA.estacions.forEach(st=>{ if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)) return;
+    const v=getVal(st,'pacum'); if(v==null||isNaN(v)) return; pts.push([st.lat,st.lon,v]); });
+  if(pts.length<3) return;
+  const B=PREC_BBOX, nx=120, ny=104, val=new Float32Array(nx*ny); val.fill(NaN);
+  const R=0.42, R2=R*R, cosL=Math.cos(41.7*Math.PI/180);   // IDW radi ~40 km, potència 2
+  for(let j=0;j<ny;j++){ const lat=B[2]+(B[3]-B[2])*j/(ny-1);
+    for(let i=0;i<nx;i++){ const lon=B[0]+(B[1]-B[0])*i/(nx-1);
+      let num=0,den=0,near=false;
+      for(let k=0;k<pts.length;k++){ const dlat=pts[k][0]-lat, dlon=(pts[k][1]-lon)*cosL, d2=dlat*dlat+dlon*dlon;
+        if(d2>R2) continue; near=true;
+        if(d2<1e-9){ num=pts[k][2]; den=1; break; }
+        const w=1/d2; num+=w*pts[k][2]; den+=w; }
+      if(near&&den>0) val[j*nx+i]=num/den;
+    } }
+  precGrid={bbox:B,nx,ny,val};
+}
+const PrecipLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','prec-cv');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);
+    L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    if(selVar.value!=='pacum'||!$('pacumSurf').checked) return;
+    if(!precGrid) calculaPrecGrid(); const G=precGrid; if(!G) return;
+    const B=G.bbox,nx=G.nx,ny=G.ny,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
+    const pa=m.latLngToContainerPoint([B[2],B[0]]),pb=m.latLngToContainerPoint([B[2]+dlat,B[0]+dlon]);
+    const cw=Math.abs(pb.x-pa.x)+1.3,ch=Math.abs(pb.y-pa.y)+1.3;
+    ctx.globalAlpha=0.70;
+    for(let j=0;j<ny;j++){ const lat=B[2]+j*dlat;
+      for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; if(isNaN(v)||v<0.1) continue;
+        const p=m.latLngToContainerPoint([lat,B[0]+i*dlon]);
+        if(p.x<-cw||p.y<-ch||p.x>s.x+cw||p.y>s.y+ch) continue;
+        ctx.fillStyle=colorFor('pacum',v); ctx.fillRect(p.x-cw/2,p.y-ch/2,cw,ch); } }
+    ctx.globalAlpha=1;}
+});
+function actualitzaPrecLayer(){
+  const on=(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
+  if(on){ if(!precLayer) precLayer=new PrecipLayer(); precLayer.addTo(map); if(baseLayer)baseLayer.bringToBack(); precGrid=null; precLayer.redraw(); }
+  else if(precLayer){ map.removeLayer(precLayer); }
+}
 function ventCardinal(d){return['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'][Math.round(d/22.5)%16];}
 $('ventOn').addEventListener('change',e=>{
   ventClickOn=e.target.checked;
@@ -3122,7 +3194,7 @@ async function obreFocTauler(id){
   mp.on('click',focPrevMapClick);
   focArrowMode=false; $('focArrowBtn').classList.remove('on');
   const sv=$('focVar'); sv.innerHTML='';
-  ORDER.forEach(k=>{const o=document.createElement('option');o.value=k;o.textContent=(k==='barbes'?'Barbes de vent':VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':''));sv.appendChild(o);});
+  ORDER.forEach(k=>{if(k==='pacum')return;const o=document.createElement('option');o.value=k;o.textContent=(k==='barbes'?'Barbes de vent':VARS[k].label+(VARS[k].unit?' ('+VARS[k].unit+')':''));sv.appendChild(o);});
   {const o=document.createElement('option');o.value='cap';o.textContent='— Cap (només base i vent) —';sv.appendChild(o);}
   sv.value='hr';
   FD.nears=(DATA?DATA.estacions:[]).filter(e=>e.lat!=null&&e.lon!=null)

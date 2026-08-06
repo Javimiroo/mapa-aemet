@@ -329,6 +329,85 @@ def estacions_meteocat(baixa_ahir=True):
     return out
 
 
+# ============================ precipitació acumulada ============================
+PREC_CODI = 35          # variable XEMA: precipitació 30-min (mm)
+PACUM_DIES = 8          # dies que baixem per cobrir bé la setmana (rolling 7 dies + marge)
+try:
+    from zoneinfo import ZoneInfo
+    TZ_LOCAL = ZoneInfo("Europe/Madrid")
+except Exception:       # noqa
+    TZ_LOCAL = None
+
+
+def _parse_iso_utc(s):
+    if not s:
+        return None
+    s = str(s).strip().replace("Z", "+00:00")
+    try:
+        d = datetime.fromisoformat(s)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d.astimezone(timezone.utc)
+    except Exception:   # noqa
+        return None
+
+
+def accumula_precipitacio(estacions):
+    """Baixa la precipitació 30-min (codi 35) dels últims PACUM_DIES dies per l'API i
+    calcula per estació els acumulats 1h/3h/6h/24h/dia(local)/setmana. Els deixa a
+    e['actual']['pacum']. De moment, estacions Meteocat (idema 'MC_<codi>')."""
+    ara = datetime.now(timezone.utc)
+    dies = [ara - timedelta(days=k) for k in range(PACUM_DIES - 1, -1, -1)]
+    ser = {}            # codi estació -> [(datetime_utc, mm_30min)]
+    for dref in dies:
+        try:
+            resp = mc_get("/xema/v1/variables/mesurades/%d/%04d/%02d/%02d"
+                          % (PREC_CODI, dref.year, dref.month, dref.day))
+        except Exception as ex:  # noqa
+            print("  avis: pcp dia %s no baixada (%s)" % (dref.date(), ex))
+            continue
+        for el in (resp or []):
+            st = el.get("codi")
+            vs = el.get("variables") or []
+            if not vs:
+                continue
+            for lect in (vs[0].get("lectures") or []):
+                v = lect.get("valor")
+                t = _parse_iso_utc(lect.get("data"))
+                if v is None or t is None:
+                    continue
+                try:
+                    mm = float(v)
+                except (TypeError, ValueError):
+                    continue
+                ser.setdefault(st, []).append((t, mm))
+    if not ser:
+        print("  avis: sense dades de precipitació per acumular")
+        return
+    tref = max(t for arr in ser.values() for (t, _) in arr)   # lectura més fresca de la xarxa
+    if TZ_LOCAL:                                               # mitjanit local d'avui (per a 'dia')
+        mit_utc = tref.astimezone(TZ_LOCAL).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    else:
+        mit_utc = tref.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def suma(arr, desde):
+        return round(sum(mm for (t, mm) in arr if t > desde and mm >= 0), 1)
+
+    per_codi = {}
+    for st, arr in ser.items():
+        pac = {k: suma(arr, tref - timedelta(hours=h)) for k, h in (("1h", 1), ("3h", 3), ("6h", 6), ("24h", 24))}
+        pac["dia"] = suma(arr, mit_utc)
+        pac["7d"] = suma(arr, tref - timedelta(days=7))
+        per_codi[st] = pac
+    n = 0
+    for e in estacions:
+        idema = str(e.get("idema", ""))
+        if idema.startswith("MC_") and idema[3:] in per_codi:
+            e.setdefault("actual", {})["pacum"] = per_codi[idema[3:]]
+            n += 1
+    print("  precipitació acumulada: %d estacions (referència %s UTC)" % (n, tref.strftime("%Y-%m-%d %H:%M")))
+
+
 # ============================ xifratge ============================
 def xifrar(text, password):
     salt = os.urandom(16); iv = os.urandom(12)
@@ -579,6 +658,13 @@ def main():
             n_blind += 1
     if n_blind:
         print("  ⚠ blindatge: %d estacions conservades de la publicació (la font tornava més vell)" % n_blind)
+    print("Calculant precipitació acumulada (1h/3h/6h/24h/dia/setmana)...")
+    _t = time.perf_counter()
+    try:
+        accumula_precipitacio(estacions)
+    except Exception as ex:  # no estavellem tot si la pcp falla
+        print("  AVÍS: precipitació acumulada ha fallat (%s)." % str(ex)[:90])
+    print("  ⏱ pcp acumulada: %.1f s" % (time.perf_counter() - _t))
     print("Acumulant històric (fins a %d dies)..." % DIES_HISTORIC)
     acumula(estacions, previ)
     nh = [e["actual"]["n_hores"] for e in estacions] or [0]
