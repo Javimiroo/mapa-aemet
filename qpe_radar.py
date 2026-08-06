@@ -38,6 +38,9 @@ DADES_URL = "https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/dades_
 
 # Z-R (Marshall-Palmer estàndard). Sostre de dBZ (calamarsa) per no disparar la pluja.
 ZR_A, ZR_B, DBZ_MAX = 200.0, 1.6, 53.0
+# Filtre de CLUTTER: un píxel amb eco en més d'aquesta fracció de frames és fix (terra,
+# lòbuls del radar, interferència), NO pluja real (que es mou) -> es descarta.
+CLUTTER_FRAC = 0.55
 
 # Paleta de reflectivitat AEMET (dBZ creixent -> RGB). PLACEHOLDER a calibrar amb el PNG real.
 PALETA_DBZ = [
@@ -210,6 +213,22 @@ def mostreja(sub, lon0, lon1, lat0, lat1, lat, lon):
     return sub[r, c]
 
 
+def despeckle(a, minveins=2):
+    """Lleva píxels de pluja AÏLLATS (soroll/interferència puntual): els que tenen valor
+    però menys de 'minveins' veïns amb pluja al voltant 3x3."""
+    m = (np.nan_to_num(a) > 0.1)
+    p = m.astype(np.int16)
+    veins = np.zeros_like(p)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dx == 0 and dy == 0:
+                continue
+            veins += np.roll(np.roll(p, dy, 0), dx, 1)
+    out = a.copy()
+    out[m & (veins < minveins)] = 0.0
+    return out
+
+
 def color_mm(mm):
     tab = PALETA_MM
     if mm <= tab[0][0]:
@@ -269,8 +288,9 @@ def main():
     print("%s: %d frames de %s a %s UTC" % (etiqueta, len(frames),
           frames[0][0].strftime("%m-%d %H:%M"), frames[-1][0].strftime("%m-%d %H:%M")))
 
-    # acumulació: cada frame val fins al següent (dt en minuts)
-    acum = None
+    # acumulació: cada frame val fins al següent (dt en minuts). A la vegada comptem
+    # en quants frames té eco cada píxel, per detectar el clutter fix.
+    acum = None; echocnt = None; nused = 0
     for i, (t, p) in enumerate(frames):
         try:
             R = dbz_a_intensitat(png_a_dbz(_get_bytes(RADAR_BASE + p)))
@@ -279,14 +299,28 @@ def main():
         dt = (frames[i + 1][0] - t).total_seconds() / 60.0 if i + 1 < len(frames) else \
              np.median([(frames[j + 1][0] - frames[j][0]).total_seconds() / 60.0 for j in range(len(frames) - 1)])
         dt = min(max(dt, 1.0), 20.0)          # protecció contra buits grans
-        acum = (R * (dt / 60.0)) if acum is None else acum + R * (dt / 60.0)
+        contrib = R * (dt / 60.0)
+        ech = (R > 0.0).astype(np.float32)
+        if acum is None:
+            acum = contrib; echocnt = ech
+        else:
+            acum += contrib; echocnt += ech
+        nused += 1
         if i % 12 == 0:
             print("  ...%d/%d" % (i + 1, len(frames)))
     if acum is None:
         raise SystemExit("cap frame processat")
 
+    # FILTRE DE CLUTTER: píxels amb eco en massa frames (fix) = terra/interferència, no pluja
+    if nused >= 6:
+        clut = (echocnt / float(nused)) > CLUTTER_FRAC
+        print("Filtre clutter: %d píxels amb eco en >%d%% dels frames descartats (fix = interferència/terra)"
+              % (int(clut.sum()), int(CLUTTER_FRAC * 100)))
+        acum[clut] = 0.0
+
     sub, lon0, lon1, lat0, lat1 = retalla_cat(acum)
-    print("Radar acumulat (cru) a Catalunya: màx %.1f mm · mitjana %.2f mm" % (float(np.nanmax(sub)), float(np.nanmean(sub))))
+    sub = despeckle(sub)                       # lleva ecos aïllats (soroll puntual)
+    print("Radar acumulat (filtrat) a Catalunya: màx %.1f mm · mitjana %.2f mm" % (float(np.nanmax(sub)), float(np.nanmean(sub))))
 
     # biaix mitjà global amb les estacions
     factor = 1.0
