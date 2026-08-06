@@ -32,6 +32,37 @@ PALETA_MM = [
     (75, (245, 175, 65)), (100, (235, 110, 50)), (150, (210, 40, 45)), (200, (170, 30, 110)),
 ]
 
+# ESCALA OFICIAL d'AEMET per al RN1 (del camp ESCALA del GeoTIFF): color RGB -> interval mm.
+# El GeoTIFF és RGBA (imatge de colors); recuperem els mm fent match de color exacte.
+# Valor representatiu de cada classe = mitjana geomètrica de l'interval (escala log).
+ESCALA_RN1 = [
+    ((255, 0, 255), 300.0),   # >256
+    ((255, 0, 0),   181.0),   # 128-256
+    ((255, 127, 0),  90.5),   # 64-128
+    ((255, 187, 0),  45.3),   # 32-64
+    ((0, 210, 0),    22.6),   # 16-32
+    ((67, 131, 35),  11.3),   # 8-16
+    ((0, 180, 255),   5.66),  # 4-8
+    ((0, 135, 255),   2.83),  # 2-4
+    ((0, 100, 255),   1.41),  # 1-2
+    ((0, 30, 255),    0.71),  # 0.5-1
+]
+
+
+def rgba_a_mm(rgba, tol=70.0):
+    """Imatge RGBA (4,H,W) d'AEMET -> mm segons l'ESCALA (color més proper). Fons/transparent -> NaN."""
+    r, g, b, al = rgba[0], rgba[1], rgba[2], rgba[3]
+    H, W = r.shape
+    cols = np.array([c for c, _ in ESCALA_RN1], np.float32)
+    mmt = np.array([m for _, m in ESCALA_RN1], np.float32)
+    flat = np.stack([r, g, b], axis=-1).reshape(-1, 3).astype(np.float32)
+    d = np.linalg.norm(flat[:, None, :] - cols[None, :, :], axis=2)
+    idx = d.argmin(axis=1)
+    dmin = d[np.arange(d.shape[0]), idx]
+    mm = mmt[idx]
+    mm[(dmin > tol) | (al.reshape(-1) < 40)] = np.nan     # lluny de tota classe o transparent = sense pluja
+    return mm.reshape(H, W)
+
 
 # ----------------------------------------------------------------- baixada AEMET
 def baixa_hvd(api_key):
@@ -73,35 +104,16 @@ def extreu_rn1(tar_bytes):
     tmax = max(dt for (_, dt, _) in cand)
     frescos = [(r, dt, m) for (r, dt, m) in cand if (tmax - dt).total_seconds() <= 3 * 3600]
     out = []
-    meta_bolcat = False
     for radar, dt, m in frescos:
         try:
             with MemoryFile(tf.extractfile(m).read()) as mf, mf.open() as ds:
-                if not meta_bolcat:                 # BOLCAT de metadades del 1r node: ESCALA + taula de color
-                    meta_bolcat = True
-                    print("  --- METADADES del producte RN1 (node %s) ---" % radar)
-                    print("     dtype=%s · nodata=%s · scales=%s · offsets=%s"
-                          % (ds.dtypes[0], ds.nodata, ds.scales, ds.offsets))
-                    _raw = ds.read(1)
-                    print("     RAW byte: min=%s max=%s · valors distints=%s"
-                          % (int(_raw.min()), int(_raw.max()), len(np.unique(_raw))))
-                    try:
-                        esc = ds.tags().get("ESCALA")
-                        if esc:
-                            print("     ESCALA (sencera): %s" % esc)
-                        for k, v in ds.tags().items():
-                            if k != "ESCALA":
-                                print("     tag %s = %s" % (k, str(v)[:120]))
-                    except Exception as ex:  # noqa
-                        print("     (sense tags: %s)" % ex)
-                    print("  --- fi metadades ---")
-                raw = ds.read(1)
-                band = raw.astype(np.float32)
-                nod = ds.nodata
-                if nod is not None:
-                    band[band == nod] = np.nan
-                band[band >= 255] = np.nan          # 255 = farciment de buit (nodata) del producte byte
                 b = ds.bounds
+                if b.right < CAT_BBOX[0] or b.left > CAT_BBOX[1] or b.top < CAT_BBOX[2] or b.bottom > CAT_BBOX[3]:
+                    continue                        # node que no toca Catalunya: el saltem (va molt més ràpid)
+                rgba = ds.read()                    # (4,H,W) RGBA
+                if rgba.shape[0] < 4:
+                    continue
+                band = rgba_a_mm(rgba)              # imatge de colors -> mm segons l'ESCALA
                 out.append((radar, dt, band, (b.left, b.bottom, b.right, b.top)))
         except Exception as ex:  # noqa
             print("  avis: node %s no llegit (%s)" % (radar, str(ex)[:60]))
