@@ -1617,7 +1617,13 @@ async function generarImatge(){
       : [{el:$('map'),mapObj:map,spec:especMapaUnic()}];
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
       ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane'))};
-    for(const p of panes){ p.canvas=await html2canvas(p.el, opts); }
+    for(const p of panes){
+      p.canvas=await html2canvas(p.el, opts);
+      if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // estacions a part, per posar-les DAMUNT de la superfície
+        p.markers=await html2canvas(p.el, Object.assign({}, opts, {backgroundColor:null,
+          ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||el.classList.contains('leaflet-tile-pane'))}));
+      }
+    }
     const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=64*S;
     const filtreTxt=descripcioFiltres();
     const filtreH=filtreTxt?30*S:0;
@@ -1655,6 +1661,7 @@ async function generarImatge(){
               c.fillStyle=colorFor('pacum',v); c.fillRect(X-cw/2,Y-ch/2,cw,ch); } }
           c.restore();
         }
+        if(p.markers) c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);   // estacions NÍTIDES damunt
       }
       if($('radarOn') && $('radarOn').checked && radOverlay && p.mapObj){   // radar/echotop a la captura
         const img=radOverlay.getElement();
