@@ -717,6 +717,17 @@ const VARS = {
 };
 const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pacum','pres','tamax','tamin'];
 let pacumPeriode = '24h';
+let pacumScale = null;                         // escala de colors DINÀMICA (estirada al rang real)
+function _boundNicePacum(m){ const B=[5,10,20,30,50,75,100,150,200,300,400,600,800,1000]; for(const x of B) if(m<=x) return x; return 1500; }
+function actualitzaEscalaPacum(){
+  if(selVar.value!=='pacum'){ pacumScale=null; return; }
+  let m=0;
+  if(DATA) DATA.estacions.forEach(st=>{ if(st.lat==null||!xarxaActiva(st)||amagaVella(st)) return;
+    const v=getVal(st,'pacum'); if(v!=null&&!isNaN(v)&&v>m) m=v; });
+  if(precGrid&&precGrid.val){ const a=precGrid.val; for(let i=0;i<a.length;i++){ if(!isNaN(a[i])&&a[i]>m) m=a[i]; } }
+  const bound=_boundNicePacum(Math.max(m,1)), f=bound/200;    // estira la paleta 0-200 fins a [0, bound]
+  pacumScale=SCALES.precacum.map(s=>[+(s[0]*f).toFixed(3), s[1]]);
+}
 let pacumFont = 'idw';                       // 'idw' (estacions) | 'qpe' (radar+estacions)
 const qpeCache = {};                          // ràsters QPE ja desxifrats per període
 const qpeMetaCache = {};                       // {period: {obs, biaix}}
@@ -737,7 +748,7 @@ const SCALES = {
 function lerp(a,b,t){return Math.round(a+(b-a)*t)}
 function colorFor(vk,val){
   if(val==null||isNaN(val)) return '#64748b';
-  const sc=SCALES[VARS[vk].scale];
+  const sc=(vk==='pacum'&&pacumScale)?pacumScale:SCALES[VARS[vk].scale];
   if(sc==='wheel'){const h=((val%360)+360)%360;return `hsl(${h},70%,55%)`;}
   if(val<=sc[0][0]) return rgb(sc[0][1]);
   if(val>=sc[sc.length-1][0]) return rgb(sc[sc.length-1][1]);
@@ -959,13 +970,15 @@ function highlightChip(el){document.querySelectorAll('#presets .chip').forEach(x
 
 function renderLegend(){
   const vk=selVar.value, L_=$('legend');
+  if(vk==='pacum') actualitzaEscalaPacum();
   if(vk==='cap'){ L_.innerHTML='<div class="muted">Sense variable: el mapa mostra només la base i, si les actives, les capes de vent o radar.</div>'; return; }
   let sc, unit, nota='';
   if(vk==='barbes'){ sc=SCALES.wind; unit='km/h'; nota=' · número al cercle = ratxa diària'; }
   else {
     sc=SCALES[VARS[vk].scale]; unit=VARS[vk].unit;
     if(sc==='wheel'){L_.innerHTML='<div class="muted">Color = direcció (0–360°, roda de matís)</div>';return;}
-    if(vk==='pacum'){ nota=' · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode)+(pacumFont==='qpe'?' · radar+estacions':' · estacions IDW');
+    if(vk==='pacum'){ if(pacumScale) sc=pacumScale;
+      nota=' · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode)+(pacumFont==='qpe'?' · radar+estacions':' · estacions IDW');
       if(pacumFont==='qpe' && qpeInfo && qpeInfo.obs) nota+=' · radar de les '+new Date(qpeInfo.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
   }
   const min=sc[0][0], max=sc[sc.length-1][0], span=max-min||1;
@@ -1312,7 +1325,7 @@ function render(){
   if(streakMode){ renderStreak(); return; }
   if(countMode){ renderCount(); return; }
   const vk=selVar.value, barbMode=(vk==='barbes');
-  if(vk==='pacum'){ if(pacumFont==='idw'){ precGrid=null; } if(precLayer) precLayer.redraw(); }   // IDW recalcula; QPE manté el ràster carregat
+  if(vk==='pacum'){ if(pacumFont==='idw'){ precGrid=null; calculaPrecGrid(); } actualitzaEscalaPacum(); if(precLayer) precLayer.redraw(); }   // IDW recalcula; escala dinàmica al rang real
   if(vk==='cap'){                                  // sense variable: mapa net (només base + capes de vent/radar)
     $('status').innerHTML='Sense variable · només base'+(ventClickOn?' i vent':'');
     return;
@@ -1450,7 +1463,7 @@ $('pacumFont').onchange=()=>{ pacumFont=$('pacumFont').value; precGrid=null;
 $('pacumSurf').onchange=()=>actualitzaPrecLayer();
 async function carregaQPE(period){
   if(pacumFont!=='qpe') return;
-  if(qpeCache[period]){ precGrid=qpeCache[period]; qpeInfo=qpeMetaCache[period]||null; renderLegend(); if(precLayer)precLayer.redraw(); return; }
+  if(qpeCache[period]){ precGrid=qpeCache[period]; qpeInfo=qpeMetaCache[period]||null; actualitzaEscalaPacum(); render(); renderLegend(); if(precLayer)precLayer.redraw(); return; }
   if(!PASS){ $('legend').innerHTML='<div class="muted">Cal entrar amb contrasenya per veure la QPE de radar (xifrada).</div>'; return; }
   try{
     const r=await fetch(QPE_URL+'qpe_'+period+'.enc?_='+Date.now(),{cache:'no-store'});
@@ -1461,6 +1474,7 @@ async function carregaQPE(period){
     let k=0; for(let i=0;i<tot;i++){ if((mb[i>>3]>>(7-(i&7)))&1) val[i]=dd[k++]*p.esc; }
     const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val}; qpeCache[period]=G; precGrid=G;
     qpeMetaCache[period]={obs:p.obs,biaix:p.biaix}; qpeInfo=qpeMetaCache[period];
+    actualitzaEscalaPacum(); render();          // recolora estacions + superfície amb l'escala dinàmica
     if(precLayer)precLayer.redraw(); renderLegend();
     const hh=p.obs?new Date(p.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'?';
     $('status').innerHTML='Pluja acumulada · <b>QPE radar+estacions</b> · '+(PACUM_LAB[period]||period)+' · <b>radar de les '+hh+'</b>'+(p.biaix!=null?(' · biaix estacions ×'+p.biaix):'');
@@ -1574,7 +1588,8 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
     c.restore(); return;
   }
   const by=y+22*S, isBarb=spec.k==='barbs', vk=isBarb?'vv':spec.v;
-  const sc=isBarb?SCALES.wind:SCALES[VARS[vk].scale];
+  let sc=isBarb?SCALES.wind:SCALES[VARS[vk].scale];
+  if(vk==='pacum'&&pacumScale) sc=pacumScale;
   if(sc==='wheel'){ c.font=(12*S)+'px Arial'; c.fillStyle='#333'; c.fillText('Direcció del vent (roda de matís, 0–360°)', x+w/2, by); c.restore(); return; }
   const bw=w*0.82, bh=14*S, bx=x+(w-bw)/2, min=sc[0][0], max=sc[sc.length-1][0], span=(max-min)||1;
   const g=c.createLinearGradient(bx,0,bx+bw,0);
@@ -1614,6 +1629,7 @@ async function generarImatge(){
     if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // assegura la superfície carregada
       if(pacumFont==='qpe'){ if(!precGrid) await carregaQPE(pacumPeriode); }
       else if(!precGrid){ calculaPrecGrid(); }
+      actualitzaEscalaPacum();                 // escala estirada al rang real per a l'export
     }
     const nom=($('incident').value||'').trim();
     const panes = comboActive
