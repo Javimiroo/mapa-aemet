@@ -1611,6 +1611,10 @@ async function generarImatge(){
   if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
   const btn=$('exportar'), old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
   try{
+    if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // assegura la superfície carregada
+      if(pacumFont==='qpe'){ if(!precGrid) await carregaQPE(pacumPeriode); }
+      else if(!precGrid){ calculaPrecGrid(); }
+    }
     const nom=($('incident').value||'').trim();
     const panes = comboActive
       ? [{el:$('map'),mapObj:map,spec:specWithThr(comboActive.a)},{el:$('map2'),mapObj:map2,spec:specWithThr(comboActive.b)}]
@@ -1621,7 +1625,8 @@ async function generarImatge(){
       p.canvas=await html2canvas(p.el, opts);
       if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // estacions a part, per posar-les DAMUNT de la superfície
         p.markers=await html2canvas(p.el, Object.assign({}, opts, {backgroundColor:null,
-          ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||el.classList.contains('leaflet-tile-pane'))}));
+          ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||el.classList.contains('leaflet-tile-pane')),
+          onclone:docClone=>{ docClone.querySelectorAll('.leaflet-container,.leaflet-pane,.leaflet-tile-container').forEach(el=>{el.style.background='transparent';}); }}));
       }
     }
     const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=64*S;
