@@ -1585,7 +1585,8 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   for(let i=0;i<=6;i++) c.fillText(Math.round(min+span*i/6), bx+bw*i/6, by+bh+3*S);
   c.fillStyle='#555'; c.font=(11*S)+'px Arial';
   const unit=isBarb?'km/h':VARS[vk].unit;
-  const extra=isBarb?(unit+' · número al cercle = ratxa última hora'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):(spec.k==='count'?(unit+' · número = hores (de les últimes '+spec.hores+' h)'):unit));
+  let extra=isBarb?(unit+' · número al cercle = ratxa última hora'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):(spec.k==='count'?(unit+' · número = hores (de les últimes '+spec.hores+' h)'):unit));
+  if(vk==='pacum') extra='mm · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode)+' · '+(pacumFont==='qpe'?('estimat pel radar (AEMET) + estacions'+(qpeInfo&&qpeInfo.obs?(' · radar de les '+new Date(qpeInfo.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})):'')):'interpolació d\'estacions (IDW)');
   c.fillText(extra, x+w/2, by+bh+18*S);
   c.restore();
 }
@@ -1637,6 +1638,24 @@ async function generarImatge(){
     let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
+      // superfície de precipitació acumulada (IDW estacions o QPE radar) — es dibuixa a mà
+      if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked && p.mapObj){
+        if(!precGrid && pacumFont==='idw') calculaPrecGrid();
+        if(precGrid){
+          const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
+          const G=precGrid,B=G.bbox,nx=G.nx,ny=G.ny,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
+          const pa=p.mapObj.latLngToContainerPoint([B[2],B[0]]), pb=p.mapObj.latLngToContainerPoint([B[2]+dlat,B[0]+dlon]);
+          const cw=Math.abs(pb.x-pa.x)*sxp+1.4, ch=Math.abs(pb.y-pa.y)*syp+1.4;
+          c.save(); c.globalAlpha=0.62;
+          for(let j=0;j<ny;j++){ const lat=B[2]+j*dlat;
+            for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; if(isNaN(v)||v<0.1) continue;
+              const pt=p.mapObj.latLngToContainerPoint([lat,B[0]+i*dlon]);
+              const X=x+pt.x*sxp, Y=mapY+pt.y*syp;
+              if(X<x-cw||Y<mapY-ch||X>x+mapW+cw||Y>mapY+mapH+ch) continue;
+              c.fillStyle=colorFor('pacum',v); c.fillRect(X-cw/2,Y-ch/2,cw,ch); } }
+          c.restore();
+        }
+      }
       if($('radarOn') && $('radarOn').checked && radOverlay && p.mapObj){   // radar/echotop a la captura
         const img=radOverlay.getElement();
         if(img && img.complete && img.naturalWidth){
