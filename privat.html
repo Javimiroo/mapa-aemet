@@ -320,6 +320,10 @@
             <option value="6">Últimes 6 h</option>
           </select>
         </div>
+        <div class="row" style="gap:8px;align-items:center;margin-top:6px">
+          <label class="switch" style="font-size:12px"><input type="checkbox" id="llampsHora"> Colors per hora</label>
+          <button class="btn small" id="llampsPlay" style="margin-left:auto">▶ Passada</button>
+        </div>
         <div id="llampsInfo" class="muted" style="font-size:11px;margin-top:6px">—</div>
         <p class="muted" style="font-size:11px;margin:6px 0 0">🔴 núvol-terra (CG, els que encenen) · 🔵 núvol-núvol (IC). <b>Segueix la màquina del temps.</b> Font: XDDE Meteocat.</p>
       </div>
@@ -2669,11 +2673,16 @@ async function carregaLlamps(){
     llampsInfoAct();
   }catch(e){}
 }
-function llampsRefT(){ return (typeof timeT!=='undefined'&&timeT!=null)?timeT:((toDate(DATA&&DATA.generat)||new Date()).getTime()); }
+const LLAMPS_FRESC_MIN=15;                    // minuts que es consideren "acabats de caure" (plena intensitat)
+let llampsAnim=null, llampsPlayT=0;
+function llampsRefT(){ if(llampsAnim) return llampsPlayT;
+  return (typeof timeT!=='undefined'&&timeT!=null)?timeT:((toDate(DATA&&DATA.generat)||new Date()).getTime()); }
 function llampsWinMs(){ return (parseFloat($('llampsWin').value)||3)*3600000; }
+function llampHoraColor(t){ const h=new Date(t).getUTCHours(); return 'hsl('+((h*35)%360)+',85%,55%)'; }  // color per hora
 function llampsInfoAct(){ const inf=$('llampsInfo'); if(!inf)return; if(!llampsData){inf.textContent='—';return;}
   const T=llampsRefT(), w=llampsWinMs(); let n=0,cg=0; llampsData.t.forEach(x=>{ if(x.t<=T&&x.t>T-w){ n++; if(x.cg)cg++; } });
-  inf.innerHTML='<b>'+n+'</b> llamps · '+cg+' núvol-terra'; }
+  const hh=new Date(T).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
+  inf.innerHTML='<b>'+n+'</b> llamps · '+cg+' núvol-terra'+(llampsAnim?(' · passada '+hh):''); }
 const LlampsLayer=L.Layer.extend({
   onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
     const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
@@ -2682,21 +2691,45 @@ const LlampsLayer=L.Layer.extend({
   redraw:function(){if(this._m)this._rs();},
   _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
-    if(!llampsOn||!llampsData)return; const T=llampsRefT(), w=llampsWinMs(), arr=llampsData.t;
+    if(!llampsOn||!llampsData)return;
+    const T=llampsRefT(), w=llampsWinMs(), arr=llampsData.t, perHora=$('llampsHora').checked, wmin=w/60000;
     for(let i=0;i<arr.length;i++){ const x=arr[i]; if(x.t>T||x.t<=T-w)continue;
-      const p=m.latLngToContainerPoint([x.lat,x.lon]); if(p.x<-6||p.y<-6||p.x>s.x+6||p.y>s.y+6)continue;
-      const al=Math.max(0.30,1-((T-x.t)/w)*0.8);       // els recents més opacs
-      if(x.cg){ ctx.strokeStyle='rgba(225,20,20,'+al+')'; ctx.lineWidth=1.8; const r=3.3;
+      const p=m.latLngToContainerPoint([x.lat,x.lon]); if(p.x<-8||p.y<-8||p.x>s.x+8||p.y>s.y+8)continue;
+      const agem=(T-x.t)/60000;                        // antiguitat en minuts
+      const fresc=agem<=LLAMPS_FRESC_MIN;              // acabat de caure -> ple, sense esvair
+      const al=fresc?1:Math.max(0.22,1-(agem-LLAMPS_FRESC_MIN)/Math.max(1,wmin-LLAMPS_FRESC_MIN)*0.78);
+      const base=perHora?llampHoraColor(x.t):(x.cg?'rgb(225,20,20)':'rgb(40,130,255)');
+      const col=base.replace('rgb(','rgba(').replace('hsl(','hsla(').replace(')',(base.indexOf('hsl')>=0?',':',')+al+')');
+      if(fresc){ ctx.shadowColor='rgba(255,255,255,.9)'; ctx.shadowBlur=6; } else { ctx.shadowBlur=0; }
+      if(x.cg){ ctx.strokeStyle=col; ctx.lineWidth=fresc?2.4:1.7; const r=fresc?4.4:3.1;
         ctx.beginPath();ctx.moveTo(p.x-r,p.y);ctx.lineTo(p.x+r,p.y);ctx.moveTo(p.x,p.y-r);ctx.lineTo(p.x,p.y+r);ctx.stroke(); }
-      else { ctx.fillStyle='rgba(40,130,255,'+al+')'; ctx.beginPath();ctx.arc(p.x,p.y,2.1,0,6.283);ctx.fill(); }
+      else { ctx.fillStyle=col; ctx.beginPath();ctx.arc(p.x,p.y,fresc?3.2:2.1,0,6.283);ctx.fill(); }
     }
+    ctx.shadowBlur=0;
   }
 });
+function llampsPlayAtura(){ if(llampsAnim){clearInterval(llampsAnim);llampsAnim=null;} const b=$('llampsPlay'); if(b)b.textContent='▶ Passada';
+  if(typeof radMeteoHide==='function') radMeteoHide(false); if(llampsLayer)llampsLayer.redraw(); llampsInfoAct(); }
+function llampsPlayToggle(){
+  if(llampsAnim){ llampsPlayAtura(); return; }
+  if(!llampsData||!llampsData.t.length){ alert('No hi ha llamps carregats (activa la capa).'); return; }
+  if(!llampsOn){ $('llampsOn').checked=true; llampsOn=true; if(!llampsLayer){llampsLayer=new LlampsLayer();} llampsLayer.addTo(map); }
+  if(typeof radMeteoHide==='function') radMeteoHide(true);      // amaga la resta: només llamps
+  const arr=llampsData.t, t0=arr[0].t, t1=arr[arr.length-1].t, w=llampsWinMs();
+  llampsPlayT=t0+w; $('llampsPlay').textContent='⏸ Aturar';
+  llampsAnim=setInterval(()=>{
+    llampsPlayT+=6*60000;                              // 6 min de dades per pas
+    if(llampsPlayT>=t1){ llampsPlayT=t1; llampsLayer.redraw(); llampsInfoAct(); llampsPlayAtura(); return; }
+    llampsLayer.redraw(); llampsInfoAct();
+  },260);
+}
 $('llampsOn').addEventListener('change',e=>{ llampsOn=e.target.checked;
   if(llampsOn){ if(!llampsData) carregaLlamps(); if(!llampsLayer) llampsLayer=new LlampsLayer(); llampsLayer.addTo(map); llampsLayer.redraw(); llampsInfoAct(); }
-  else if(llampsLayer){ map.removeLayer(llampsLayer); } });
+  else { llampsPlayAtura(); if(llampsLayer) map.removeLayer(llampsLayer); } });
 $('llampsWin').addEventListener('change',()=>{ if(llampsLayer&&llampsOn) llampsLayer.redraw(); llampsInfoAct(); });
-setInterval(()=>{ if(llampsOn) carregaLlamps(); }, 120000);
+$('llampsHora').addEventListener('change',()=>{ if(llampsLayer&&llampsOn) llampsLayer.redraw(); });
+$('llampsPlay').addEventListener('click',llampsPlayToggle);
+setInterval(()=>{ if(llampsOn && !llampsAnim) carregaLlamps(); }, 120000);
 function ventColor(s){const st=[[0,[95,160,255]],[2,[0,180,255]],[4,[0,215,110]],[6,[200,225,0]],[8,[255,150,0]],[10,[235,0,0]]];
   if(s<=0)return'rgb(40,70,170)'; if(s>=10)return'rgb(200,0,0)';
   for(let m=1;m<st.length;m++){if(s<=st[m][0]){const a=st[m-1],b=st[m],t=(s-a[0])/(b[0]-a[0]);const c=a[1].map((v,q)=>Math.round(v+(b[1][q]-v)*t));return'rgb('+c[0]+','+c[1]+','+c[2]+')';}}return'rgb(200,0,0)';}
