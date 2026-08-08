@@ -7,12 +7,11 @@ on:
     # el cron de GitHub Actions és "best-effort" i de vegades salta hores. Este cron de
     # GitHub queda com a XARXA DE SEGURETAT. El repo no creix: les dades vives van a la
     # branca 'dades' amb force-push; a 'main' només hi va l'arxiu.
-    # MINUTS :05 i :35: ara la font principal és l'API de Meteocat (semihorària, amb pocs
-    # minuts de retard), no el portal. Meteocat mesura a :00 i :30 (UTC); disparant a :05
-    # i :35 agafem el bloc acabat de publicar amb la MÀXIMA frescor. (Abans era :25/:55
-    # per compensar el retard gran del portal de transparència, que ja no fem servir.)
-    # NOTA: si algun run agafa dades un pas endarrere, retarda uns minuts (p.ex. :10/:40).
-    - cron: "5,35 * * * *"
+    # CADA 10 MIN: consultem sovint per baixar la LATÈNCIA (Meteocat és semihorari, mesura
+    # a :00 i :30; polling cada 10 min agafa cada bloc nou pocs minuts després de publicar-se).
+    # El mapa NOMÉS es refresca si hi ha dada nova: 'generat' = hora de l'observació més
+    # fresca, i el frontend compara 'generat' (si no canvia, no refresca ni mou l'hora).
+    - cron: "*/10 * * * *"
 
 permissions:
   contents: write
