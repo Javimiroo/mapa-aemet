@@ -464,6 +464,21 @@ def fusiona_llamps(nous, previs, hores=XDDE_HORES):
     return out
 
 
+def mostra_consum():
+    """Imprimeix al log el crèdit restant de cada pla de l'API Meteocat (endpoint /quotes/v1).
+    Consultar-ho gasta del pla 'Quotes', no de l'XDDE. Mai ha de bloquejar (impacient)."""
+    try:
+        data = mc_get("/quotes/v1/consum-actual", tries=2, patient=False, to=15)
+    except Exception as ex:  # noqa
+        print("  consum Meteocat no disponible (%s)" % str(ex)[:60]); return
+    for p in (data.get("plans") or []):
+        if "maxConsultes" not in p:
+            continue
+        rest, mx = p.get("consultesRestants", "?"), p.get("maxConsultes", "?")
+        marca = "  ⚠ EXHAURIT" if rest == 0 else ""
+        print("  quota %-18s %s/%s restants (%s)%s" % (p.get("nom", "?"), rest, mx, p.get("periode", "?"), marca))
+
+
 def descarrega_llamps(hores=XDDE_FETCH_HORES):
     """Baixa els llamps de la XDDE (Meteocat) de les últimes 'hores' hores (una crida per
     bloc horari). Retorna [{t, lat, lon, cg, kA}] (cg=True núvol-terra, False núvol-núvol)."""
@@ -798,6 +813,7 @@ def main():
     except Exception as ex:  # mai ha de bloquejar l'operativa
         print("  AVIS: llamps no baixats (%s)" % str(ex)[:120])
     print("  ⏱ llamps: %.1f s" % (time.perf_counter() - _t))
+    mostra_consum()          # crèdit restant de cada pla Meteocat (XEMA/XDDE/…)
 
     print("Arxivant històric per dies...")
     _t = time.perf_counter()
