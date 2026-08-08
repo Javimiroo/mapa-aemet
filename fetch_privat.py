@@ -695,8 +695,15 @@ def main():
     acumula(estacions, previ)
     nh = [e["actual"]["n_hores"] for e in estacions] or [0]
     print("  hores/estació -> min %d · màx %d · mitjana %d" % (min(nh), max(nh), sum(nh)//len(nh)))
+    # 'generat' = hora de la DADA més fresca (fint), NO la de descàrrega. Així el mapa
+    # només es refresca quan hi ha observació nova (el frontend compara 'generat'); si
+    # consultem cada 10 min i no hi ha res nou, l'hora d'actualització es queda igual.
+    _fints = [_parse_t((e.get("actual") or {}).get("fint")) for e in estacions]
+    _fints = [t for t in _fints if t]
+    generat_data = (max(_fints).astimezone().isoformat(timespec="seconds")
+                    if _fints else datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"))
     dades = {
-        "generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "generat": generat_data,
         "font": "AEMET (OpenData) + Meteocat (XEMA) - dades © Servei Meteorologic de Catalunya",
         "n_estacions": len(estacions),
         "n_aemet": len(a), "n_meteocat": len(m),
