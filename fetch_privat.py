@@ -101,12 +101,15 @@ def punt_rosada(ta, hr):
         return None
 
 
-def _get(url, headers, tries=5):
+def _get(url, headers, tries=5, patient=True, to=60):
+    """patient=True: reintenta amb esperes llargues (AEMET/XEMA peten sovint).
+    patient=False: talla ràpid i RE-LLANÇA l'error perquè el cridador decidisca
+    (p. ex. llamps XDDE: si hi ha 429 de quota no té sentit dormir 20 s × 5)."""
     last = None
     for i in range(tries):
         try:
             req = urllib.request.Request(url, headers=headers)
-            raw = urllib.request.urlopen(req, timeout=60, context=_SSL).read()
+            raw = urllib.request.urlopen(req, timeout=to, context=_SSL).read()
             try:
                 return json.loads(raw.decode("utf-8"))
             except UnicodeDecodeError:
@@ -114,12 +117,23 @@ def _get(url, headers, tries=5):
         except urllib.error.HTTPError as e:
             last = e
             if e.code == 429:
+                if not patient:
+                    raise                         # quota: el cridador ha de tallar, no dormir
                 time.sleep(20); continue          # límit de peticions
             if 500 <= e.code < 600:
+                if not patient:
+                    if i >= tries - 1:
+                        raise
+                    time.sleep(2); continue
                 time.sleep(5); continue           # error temporal del servidor (AEMET peta sovint)
             raise                                 # 4xx "de veritat" (401/403/404...): no insistim
         except urllib.error.URLError as e:
-            last = e; time.sleep(5); continue     # problema de xarxa/temps d'espera
+            last = e
+            if not patient:
+                if i >= tries - 1:
+                    raise
+                time.sleep(2); continue
+            time.sleep(5); continue               # problema de xarxa/temps d'espera
     raise RuntimeError("massa reintents (%s): %s" % (last, url))
 
 
@@ -192,8 +206,9 @@ def estacions_aemet():
 
 
 # ============================ Meteocat (XEMA) ============================
-def mc_get(path):
-    return _get(MC_BASE + path, {"X-Api-Key": METEOCAT_KEY, "User-Agent": "graf"})
+def mc_get(path, tries=5, patient=True, to=60):
+    return _get(MC_BASE + path, {"X-Api-Key": METEOCAT_KEY, "User-Agent": "graf"},
+                tries=tries, patient=patient, to=to)
 
 
 def meteocat_metadades():
@@ -409,10 +424,47 @@ def accumula_precipitacio(estacions):
 
 
 # ============================ llamps (XDDE Meteocat) ============================
-XDDE_HORES = 6      # finestra de llamps que baixem (últimes N hores)
+XDDE_HORES = 6            # finestra de llamps que MOSTREM al mapa (últimes N hores)
+XDDE_FETCH_HORES = 1      # profunditat que BAIXEM cada run (hora actual + anterior = 2 crides);
+                          # la resta de la finestra es completa fusionant amb els llamps ja publicats
+LLAMPS_PREV_URL = "https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/llamps.enc"
 
 
-def descarrega_llamps(hores=XDDE_HORES):
+def carrega_llamps_previ(password):
+    """Llamps ja publicats (branca 'dades') per no perdre'ls si aquest run no en baixa (429)."""
+    try:
+        req = urllib.request.Request(LLAMPS_PREV_URL + "?_=" + str(int(time.time())), headers={"User-Agent": "graf"})
+        blob = json.loads(urllib.request.urlopen(req, timeout=20, context=_SSL).read())
+        return desxifrar(blob, password).get("llamps") or []
+    except Exception:  # noqa
+        return []
+
+
+def _llamp_ms(t):
+    if isinstance(t, (int, float)):
+        return float(t)
+    try:
+        return datetime.fromisoformat(str(t).replace("Z", "+00:00")).timestamp() * 1000
+    except Exception:  # noqa
+        return None
+
+
+def fusiona_llamps(nous, previs, hores=XDDE_HORES):
+    """Uneix llamps nous + previs, deduplica i retalla a la finestra de 'hores'."""
+    tall = (datetime.now(timezone.utc) - timedelta(hours=hores)).timestamp() * 1000
+    vist, out = set(), []
+    for x in list(nous) + list(previs):
+        ms = _llamp_ms(x.get("t"))
+        if ms is not None and ms < tall:
+            continue
+        key = (x.get("t"), x.get("lat"), x.get("lon"))
+        if key in vist:
+            continue
+        vist.add(key); out.append(x)
+    return out
+
+
+def descarrega_llamps(hores=XDDE_FETCH_HORES):
     """Baixa els llamps de la XDDE (Meteocat) de les últimes 'hores' hores (una crida per
     bloc horari). Retorna [{t, lat, lon, cg, kA}] (cg=True núvol-terra, False núvol-núvol)."""
     ara = datetime.now(timezone.utc)
@@ -420,7 +472,15 @@ def descarrega_llamps(hores=XDDE_HORES):
     for k in range(hores, -1, -1):
         h = ara - timedelta(hours=k)
         try:
-            resp = mc_get("/xdde/v1/catalunya/%04d/%02d/%02d/%02d" % (h.year, h.month, h.day, h.hour))
+            # impacient + timeout curt: els llamps són secundaris i NO han de penjar el pipeline
+            resp = mc_get("/xdde/v1/catalunya/%04d/%02d/%02d/%02d" % (h.year, h.month, h.day, h.hour),
+                          tries=2, patient=False, to=20)
+        except urllib.error.HTTPError as ex:
+            if ex.code == 429:                    # quota XDDE tocada: no insistim més aquest run
+                print("  avis: XDDE 429 (quota) — s'atura la baixada de llamps en aquest run")
+                break
+            print("  avis: llamps %04d-%02d-%02d %02dh no baixats (HTTP %s)" % (h.year, h.month, h.day, h.hour, ex.code))
+            continue
         except Exception as ex:  # noqa
             print("  avis: llamps %04d-%02d-%02d %02dh no baixats (%s)" % (h.year, h.month, h.day, h.hour, str(ex)[:50]))
             continue
@@ -727,13 +787,14 @@ def main():
     # --- llamps (XDDE Meteocat) ---
     _t = time.perf_counter()
     try:
-        llamps = descarrega_llamps()
+        nous = descarrega_llamps()                                   # només l'hora nova (2 crides)
+        llamps = fusiona_llamps(nous, carrega_llamps_previ(PASSWORD))  # completa amb els ja publicats
         payload = {"generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
                    "n": len(llamps), "hores": XDDE_HORES, "llamps": llamps}
         with open("llamps.enc", "w", encoding="utf-8") as f:
             json.dump(xifrar(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), PASSWORD), f)
         ncg = sum(1 for x in llamps if x.get("cg"))
-        print("OK -> llamps.enc  (%d llamps últimes %dh · %d núvol-terra)" % (len(llamps), XDDE_HORES, ncg))
+        print("OK -> llamps.enc  (%d llamps últimes %dh · %d núvol-terra · %d nous)" % (len(llamps), XDDE_HORES, ncg, len(nous)))
     except Exception as ex:  # mai ha de bloquejar l'operativa
         print("  AVIS: llamps no baixats (%s)" % str(ex)[:120])
     print("  ⏱ llamps: %.1f s" % (time.perf_counter() - _t))
