@@ -2715,13 +2715,16 @@ function llampsPlayToggle(){
   if(!llampsData||!llampsData.t.length){ alert('No hi ha llamps carregats (activa la capa).'); return; }
   if(!llampsOn){ $('llampsOn').checked=true; llampsOn=true; if(!llampsLayer){llampsLayer=new LlampsLayer();} llampsLayer.addTo(map); }
   if(typeof radMeteoHide==='function') radMeteoHide(true);      // amaga la resta: només llamps
-  const arr=llampsData.t, t0=arr[0].t, t1=arr[arr.length-1].t, w=llampsWinMs();
-  llampsPlayT=t0+w; $('llampsPlay').textContent='⏸ Aturar';
+  const arr=llampsData.t, t0=arr[0].t, t1=arr[arr.length-1].t;
+  if(t1<=t0){ llampsPlayT=t1; llampsLayer.redraw(); llampsInfoAct(); return; }   // un sol instant: res a animar
+  const pas=Math.max(3*60000, (t1-t0)/80);            // ~80 passos (mín 3 min per pas)
+  llampsPlayT=t0; $('llampsPlay').textContent='⏸ Aturar';
+  llampsLayer.redraw(); llampsInfoAct();
   llampsAnim=setInterval(()=>{
-    llampsPlayT+=6*60000;                              // 6 min de dades per pas
+    llampsPlayT+=pas;
     if(llampsPlayT>=t1){ llampsPlayT=t1; llampsLayer.redraw(); llampsInfoAct(); llampsPlayAtura(); return; }
     llampsLayer.redraw(); llampsInfoAct();
-  },260);
+  },220);
 }
 $('llampsOn').addEventListener('change',e=>{ llampsOn=e.target.checked;
   if(llampsOn){ if(!llampsData) carregaLlamps(); if(!llampsLayer) llampsLayer=new LlampsLayer(); llampsLayer.addTo(map); llampsLayer.redraw(); llampsInfoAct(); }
