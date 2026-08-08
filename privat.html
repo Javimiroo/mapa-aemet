@@ -2995,7 +2995,7 @@ const PrecipLayer=L.Layer.extend({
 });
 function actualitzaPrecLayer(){
   const on=(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
-  if(on){ if(!precLayer) precLayer=new PrecipLayer(); precLayer.addTo(map); if(baseLayer)baseLayer.bringToBack(); precGrid=null; precLayer.redraw(); }
+  if(on){ if(!precLayer) precLayer=new PrecipLayer(); precLayer.addTo(map); if(baseLayer)baseLayer.bringToBack(); if(pacumFont==='idw') precGrid=null; precLayer.redraw(); }   // IDW recalcula la graella al draw; QPE la conserva (si no, s'esborrava la superfície just carregada)
   else if(precLayer){ map.removeLayer(precLayer); }
 }
 function ventCardinal(d){return['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'][Math.round(d/22.5)%16];}
