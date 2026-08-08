@@ -773,6 +773,7 @@ let pacumFont = 'qpe';                       // 'qpe' (radar+estacions, per defe
 const qpeCache = {};                          // ràsters QPE ja desxifrats per període
 const qpeMetaCache = {};                       // {period: {obs, biaix}}
 let qpeInfo = null;                            // meta de la QPE mostrada ara (per a la llegenda/hora)
+let qpeSerie = null;                            // sèrie horària escombrable {bbox,nx,ny,dt,biaix,frames:[{ts,esc,mask,d,_mb,_dd,_val}]}
 const QPE_URL = 'https://raw.githubusercontent.com/Javimiroo/mapa-aemet/qpe/';
 const PACUM_LAB = {'1h':'1 h','3h':'3 h','6h':'6 h','24h':'24 h','dia':'del dia (des de 00 h)','7d':'7 dies'};
 
@@ -1359,6 +1360,7 @@ function setTimeT(T){
   if(ventClickOn&&ventLayer) ventLayer.redraw();   // el camp de vent segueix l'hora
   if(typeof radSync==='function'){ if(radModeOn) radModeExit(); else radSync(); }  // radar/echotop segueix l'hora
   if(typeof llampsLayer!=='undefined' && llampsLayer && llampsOn){ llampsLayer.redraw(); llampsInfoAct(); }  // llamps segueixen l'hora
+  if(selVar.value==='pacum' && pacumFont==='qpe' && $('pacumSurf') && $('pacumSurf').checked) qpeSync();  // pluja QPE segueix l'hora
   render();
 }
 function tbStep(d){
@@ -1502,17 +1504,66 @@ function aplicaCombo(key){
   setTimeout(()=>{ map.invalidateSize(); map2.invalidateSize(); map2.setView(map.getCenter(),map.getZoom(),{animate:false}); renderCombinat(); if(flameLL) posaFlames(); if(perimLL.length) redibuixaPerim(); },260);
 }
 
+// Recarrega la pluja QPE segons l'estat: en directe (timeT==null) la finestra "ara";
+// en històric (màquina del temps enrere) la sèrie horària acabant a l'hora triada.
+function recarregaPacumQPE(){ if(pacumFont!=='qpe') return;
+  if(typeof timeT!=='undefined' && timeT!=null) qpeSync(); else carregaQPE(pacumPeriode); }
 selVar.onchange=()=>{surtModes();
   const esP=(selVar.value==='pacum');
   $('pacumPer').style.display=esP?'':'none'; $('pacumSurfWrap').style.display=esP?'':'none'; $('pacumFont').style.display=esP?'':'none';
   precGrid=null; actualitzaPrecLayer();
-  if(esP && pacumFont==='qpe') carregaQPE(pacumPeriode);
+  if(esP && pacumFont==='qpe') recarregaPacumQPE();
   renderPresets();renderLegend();highlightChip(null);render();};
 $('pacumPer').onchange=()=>{ pacumPeriode=$('pacumPer').value; precGrid=null; renderLegend();
-  if(pacumFont==='qpe') carregaQPE(pacumPeriode); actualitzaPrecLayer(); render(); };
+  if(pacumFont==='qpe') recarregaPacumQPE(); actualitzaPrecLayer(); render(); };
 $('pacumFont').onchange=()=>{ pacumFont=$('pacumFont').value; precGrid=null;
-  if(pacumFont==='qpe') carregaQPE(pacumPeriode); actualitzaPrecLayer(); renderLegend(); render(); };
+  if(pacumFont==='qpe') recarregaPacumQPE(); actualitzaPrecLayer(); renderLegend(); render(); };
 $('pacumSurf').onchange=()=>actualitzaPrecLayer();
+// ---- SÈRIE HORÀRIA ESCOMBRABLE (pluja QPE seguint la màquina del temps) ----
+async function carregaQPESerie(){
+  if(qpeSerie) return qpeSerie;
+  if(!PASS) return null;
+  try{
+    const r=await fetch(QPE_URL+'qpe_series.enc?_='+Date.now(),{cache:'no-store'});
+    if(!r.ok) return null;
+    const p=await desxifra(await r.json(),PASS);
+    (p.frames||[]).forEach(f=>{ f._mb=b64(f.mask); f._dd=b64(f.d); });   // desxifra els bytes; els valors es decodifiquen a demanda
+    qpeSerie={bbox:p.bbox,nx:p.nx,ny:p.ny,dt:p.dt,biaix:p.biaix,frames:(p.frames||[]).sort((a,b)=>a.ts-b.ts)};
+    return qpeSerie;
+  }catch(e){ return null; }
+}
+function _frameVal(S,f){ if(f._val) return f._val;
+  const tot=S.nx*S.ny, v=new Float32Array(tot); v.fill(NaN);
+  let k=0; for(let i=0;i<tot;i++){ if((f._mb[i>>3]>>(7-(i&7)))&1) v[i]=f._dd[k++]*f.esc; }
+  f._val=v; return v; }
+function qpeHores(period,endTs){
+  if(period==='1h')return 1; if(period==='3h')return 3; if(period==='6h')return 6; if(period==='24h')return 24;
+  if(period==='dia'){ const m=new Date(endTs); m.setHours(0,0,0,0); return Math.max(1,Math.round((endTs-m.getTime())/3600000)); }
+  return null;   // '7d' no és escombrable (la sèrie només guarda ~48-72 h)
+}
+function qpeGridAt(S,endTs,hores){         // suma els tiles amb ts dins (endTs-hores, endTs]
+  const tot=S.nx*S.ny, out=new Float32Array(tot); out.fill(NaN); const t0=endTs-hores*3600000; let used=0,last=0;
+  for(const f of S.frames){ if(f.ts>endTs || f.ts<=t0) continue; const v=_frameVal(S,f); used++; last=Math.max(last,f.ts);
+    for(let i=0;i<tot;i++){ const x=v[i]; if(isNaN(x))continue; out[i]=isNaN(out[i])?x:out[i]+x; } }
+  return used?{bbox:S.bbox,nx:S.nx,ny:S.ny,val:out,_tiles:used,_last:last}:null;
+}
+async function qpeSync(){                   // pinta la pluja QPE a l'hora de la màquina del temps
+  if(selVar.value!=='pacum' || pacumFont!=='qpe') return;
+  const histT=(typeof timeT!=='undefined'&&timeT!=null)?timeT:null;
+  if(histT==null){ precGrid=null; carregaQPE(pacumPeriode); return; }   // directe: finestra "ara"
+  const hp=qpeHores(pacumPeriode,histT);
+  if(hp==null){ precGrid=null; if(precLayer)precLayer.redraw(); renderLegend();
+    $('status').innerHTML='La pluja de 7 dies no és escombrable enrere; tria 1h/3h/6h/24h/dia o torna al directe.'; return; }
+  const S=await carregaQPESerie();
+  if(!S){ precGrid=null; if(precLayer)precLayer.redraw();
+    $('status').innerHTML='Sèrie QPE no disponible (encara omplint-se el buffer o cal recarregar).'; return; }
+  const G=qpeGridAt(S,histT,hp);
+  if(G){ precGrid=G; qpeInfo={obs:G._last,biaix:S.biaix,hist:true};
+    actualitzaEscalaPacum(); if(precLayer)precLayer.redraw(); renderLegend();
+    $('status').innerHTML='Pluja <b>QPE radar</b> · '+(PACUM_LAB[pacumPeriode]||pacumPeriode)+' acabant a <b>'+fmtTemps(histT)+'</b> · '+G._tiles+' h de radar';
+  } else { precGrid=null; if(precLayer)precLayer.redraw(); renderLegend();
+    $('status').innerHTML='QPE històric: sense radar per a eixa hora (fora de la finestra escombrable).'; }
+}
 // Baixador ROBUST de la graella QPE: reintenta (la branca 'qpe' es reescriu amb force-push
 // cada ~15 min i el raw de GitHub pot donar un 404/error momentani). Cau a qpeCache.
 async function _baixaQPE(period, tries=5){

@@ -29,6 +29,7 @@ ITER = 200000
 WINDOWS = {"1h": 1, "3h": 3, "6h": 6, "24h": 24, "dia": None, "7d": 168}   # hores (None = des de mitjanit local)
 TILE_MIN_SEP = 55 * 60         # segons mínims entre tiles horaris (evita duplicar la mateixa hora)
 BUFFER_DIES = 8
+SERIE_TILES = 72               # tiles horaris publicats a qpe_series.enc (escombrar fins ~48 h enrere amb finestres de fins a 24 h)
 
 
 def xifrar(text, password):
@@ -93,10 +94,9 @@ def biaix_global(grid, ests):
     return (sg / sr, n) if (n >= 3 and sr > 0) else (1.0, n)
 
 
-def quantitza_xifra(grid, meta, password):
-    """grid mm (ny,nx, NaN=sense pluja) -> payload xifrat compatible amb el frontend.
-    La graella entra NORD-a-dalt (row 0 = nord); el frontend (PrecipLayer) la vol
-    SUD-primer (row 0 = sud, com l'IDW) -> la invertim verticalment."""
+def _frame(grid):
+    """grid mm (ny,nx, NaN=sense pluja), NORD-a-dalt -> {esc,mask,d,n} SUD-primer.
+    El frontend (PrecipLayer) vol row 0 = sud (com l'IDW) -> invertim verticalment."""
     grid = np.asarray(grid, np.float32)[::-1, :]
     val = (~np.isnan(grid)) & (grid >= 0.1)
     mm = np.where(val, grid, 0.0).astype(np.float32)
@@ -104,14 +104,20 @@ def quantitza_xifra(grid, meta, password):
     esc = max(0.25, mx / 250.0)
     q = np.clip(np.round(mm / esc), 0, 255).astype(np.uint8)
     idx = np.nonzero(val.ravel())[0]
+    return {"esc": round(esc, 4),
+            "mask": base64.b64encode(np.packbits(val.ravel().astype(np.uint8)).tobytes()).decode(),
+            "d": base64.b64encode(q.ravel()[idx].tobytes()).decode(),
+            "n": int(idx.size)}
+
+
+def quantitza_xifra(grid, meta, password):
+    """grid mm (ny,nx, NaN=sense pluja) -> payload xifrat compatible amb el frontend."""
     payload = dict(meta)
     payload.update({
         "bbox": [A.CAT_BBOX[0], A.CAT_BBOX[1], A.CAT_BBOX[2], A.CAT_BBOX[3]],
-        "nx": A.NX, "ny": A.NY, "esc": round(esc, 4),
-        "mask": base64.b64encode(np.packbits(val.ravel().astype(np.uint8)).tobytes()).decode(),
-        "d": base64.b64encode(q.ravel()[idx].tobytes()).decode(),
-        "n": int(idx.size),
+        "nx": A.NX, "ny": A.NY,
     })
+    payload.update(_frame(grid))
     return xifrar(json.dumps(payload, separators=(",", ":")), password)
 
 
@@ -179,11 +185,29 @@ def main():
         meta_windows[win] = {"biaix": round(factor, 3), "nfit": nfit, "max_mm": round(mx, 1)}
         print("  %s: biaix %.2f (%d est.) · màx %.1f mm" % (win, factor, nfit, mx))
 
+    # ---- SÈRIE HORÀRIA ESCOMBRABLE (últims SERIE_TILES tiles) ----
+    # Un únic fitxer amb els tiles horaris disjunts; el frontend suma la finestra que
+    # acaba a l'hora que trie la màquina del temps. Apliquem el biaix d'1 h uniforme.
+    b1h = meta_windows.get("1h", {}).get("biaix", 1.0)
+    serie = sorted(tiles, key=lambda x: x[0])[-SERIE_TILES:]
+    frames = []
+    for (t, g) in serie:
+        fr = _frame(g * b1h)
+        fr["ts"] = int(t.timestamp() * 1000)
+        frames.append(fr)
+    if frames:
+        payload = {"bbox": [A.CAT_BBOX[0], A.CAT_BBOX[1], A.CAT_BBOX[2], A.CAT_BBOX[3]],
+                   "nx": A.NX, "ny": A.NY, "dt": 3600000, "biaix": round(b1h, 3),
+                   "obs": int(tmax.timestamp() * 1000), "frames": frames}
+        with open(os.path.join(a.store, "qpe_series.enc"), "w", encoding="utf-8") as f:
+            json.dump(xifrar(json.dumps(payload, separators=(",", ":")), pwd), f)
+        print("  sèrie escombrable: %d tiles (fins %s)" % (len(frames), serie[0][0].strftime("%Y-%m-%d %H:%M")))
+
     with open(os.path.join(a.store, "qpe.json"), "w", encoding="utf-8") as f:
         json.dump({"generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-                   "obs": int(tmax.timestamp() * 1000), "n_tiles": len(tiles),
+                   "obs": int(tmax.timestamp() * 1000), "n_tiles": len(tiles), "serie_tiles": len(frames),
                    "windows": meta_windows, "font": "AEMET RN1 (radar) + biaix Meteocat"}, f)
-    print("Fet: %d tiles al buffer · %d finestres publicades" % (len(tiles), len(meta_windows)))
+    print("Fet: %d tiles al buffer · %d finestres · %d tiles a la sèrie" % (len(tiles), len(meta_windows), len(frames)))
 
 
 def carrega_pacums(password):
