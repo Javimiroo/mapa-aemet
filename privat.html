@@ -642,6 +642,20 @@
   </div>
 </div>
 
+<div id="conatsBadge" title="Possibles conats per llamp sec — clica per veure'ls"
+  style="display:none;position:fixed;top:70px;right:16px;z-index:1600;background:#c81010;color:#fff;font:600 13px system-ui;padding:8px 12px;border-radius:8px;box-shadow:0 3px 12px rgba(0,0,0,.5);cursor:pointer;border:1px solid #96001f">⚠ <span id="conatsN">0</span> possibles conats per llamp</div>
+
+<div id="conatsModal" style="display:none;position:fixed;inset:0;z-index:4200;background:rgba(0,0,0,.6);align-items:center;justify-content:center">
+  <div style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:12px;padding:16px;max-width:min(720px,95vw);width:720px;max-height:88vh;overflow:auto;box-shadow:0 12px 44px rgba(0,0,0,.55)">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <b style="font-size:15px">⚠ Possibles conats per llamp sec</b>
+      <button class="btn small" id="conatsClose">✕</button>
+    </div>
+    <div class="muted" style="font-size:11px;margin:6px 0">Llamps <b>núvol-terra</b> de les últimes 6 h en zona amb pluja de radar (QPE) <b>&lt; 2 mm</b> en 6 h, agrupats per zona (~2 km). Ordenats per intensitat.</div>
+    <div id="conatsList" style="margin-top:6px"></div>
+  </div>
+</div>
+
 <div id="estModal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
   <div style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:12px;padding:16px;max-width:min(780px,95vw);width:780px;box-shadow:0 12px 44px rgba(0,0,0,.55)">
     <div class="row" style="justify-content:space-between;align-items:center">
@@ -2671,6 +2685,7 @@ async function carregaLlamps(){
     llampsData={t:arr, generat:p.generat};
     if(llampsLayer&&llampsOn) llampsLayer.redraw();
     llampsInfoAct();
+    if(typeof calculaConats==='function') calculaConats();   // actualitza el comptador de conats
   }catch(e){}
 }
 const LLAMPS_FRESC_MIN=15;                    // minuts que es consideren "acabats de caure" (plena intensitat)
@@ -2685,6 +2700,7 @@ function llampsInfoAct(){ const inf=$('llampsInfo'); if(!inf)return; if(!llampsD
   inf.innerHTML='<b>'+n+'</b> llamps · '+cg+' núvol-terra'+(llampsAnim?(' · passada '+hh):''); }
 const LlampsLayer=L.Layer.extend({
   onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    c.style.zIndex=450;                          // per damunt del radar (imageOverlay zIndex 350) i del vent/pluja
     const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
     m.on('moveend zoomend resize',this._rs,this);this._rs();},
   onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
@@ -2733,6 +2749,99 @@ $('llampsWin').addEventListener('change',()=>{ if(llampsLayer&&llampsOn) llampsL
 $('llampsHora').addEventListener('change',()=>{ if(llampsLayer&&llampsOn) llampsLayer.redraw(); });
 $('llampsPlay').addEventListener('click',llampsPlayToggle);
 setInterval(()=>{ if(llampsOn && !llampsAnim) carregaLlamps(); }, 120000);
+
+// ---------------- Conats per llamp sec (CG + pluja radar QPE < 2mm/6h, agrupats per zona) ----------------
+const CONAT_MM=2, CONAT_HORES=6, CONAT_KM=2;
+let conatsZones=[];
+async function obteQPEGrid(period){          // torna la graella QPE (cau o baixa) SENSE tocar el mapa
+  if(qpeCache[period]) return qpeCache[period];
+  if(!PASS) return null;
+  try{
+    const r=await fetch(QPE_URL+'qpe_'+period+'.enc?_='+Date.now(),{cache:'no-store'});
+    if(!r.ok) return null;
+    const p=await desxifra(await r.json(),PASS);
+    const mb=b64(p.mask), dd=b64(p.d), tot=p.nx*p.ny, val=new Float32Array(tot); val.fill(NaN);
+    let k=0; for(let i=0;i<tot;i++){ if((mb[i>>3]>>(7-(i&7)))&1) val[i]=dd[k++]*p.esc; }
+    const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val}; qpeCache[period]=G; qpeMetaCache[period]={obs:p.obs,biaix:p.biaix}; return G;
+  }catch(e){ return null; }
+}
+function pluAt(G,lat,lon){                    // mm al punt (fora de graella/sense eco -> 0)
+  if(!G) return NaN;
+  const B=G.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3]) return 0;
+  const i=Math.min(G.nx-1,Math.max(0,Math.round((lon-B[0])/(B[1]-B[0])*(G.nx-1))));
+  const j=Math.min(G.ny-1,Math.max(0,Math.round((lat-B[2])/(B[3]-B[2])*(G.ny-1))));
+  const v=G.val[j*G.nx+i]; return isNaN(v)?0:v;
+}
+async function calculaConats(){
+  if(!llampsData) await carregaLlamps();
+  const G=await obteQPEGrid('6h'); const badge=$('conatsBadge');
+  if(!llampsData || !G){ conatsZones=[]; if(badge) badge.style.display='none'; return; }
+  const Tref=llampsRefT(), T0=Tref-CONAT_HORES*3600000;
+  const secs=llampsData.t.filter(x=> x.cg && x.t>T0 && x.t<=Tref && pluAt(G,x.lat,x.lon)<CONAT_MM);
+  const dlat=CONAT_KM/111, buckets={};                 // agrupació per graella ~2 km
+  secs.forEach(x=>{ const dlon=CONAT_KM/(111*Math.cos(x.lat*Math.PI/180));
+    const key=Math.round(x.lat/dlat)+'|'+Math.round(x.lon/dlon); (buckets[key]=buckets[key]||[]).push(x); });
+  conatsZones=Object.values(buckets).map(g=>{ let la=0,lo=0,tmin=Infinity,tmax=-Infinity,kA=0;
+    g.forEach(x=>{ la+=x.lat; lo+=x.lon; if(x.t<tmin)tmin=x.t; if(x.t>tmax)tmax=x.t; if(Math.abs(x.kA||0)>Math.abs(kA))kA=x.kA||0; });
+    return {lat:la/g.length,lon:lo/g.length,n:g.length,tmin,tmax,kA,strikes:g}; })
+    .sort((a,b)=>Math.abs(b.kA)-Math.abs(a.kA));
+  if(badge){ if(conatsZones.length){ badge.style.display='block'; $('conatsN').textContent=conatsZones.length; } else badge.style.display='none'; }
+}
+function renderConats(){
+  const box=$('conatsList'); if(!box)return;
+  if(!conatsZones.length){ box.innerHTML='<div class="muted" style="font-size:12px">Cap conat: no hi ha llamps núvol-terra secs a les últimes 6 h.</div>'; return; }
+  const q=ms=>new Date(ms).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
+  box.innerHTML=conatsZones.map((z,k)=>'<div class="row" style="gap:8px;align-items:center;border-bottom:1px solid #1e293b;padding:6px 0">'
+    +'<span style="width:22px;height:22px;border-radius:50%;background:#c81010;color:#fff;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto">'+(k+1)+'</span>'
+    +'<div style="flex:1;font-size:12px"><b>'+z.lat.toFixed(3)+', '+z.lon.toFixed(3)+'</b> · '+z.n+' llamps · '+q(z.tmin)+(z.n>1?('–'+q(z.tmax)):'')+' UTC'+(z.kA?(' · '+Math.round(Math.abs(z.kA))+' kA'):'')+'</div>'
+    +'<button class="btn small conatCentra" data-k="'+k+'" title="Centrar al mapa">📍</button>'
+    +'<button class="btn small conatDet" data-k="'+k+'">🖨 Detall</button></div>').join('');
+}
+async function obreConats(){ await calculaConats(); renderConats(); $('conatsModal').style.display='flex'; }
+$('conatsBadge').addEventListener('click',obreConats);
+$('conatsClose').addEventListener('click',()=>{ $('conatsModal').style.display='none'; });
+$('conatsModal').addEventListener('click',e=>{ if(e.target===$('conatsModal')) $('conatsModal').style.display='none'; });
+$('conatsList').addEventListener('click',e=>{ const c=e.target.closest('.conatCentra'), d=e.target.closest('.conatDet');
+  if(c){ const z=conatsZones[+c.dataset.k]; if(z){ map.setView([z.lat,z.lon],11); $('conatsModal').style.display='none'; } }
+  else if(d){ const z=conatsZones[+d.dataset.k]; if(z) conatDetall(z); } });
+function graficaConatImg(st,Tref){
+  try{ if(typeof Chart==='undefined')return null; const h=st.historic||[], T0=Tref-12*3600000;
+    const rows=h.filter(r=>{const dd=toDate(r.t); return dd && dd.getTime()>=T0 && dd.getTime()<=Tref+1800000;});
+    if(!rows.length)return null;
+    const labels=rows.map(r=>{const dd=toDate(r.t); return dd?dd.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'}):'';});
+    const cv=document.createElement('canvas'); cv.width=760; cv.height=300;
+    const ch=new Chart(cv.getContext('2d'),{type:'line',data:{labels,datasets:[
+      {label:'Temp (°C)',data:rows.map(r=>r.ta),borderColor:'#e0562d',tension:.2,pointRadius:0},
+      {label:'HR (%)',data:rows.map(r=>r.hr),borderColor:'#2b8cff',tension:.2,pointRadius:0},
+      {label:'Vent (km/h)',data:rows.map(r=>r.vv),borderColor:'#2aa84a',tension:.2,pointRadius:0}]},
+      options:{animation:false,responsive:false,plugins:{title:{display:true,text:'HR / Temp / Vent — últimes 12 h · '+(st.nom||'')}}}});
+    const url=cv.toDataURL('image/png'); ch.destroy(); return url;
+  }catch(e){ return null; }
+}
+async function conatDetall(z){
+  const G24=await obteQPEGrid('24h'), G7=await obteQPEGrid('7d'), G6=await obteQPEGrid('6h');
+  const p6=pluAt(G6,z.lat,z.lon), p24=G24?pluAt(G24,z.lat,z.lon):NaN, p7=G7?pluAt(G7,z.lat,z.lon):NaN;
+  let best=null,bd=Infinity; (DATA?DATA.estacions:[]).forEach(st=>{ if(st.lat==null||st.lon==null)return;
+    const d=haversineKm(L.latLng(z.lat,z.lon),L.latLng(st.lat,st.lon)); if(d<bd){bd=d;best=st;} });
+  const img=best?graficaConatImg(best,z.tmax):null;
+  const q=ms=>new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  const w=window.open('','_blank'); if(!w){ alert('Permet les finestres emergents per obrir el detall imprimible.'); return; }
+  const html='<!doctype html><html lang="ca"><head><meta charset="utf-8"><title>Conat per llamp — '+z.lat.toFixed(4)+', '+z.lon.toFixed(4)+'</title>'
+    +'<style>body{font:14px system-ui;margin:24px;color:#111}h1{font-size:19px;color:#c81010}table{border-collapse:collapse;margin:12px 0}td{padding:4px 12px 4px 0;vertical-align:top}.k{color:#555}.big{color:#c81010;font-weight:700;font-size:16px}img{max-width:100%;border:1px solid #ccc;border-radius:6px;margin-top:12px}button{margin-top:16px;padding:9px 16px;background:#c81010;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px}@media print{button{display:none}}</style></head><body>'
+    +'<h1>⚠ Possible conat per llamp sec</h1><table>'
+    +'<tr><td class="k">Posició</td><td><b>'+z.lat.toFixed(4)+', '+z.lon.toFixed(4)+'</b></td></tr>'
+    +'<tr><td class="k">Hora (UTC)</td><td>'+q(z.tmin)+(z.n>1?(' – '+q(z.tmax)):'')+'</td></tr>'
+    +'<tr><td class="k">Llamps núvol-terra a la zona</td><td class="big">'+z.n+'</td></tr>'
+    +'<tr><td class="k">Intensitat màx</td><td>'+(z.kA?Math.round(Math.abs(z.kA))+' kA':'—')+'</td></tr>'
+    +'<tr><td class="k">Pluja radar al punt</td><td>6 h: <b>'+(isFinite(p6)?p6.toFixed(1):'n/d')+' mm</b> &nbsp;·&nbsp; 24 h: '+(isFinite(p24)?p24.toFixed(1)+' mm':'n/d')+' &nbsp;·&nbsp; 7 dies: '+(isFinite(p7)?p7.toFixed(1)+' mm':'n/d')+'</td></tr>'
+    +'<tr><td class="k">Estació més propera</td><td>'+(best?(best.nom+' ('+bd.toFixed(1)+' km)'):'—')+'</td></tr>'
+    +'</table>'+(img?('<img src="'+img+'">'):'<p class="k">Sense dades meteo de l\'estació per a la gràfica.</p>')
+    +'<p class="k" style="font-size:11px;margin-top:16px">Generat '+new Date().toLocaleString('ca-ES')+' · Bombers GRAF · Llamps XDDE (Meteocat) + pluja radar (AEMET)</p>'
+    +'<button onclick="window.print()">🖨 Imprimir</button></body></html>';
+  w.document.write(html); w.document.close();
+}
+setInterval(()=>{ if(PASS) calculaConats(); }, 5*60000);      // revisa conats cada 5 min
+setTimeout(()=>{ if(PASS) calculaConats(); }, 9000);          // primera revisió després de carregar
 function ventColor(s){const st=[[0,[95,160,255]],[2,[0,180,255]],[4,[0,215,110]],[6,[200,225,0]],[8,[255,150,0]],[10,[235,0,0]]];
   if(s<=0)return'rgb(40,70,170)'; if(s>=10)return'rgb(200,0,0)';
   for(let m=1;m<st.length;m++){if(s<=st[m][0]){const a=st[m-1],b=st[m],t=(s-a[0])/(b[0]-a[0]);const c=a[1].map((v,q)=>Math.round(v+(b[1][q]-v)*t));return'rgb('+c[0]+','+c[1]+','+c[2]+')';}}return'rgb(200,0,0)';}
