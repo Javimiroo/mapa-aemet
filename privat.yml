@@ -1,0 +1,102 @@
+name: Actualitza mapa privat (AEMET + Meteocat)
+
+on:
+  workflow_dispatch: {}   # manual (des del botó del mapa o des de la pestanya Actions)
+  schedule:
+    # Cadència PRINCIPAL: cada 30 min via un disparador extern (cron-job.org), perquè
+    # el cron de GitHub Actions és "best-effort" i de vegades salta hores. Este cron de
+    # GitHub queda com a XARXA DE SEGURETAT. El repo no creix: les dades vives van a la
+    # branca 'dades' amb force-push; a 'main' només hi va l'arxiu.
+    # CADA 10 MIN: consultem sovint per baixar la LATÈNCIA (Meteocat és semihorari, mesura
+    # a :00 i :30; polling cada 10 min agafa cada bloc nou pocs minuts després de publicar-se).
+    # El mapa NOMÉS es refresca si hi ha dada nova: 'generat' = hora de l'observació més
+    # fresca, i el frontend compara 'generat' (si no canvia, no refresca ni mou l'hora).
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: privat
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8          # xarxa de seguretat: si una font es penja, el run mor i no amuntega cua
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip                       # reutilitza les rodes baixades (numpy/scipy no es tornen a baixar)
+          cache-dependency-path: requirements.txt
+
+      - name: Instal·la dependències
+        run: pip install -r requirements.txt
+
+      # Recupera l'arxiu acumulat de la branca 'arxiu' (font de veritat) perquè
+      # arxiva() no reescriga dies ja congelats i l'índex quede complet.
+      - name: Recupera l'arxiu (branca 'arxiu')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git clone --branch arxiu --depth 1 \
+               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" _arxiu 2>/dev/null; then
+            rm -rf arxiu arxiu-vent
+            [ -d _arxiu/arxiu ] && mv _arxiu/arxiu arxiu
+            [ -d _arxiu/arxiu-vent ] && mv _arxiu/arxiu-vent arxiu-vent
+            [ -f _arxiu/meteocat_estacions.json ] && cp _arxiu/meteocat_estacions.json meteocat_estacions.json
+            rm -rf _arxiu
+            echo "arxiu recuperat de la branca 'arxiu' ($(ls arxiu 2>/dev/null | wc -l) fitxers)"
+          else
+            echo "encara no hi ha branca 'arxiu': uso l'arxiu de main com a llavor (migració)"
+          fi
+
+      - name: Baixa AEMET + Meteocat i xifra
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+          METEOCAT_KEY: ${{ secrets.METEOCAT_KEY }}
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: python fetch_privat.py
+
+      # 1) ARXIU: branca pròpia 'arxiu' amb força-push. NO toca 'main' -> NO dispara
+      #    "pages build and deployment". Abans anava a 'main' i com que arxiva()
+      #    reescriu index.json cada run, disparava Pages cada 30 min (i es cancel·laven
+      #    entre ells). El frontend llig l'arxiu d'esta branca via raw.
+      - name: Publica l'arxiu (branca 'arxiu')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PUB=$(mktemp -d)
+          [ -d arxiu ] && cp -r arxiu "$PUB/"
+          [ -d arxiu-vent ] && cp -r arxiu-vent "$PUB/"
+          [ -f meteocat_estacions.json ] && cp meteocat_estacions.json "$PUB/"
+          if [ -z "$(ls -A "$PUB")" ]; then echo "res a arxivar"; exit 0; fi
+          cd "$PUB"
+          git init -q -b arxiu
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "arxiu $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" arxiu
+          echo "publicat a la branca 'arxiu' (arxiu: $(ls "$PUB/arxiu" 2>/dev/null | wc -l) fitxers)"
+
+      # 2) DADES VIVES: branca 'dades' SENSE historial (força-push d'un únic commit).
+      #    Així el repo no creix encara que actualitzem cada hora, i no dispara Pages.
+      - name: Publica les dades vives (branca 'dades')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PUB=$(mktemp -d)
+          for f in dades_privat.enc vent_privat.enc llamps.enc; do
+            [ -f "$f" ] && cp "$f" "$PUB/" || echo "avis: $f no existeix"
+          done
+          if [ -z "$(ls -A "$PUB")" ]; then echo "res a publicar"; exit 0; fi
+          cd "$PUB"
+          git init -q -b dades
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "dades $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dades
+          echo "publicat a la branca 'dades' ($(ls | tr '\n' ' '))"
