@@ -645,15 +645,13 @@
 <div id="conatsBadge" title="Possibles conats per llamp sec — clica per veure'ls"
   style="display:none;position:fixed;top:70px;right:16px;z-index:1600;background:#c81010;color:#fff;font:600 13px system-ui;padding:8px 12px;border-radius:8px;box-shadow:0 3px 12px rgba(0,0,0,.5);cursor:pointer;border:1px solid #96001f">⚠ <span id="conatsN">0</span> possibles conats per llamp</div>
 
-<div id="conatsModal" style="display:none;position:fixed;inset:0;z-index:4200;background:rgba(0,0,0,.6);align-items:center;justify-content:center">
-  <div style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:12px;padding:16px;max-width:min(720px,95vw);width:720px;max-height:88vh;overflow:auto;box-shadow:0 12px 44px rgba(0,0,0,.55)">
-    <div class="row" style="justify-content:space-between;align-items:center">
-      <b style="font-size:15px">⚠ Possibles conats per llamp sec</b>
-      <button class="btn small" id="conatsClose">✕</button>
-    </div>
-    <div class="muted" style="font-size:11px;margin:6px 0">Llamps <b>núvol-terra</b> de les últimes 6 h en zona amb pluja de radar (QPE) <b>&lt; 2 mm</b> en 6 h, agrupats per zona (~2 km). Ordenats per intensitat.</div>
-    <div id="conatsList" style="margin-top:6px"></div>
+<div id="conatsPanel" style="display:none;position:fixed;right:16px;bottom:16px;z-index:1600;width:330px;max-height:62vh;display:none;flex-direction:column;background:#0f172a;color:#e5e7eb;border:1px solid #96001f;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.55)">
+  <div class="row" style="justify-content:space-between;align-items:center;padding:9px 12px;background:#7f0f1a;border-radius:10px 10px 0 0">
+    <b style="font-size:13px">⚠ Possibles conats per llamp</b>
+    <button class="btn small" id="conatsClose">✕</button>
   </div>
+  <div id="conatsList" style="padding:6px 10px;overflow:auto"></div>
+  <div class="muted" style="font-size:10px;padding:2px 10px 9px">Llamps <b>núvol-terra</b> (6 h) en zona seca (&lt; 2 mm/6 h, pluja d'estacions), agrupats. Passa el ratolí per ressaltar-los al mapa; clica per al detall imprimible.</div>
 </div>
 
 <div id="estModal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
@@ -2765,20 +2763,22 @@ async function obteQPEGrid(period){          // torna la graella QPE (cau o baix
     const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val}; qpeCache[period]=G; qpeMetaCache[period]={obs:p.obs,biaix:p.biaix}; return G;
   }catch(e){ return null; }
 }
-function pluAt(G,lat,lon){                    // mm al punt (fora de graella/sense eco -> 0)
-  if(!G) return NaN;
-  const B=G.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3]) return 0;
+function pluAtRaw(G,lat,lon){                  // mm al punt · NaN si NO hi ha dada (fora de cobertura/Catalunya)
+  if(!G) return NaN; const B=G.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3]) return NaN;
   const i=Math.min(G.nx-1,Math.max(0,Math.round((lon-B[0])/(B[1]-B[0])*(G.nx-1))));
   const j=Math.min(G.ny-1,Math.max(0,Math.round((lat-B[2])/(B[3]-B[2])*(G.ny-1))));
-  const v=G.val[j*G.nx+i]; return isNaN(v)?0:v;
+  return G.val[j*G.nx+i];
 }
+function pluAt(G,lat,lon){ const v=pluAtRaw(G,lat,lon); return isNaN(v)?0:v; }
+let conatsLayer=null, conatsObert=false;
 async function calculaConats(){
   if(!llampsData) await carregaLlamps();
-  const G=await obteQPEGrid('6h'); const badge=$('conatsBadge');
-  if(!llampsData || !G){ conatsZones=[]; if(badge) badge.style.display='none'; return; }
+  const badge=$('conatsBadge'), G=idwGrid('6h');          // pluja MESURADA d'estacions (6h)
+  if(!llampsData || !G){ conatsZones=[]; if(badge) badge.style.display='none'; conatsDibuixaZones(); return; }
   const Tref=llampsRefT(), T0=Tref-CONAT_HORES*3600000;
-  const secs=llampsData.t.filter(x=> x.cg && x.t>T0 && x.t<=Tref && pluAt(G,x.lat,x.lon)<CONAT_MM);
-  const dlat=CONAT_KM/111, buckets={};                 // agrupació per graella ~2 km
+  const secs=llampsData.t.filter(x=>{ if(!x.cg || x.t<=T0 || x.t>Tref) return false;
+    const r=pluAtRaw(G,x.lat,x.lon); return !isNaN(r) && r<CONAT_MM; });   // dins cobertura (Catalunya) I sec
+  const dlat=CONAT_KM/111, buckets={};                    // agrupació per graella ~2 km
   secs.forEach(x=>{ const dlon=CONAT_KM/(111*Math.cos(x.lat*Math.PI/180));
     const key=Math.round(x.lat/dlat)+'|'+Math.round(x.lon/dlon); (buckets[key]=buckets[key]||[]).push(x); });
   conatsZones=Object.values(buckets).map(g=>{ let la=0,lo=0,tmin=Infinity,tmax=-Infinity,kA=0;
@@ -2786,24 +2786,56 @@ async function calculaConats(){
     return {lat:la/g.length,lon:lo/g.length,n:g.length,tmin,tmax,kA,strikes:g}; })
     .sort((a,b)=>Math.abs(b.kA)-Math.abs(a.kA));
   if(badge){ if(conatsZones.length){ badge.style.display='block'; $('conatsN').textContent=conatsZones.length; } else badge.style.display='none'; }
+  conatsDibuixaZones();
 }
+function _conatRadi(z){ return 8+Math.min(12,z.n); }
+function conatsDibuixaZones(){                 // cercles de cada zona al mapa (només amb el panell obert)
+  if(!conatsLayer) conatsLayer=L.layerGroup();
+  conatsLayer.clearLayers();
+  if(!conatsObert || !conatsZones.length){ if(map.hasLayer(conatsLayer)) map.removeLayer(conatsLayer); return; }
+  if(!map.hasLayer(conatsLayer)) conatsLayer.addTo(map);
+  conatsZones.forEach((z,k)=>{ const c=L.circleMarker([z.lat,z.lon],{radius:_conatRadi(z),color:'#c81010',weight:2,fillColor:'#c81010',fillOpacity:.22});
+    c.bindTooltip((k+1)+' · '+z.n+' llamps',{direction:'top'});
+    c.on('click',()=>{ map.setView([z.lat,z.lon],11); conatDetall(z); });
+    c.addTo(conatsLayer); z._circle=c; });
+}
+function conatHover(k,on){ const z=conatsZones[k]; if(!z||!z._circle)return;
+  z._circle.setStyle(on?{radius:18,weight:3,fillOpacity:.5}:{radius:_conatRadi(z),weight:2,fillOpacity:.22}); if(on) z._circle.bringToFront(); }
 function renderConats(){
   const box=$('conatsList'); if(!box)return;
-  if(!conatsZones.length){ box.innerHTML='<div class="muted" style="font-size:12px">Cap conat: no hi ha llamps núvol-terra secs a les últimes 6 h.</div>'; return; }
+  if(!conatsZones.length){ box.innerHTML='<div class="muted" style="font-size:12px">Cap conat: cap llamp núvol-terra sec a les últimes 6 h.</div>'; return; }
   const q=ms=>new Date(ms).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
-  box.innerHTML=conatsZones.map((z,k)=>'<div class="row" style="gap:8px;align-items:center;border-bottom:1px solid #1e293b;padding:6px 0">'
+  box.innerHTML=conatsZones.map((z,k)=>'<div class="conatRow" data-k="'+k+'" style="display:flex;gap:8px;align-items:center;border-bottom:1px solid #1e293b;padding:6px 2px;cursor:pointer">'
     +'<span style="width:22px;height:22px;border-radius:50%;background:#c81010;color:#fff;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto">'+(k+1)+'</span>'
     +'<div style="flex:1;font-size:12px"><b>'+z.lat.toFixed(3)+', '+z.lon.toFixed(3)+'</b> · '+z.n+' llamps · '+q(z.tmin)+(z.n>1?('–'+q(z.tmax)):'')+' UTC'+(z.kA?(' · '+Math.round(Math.abs(z.kA))+' kA'):'')+'</div>'
-    +'<button class="btn small conatCentra" data-k="'+k+'" title="Centrar al mapa">📍</button>'
-    +'<button class="btn small conatDet" data-k="'+k+'">🖨 Detall</button></div>').join('');
+    +'<button class="btn small conatDet" data-k="'+k+'" title="Detall imprimible">🖨</button></div>').join('');
 }
-async function obreConats(){ await calculaConats(); renderConats(); $('conatsModal').style.display='flex'; }
-$('conatsBadge').addEventListener('click',obreConats);
-$('conatsClose').addEventListener('click',()=>{ $('conatsModal').style.display='none'; });
-$('conatsModal').addEventListener('click',e=>{ if(e.target===$('conatsModal')) $('conatsModal').style.display='none'; });
-$('conatsList').addEventListener('click',e=>{ const c=e.target.closest('.conatCentra'), d=e.target.closest('.conatDet');
-  if(c){ const z=conatsZones[+c.dataset.k]; if(z){ map.setView([z.lat,z.lon],11); $('conatsModal').style.display='none'; } }
-  else if(d){ const z=conatsZones[+d.dataset.k]; if(z) conatDetall(z); } });
+async function obreConats(){ conatsObert=true; await calculaConats(); renderConats(); $('conatsPanel').style.display='flex'; conatsDibuixaZones(); }
+function tancaConats(){ conatsObert=false; $('conatsPanel').style.display='none'; conatsDibuixaZones(); }
+$('conatsBadge').addEventListener('click',()=>{ if($('conatsPanel').style.display==='flex') tancaConats(); else obreConats(); });
+$('conatsClose').addEventListener('click',tancaConats);
+$('conatsList').addEventListener('mouseover',e=>{ const r=e.target.closest('.conatRow'); if(r) conatHover(+r.dataset.k,true); });
+$('conatsList').addEventListener('mouseout', e=>{ const r=e.target.closest('.conatRow'); if(r) conatHover(+r.dataset.k,false); });
+$('conatsList').addEventListener('click',e=>{ const r=e.target.closest('.conatRow'); if(!r)return; const z=conatsZones[+r.dataset.k]; if(!z)return;
+  map.setView([z.lat,z.lon],11);                         // clic a la fila -> centra al mapa (per veure'l)
+  if(e.target.closest('.conatDet')) conatDetall(z); });  // botó 🖨 -> detall imprimible
+// ---- foto de satèl·lit (Esri World Imagery) centrada al llamp ----
+function _txlon(lon,z){return (lon+180)/360*Math.pow(2,z);}
+function _tylat(lat,z){const r=lat*Math.PI/180;return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z);}
+async function satelliteImg(lat,lon){
+  try{ const z=13,N=3,TS=256,cx=_txlon(lon,z),cy=_tylat(lat,z),tx0=Math.floor(cx)-1,ty0=Math.floor(cy)-1;
+    const cv=document.createElement('canvas'); cv.width=N*TS; cv.height=N*TS; const c=cv.getContext('2d');
+    const loads=[]; for(let dy=0;dy<N;dy++)for(let dx=0;dx<N;dx++){ const tx=tx0+dx,ty=ty0+dy;
+      loads.push(new Promise(res=>{ const im=new Image(); im.crossOrigin='anonymous';
+        im.onload=()=>{ try{c.drawImage(im,dx*TS,dy*TS);}catch(e){} res(); }; im.onerror=()=>res();
+        im.src='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/'+z+'/'+ty+'/'+tx; })); }
+    await Promise.all(loads);
+    const px=(cx-tx0)*TS, py=(cy-ty0)*TS;                 // marca del llamp
+    c.strokeStyle='#ff2020'; c.lineWidth=3; c.beginPath(); c.arc(px,py,11,0,7); c.stroke();
+    c.beginPath(); c.moveTo(px-17,py); c.lineTo(px+17,py); c.moveTo(px,py-17); c.lineTo(px,py+17); c.stroke();
+    return cv.toDataURL('image/png');
+  }catch(e){ return null; }
+}
 function graficaConatImg(st,Tref){
   try{ if(typeof Chart==='undefined')return null; const h=st.historic||[], T0=Tref-12*3600000;
     const rows=h.filter(r=>{const dd=toDate(r.t); return dd && dd.getTime()>=T0 && dd.getTime()<=Tref+1800000;});
@@ -2819,24 +2851,27 @@ function graficaConatImg(st,Tref){
   }catch(e){ return null; }
 }
 async function conatDetall(z){
-  const G24=await obteQPEGrid('24h'), G7=await obteQPEGrid('7d'), G6=await obteQPEGrid('6h');
-  const p6=pluAt(G6,z.lat,z.lon), p24=G24?pluAt(G24,z.lat,z.lon):NaN, p7=G7?pluAt(G7,z.lat,z.lon):NaN;
+  const G6=idwGrid('6h'), G24=idwGrid('24h'), G7=idwGrid('7d');
+  const p6=pluAtRaw(G6,z.lat,z.lon), p24=pluAtRaw(G24,z.lat,z.lon), p7=pluAtRaw(G7,z.lat,z.lon);
   let best=null,bd=Infinity; (DATA?DATA.estacions:[]).forEach(st=>{ if(st.lat==null||st.lon==null)return;
     const d=haversineKm(L.latLng(z.lat,z.lon),L.latLng(st.lat,st.lon)); if(d<bd){bd=d;best=st;} });
   const img=best?graficaConatImg(best,z.tmax):null;
+  const sat=await satelliteImg(z.lat,z.lon);
   const q=ms=>new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
   const w=window.open('','_blank'); if(!w){ alert('Permet les finestres emergents per obrir el detall imprimible.'); return; }
   const html='<!doctype html><html lang="ca"><head><meta charset="utf-8"><title>Conat per llamp — '+z.lat.toFixed(4)+', '+z.lon.toFixed(4)+'</title>'
-    +'<style>body{font:14px system-ui;margin:24px;color:#111}h1{font-size:19px;color:#c81010}table{border-collapse:collapse;margin:12px 0}td{padding:4px 12px 4px 0;vertical-align:top}.k{color:#555}.big{color:#c81010;font-weight:700;font-size:16px}img{max-width:100%;border:1px solid #ccc;border-radius:6px;margin-top:12px}button{margin-top:16px;padding:9px 16px;background:#c81010;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px}@media print{button{display:none}}</style></head><body>'
-    +'<h1>⚠ Possible conat per llamp sec</h1><table>'
+    +'<style>body{font:14px system-ui;margin:24px;color:#111}h1{font-size:19px;color:#c81010}table{border-collapse:collapse;margin:12px 0}td{padding:4px 12px 4px 0;vertical-align:top}.k{color:#555}.big{color:#c81010;font-weight:700;font-size:16px}img{max-width:100%;border:1px solid #ccc;border-radius:6px;margin-top:12px}.sat{max-width:420px}button{margin-top:16px;padding:9px 16px;background:#c81010;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px}@media print{button{display:none}}</style></head><body>'
+    +'<h1>⚠ Possible conat per llamp sec</h1>'
+    +(sat?('<img class="sat" src="'+sat+'" alt="satèl·lit"><br>'):'')
+    +'<table>'
     +'<tr><td class="k">Posició</td><td><b>'+z.lat.toFixed(4)+', '+z.lon.toFixed(4)+'</b></td></tr>'
     +'<tr><td class="k">Hora (UTC)</td><td>'+q(z.tmin)+(z.n>1?(' – '+q(z.tmax)):'')+'</td></tr>'
     +'<tr><td class="k">Llamps núvol-terra a la zona</td><td class="big">'+z.n+'</td></tr>'
     +'<tr><td class="k">Intensitat màx</td><td>'+(z.kA?Math.round(Math.abs(z.kA))+' kA':'—')+'</td></tr>'
-    +'<tr><td class="k">Pluja radar al punt</td><td>6 h: <b>'+(isFinite(p6)?p6.toFixed(1):'n/d')+' mm</b> &nbsp;·&nbsp; 24 h: '+(isFinite(p24)?p24.toFixed(1)+' mm':'n/d')+' &nbsp;·&nbsp; 7 dies: '+(isFinite(p7)?p7.toFixed(1)+' mm':'n/d')+'</td></tr>'
+    +'<tr><td class="k">Pluja (estacions) al punt</td><td>6 h: <b>'+(isFinite(p6)?p6.toFixed(1):'n/d')+' mm</b> &nbsp;·&nbsp; 24 h: '+(isFinite(p24)?p24.toFixed(1)+' mm':'n/d')+' &nbsp;·&nbsp; 7 dies: '+(isFinite(p7)?p7.toFixed(1)+' mm':'n/d')+'</td></tr>'
     +'<tr><td class="k">Estació més propera</td><td>'+(best?(best.nom+' ('+bd.toFixed(1)+' km)'):'—')+'</td></tr>'
     +'</table>'+(img?('<img src="'+img+'">'):'<p class="k">Sense dades meteo de l\'estació per a la gràfica.</p>')
-    +'<p class="k" style="font-size:11px;margin-top:16px">Generat '+new Date().toLocaleString('ca-ES')+' · Bombers GRAF · Llamps XDDE (Meteocat) + pluja radar (AEMET)</p>'
+    +'<p class="k" style="font-size:11px;margin-top:16px">Generat '+new Date().toLocaleString('ca-ES')+' · Bombers GRAF · Llamps XDDE (Meteocat) + pluja d\'estacions · base satèl·lit Esri</p>'
     +'<button onclick="window.print()">🖨 Imprimir</button></body></html>';
   w.document.write(html); w.document.close();
 }
@@ -2893,25 +2928,30 @@ const VentLayer=L.Layer.extend({
 // ---- superfície interpolada (IDW) de precipitació acumulada ----
 let precLayer=null, precGrid=null;
 const PREC_BBOX=[0.05,3.40,40.45,42.95];   // lon0,lon1,lat0,lat1 (Catalunya + marge)
-function calculaPrecGrid(){
-  precGrid=null; if(!DATA) return;
+// IDW millorat: potència 3 (menys borrós, pics més marcats), radi d'influència ~33 km i
+// TALL per proximitat ~15 km -> NOMÉS pinta on hi ha una estació prou a prop (no tot el mapa).
+function idwGrid(period){
+  if(!DATA) return null;
   const pts=[];
   DATA.estacions.forEach(st=>{ if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)) return;
-    const v=getVal(st,'pacum'); if(v==null||isNaN(v)) return; pts.push([st.lat,st.lon,v]); });
-  if(pts.length<3) return;
-  const B=PREC_BBOX, nx=120, ny=104, val=new Float32Array(nx*ny); val.fill(NaN);
-  const R=0.42, R2=R*R, cosL=Math.cos(41.7*Math.PI/180);   // IDW radi ~40 km, potència 2
+    const p=(st.actual&&st.actual.pacum)?st.actual.pacum[period]:null;
+    if(p==null||isNaN(p)) return; pts.push([st.lat,st.lon,+p]); });
+  if(pts.length<3) return null;
+  const B=PREC_BBOX, nx=140, ny=120, val=new Float32Array(nx*ny); val.fill(NaN);
+  const R2=0.30*0.30, RN2=0.14*0.14, cosL=Math.cos(41.7*Math.PI/180);
   for(let j=0;j<ny;j++){ const lat=B[2]+(B[3]-B[2])*j/(ny-1);
     for(let i=0;i<nx;i++){ const lon=B[0]+(B[1]-B[0])*i/(nx-1);
-      let num=0,den=0,near=false;
+      let num=0,den=0,dmin=1e9;
       for(let k=0;k<pts.length;k++){ const dlat=pts[k][0]-lat, dlon=(pts[k][1]-lon)*cosL, d2=dlat*dlat+dlon*dlon;
-        if(d2>R2) continue; near=true;
-        if(d2<1e-9){ num=pts[k][2]; den=1; break; }
-        const w=1/d2; num+=w*pts[k][2]; den+=w; }
-      if(near&&den>0) val[j*nx+i]=num/den;
+        if(d2<dmin)dmin=d2;
+        if(d2>R2) continue;
+        if(d2<1e-9){ num=pts[k][2]; den=1; dmin=0; break; }
+        const w=1/(d2*Math.sqrt(d2)); num+=w*pts[k][2]; den+=w; }   // 1/d^3
+      if(den>0 && dmin<=RN2) val[j*nx+i]=num/den;                    // només amb estació a <~15 km
     } }
-  precGrid={bbox:B,nx,ny,val};
+  return {bbox:B,nx,ny,val};
 }
+function calculaPrecGrid(){ precGrid=idwGrid(pacumPeriode); }
 const PrecipLayer=L.Layer.extend({
   onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','prec-cv');c.style.position='absolute';c.style.pointerEvents='none';
     const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
