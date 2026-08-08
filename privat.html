@@ -651,7 +651,7 @@
     <button class="btn small" id="conatsClose">✕</button>
   </div>
   <div id="conatsList" style="padding:6px 10px;overflow:auto"></div>
-  <div class="muted" style="font-size:10px;padding:2px 10px 9px">Llamps <b>núvol-terra</b> (6 h) en zona seca (&lt; 2 mm/6 h, pluja d'estacions), agrupats. Passa el ratolí per ressaltar-los al mapa; clica per al detall imprimible.</div>
+  <div class="muted" style="font-size:10px;padding:2px 10px 9px">Llamps <b>núvol-terra</b> (6 h) en zona seca (&lt; 2 mm/6 h, <b>radar QPE</b>), només a Catalunya, agrupats. Passa el ratolí per ressaltar-los al mapa; clica per al detall imprimible.</div>
 </div>
 
 <div id="estModal" style="display:none;position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.62);align-items:center;justify-content:center">
@@ -1515,7 +1515,7 @@ $('pacumFont').onchange=()=>{ pacumFont=$('pacumFont').value; precGrid=null;
 $('pacumSurf').onchange=()=>actualitzaPrecLayer();
 // Baixador ROBUST de la graella QPE: reintenta (la branca 'qpe' es reescriu amb force-push
 // cada ~15 min i el raw de GitHub pot donar un 404/error momentani). Cau a qpeCache.
-async function _baixaQPE(period, tries=3){
+async function _baixaQPE(period, tries=5){
   if(qpeCache[period]) return {G:qpeCache[period], meta:qpeMetaCache[period]||null};
   let lastErr;
   for(let a=0;a<tries;a++){
@@ -1528,7 +1528,7 @@ async function _baixaQPE(period, tries=3){
       const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val};
       qpeCache[period]=G; qpeMetaCache[period]={obs:p.obs,biaix:p.biaix};
       return {G, meta:qpeMetaCache[period]};
-    }catch(e){ lastErr=e; if(a<tries-1) await new Promise(res=>setTimeout(res, 500*(a+1))); }
+    }catch(e){ lastErr=e; if(a<tries-1) await new Promise(res=>setTimeout(res, 600*Math.pow(1.6,a))); }   // backoff: 0.6,1,1.5,2.5 s
   }
   throw lastErr;
 }
