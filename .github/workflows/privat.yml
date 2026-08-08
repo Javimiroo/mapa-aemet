@@ -89,7 +89,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PUB=$(mktemp -d)
-          for f in dades_privat.enc vent_privat.enc; do
+          for f in dades_privat.enc vent_privat.enc llamps.enc; do
             [ -f "$f" ] && cp "$f" "$PUB/" || echo "avis: $f no existeix"
           done
           if [ -z "$(ls -A "$PUB")" ]; then echo "res a publicar"; exit 0; fi
