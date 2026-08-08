@@ -1513,24 +1513,45 @@ $('pacumPer').onchange=()=>{ pacumPeriode=$('pacumPer').value; precGrid=null; re
 $('pacumFont').onchange=()=>{ pacumFont=$('pacumFont').value; precGrid=null;
   if(pacumFont==='qpe') carregaQPE(pacumPeriode); actualitzaPrecLayer(); renderLegend(); render(); };
 $('pacumSurf').onchange=()=>actualitzaPrecLayer();
+// Baixador ROBUST de la graella QPE: reintenta (la branca 'qpe' es reescriu amb force-push
+// cada ~15 min i el raw de GitHub pot donar un 404/error momentani). Cau a qpeCache.
+async function _baixaQPE(period, tries=3){
+  if(qpeCache[period]) return {G:qpeCache[period], meta:qpeMetaCache[period]||null};
+  let lastErr;
+  for(let a=0;a<tries;a++){
+    try{
+      const r=await fetch(QPE_URL+'qpe_'+period+'.enc?_='+Date.now(),{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const p=await desxifra(await r.json(),PASS);
+      const mb=b64(p.mask), dd=b64(p.d), tot=p.nx*p.ny, val=new Float32Array(tot); val.fill(NaN);
+      let k=0; for(let i=0;i<tot;i++){ if((mb[i>>3]>>(7-(i&7)))&1) val[i]=dd[k++]*p.esc; }
+      const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val};
+      qpeCache[period]=G; qpeMetaCache[period]={obs:p.obs,biaix:p.biaix};
+      return {G, meta:qpeMetaCache[period]};
+    }catch(e){ lastErr=e; if(a<tries-1) await new Promise(res=>setTimeout(res, 500*(a+1))); }
+  }
+  throw lastErr;
+}
+let qpeSeq=0;                                  // guarda anti-cursa: només s'aplica l'última petició
 async function carregaQPE(period){
   if(pacumFont!=='qpe') return;
   if(qpeCache[period]){ precGrid=qpeCache[period]; qpeInfo=qpeMetaCache[period]||null; actualitzaEscalaPacum(); render(); renderLegend(); if(precLayer)precLayer.redraw(); return; }
   if(!PASS){ $('legend').innerHTML='<div class="muted">Cal entrar amb contrasenya per veure la QPE de radar (xifrada).</div>'; return; }
+  const seq=++qpeSeq;
+  $('status').innerHTML='Carregant QPE de radar · '+(PACUM_LAB[period]||period)+'…';
   try{
-    const r=await fetch(QPE_URL+'qpe_'+period+'.enc?_='+Date.now(),{cache:'no-store'});
-    if(!r.ok){ precGrid=null; if(precLayer)precLayer.redraw();
-      $('status').innerHTML='QPE de radar: encara no disponible per a «'+(PACUM_LAB[period]||period)+'» (el buffer s\'està omplint).'; return; }
-    const p=await desxifra(await r.json(),PASS);
-    const mb=b64(p.mask), dd=b64(p.d), tot=p.nx*p.ny, val=new Float32Array(tot); val.fill(NaN);
-    let k=0; for(let i=0;i<tot;i++){ if((mb[i>>3]>>(7-(i&7)))&1) val[i]=dd[k++]*p.esc; }
-    const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val}; qpeCache[period]=G; precGrid=G;
-    qpeMetaCache[period]={obs:p.obs,biaix:p.biaix}; qpeInfo=qpeMetaCache[period];
+    const {G,meta}=await _baixaQPE(period);
+    if(seq!==qpeSeq || pacumFont!=='qpe' || period!==pacumPeriode) return;   // resposta vella: no toques la vista actual
+    precGrid=G; qpeInfo=meta;
     actualitzaEscalaPacum(); render();          // recolora estacions + superfície amb l'escala dinàmica
     if(precLayer)precLayer.redraw(); renderLegend();
-    const hh=p.obs?new Date(p.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'?';
-    $('status').innerHTML='Pluja acumulada · <b>QPE radar+estacions</b> · '+(PACUM_LAB[period]||period)+' · <b>radar de les '+hh+'</b>'+(p.biaix!=null?(' · biaix estacions ×'+p.biaix):'');
-  }catch(e){ precGrid=null; if(precLayer)precLayer.redraw(); $('status').innerHTML='No s\'ha pogut carregar la QPE ('+(e.message||e)+').'; }
+    const hh=meta&&meta.obs?new Date(meta.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'?';
+    $('status').innerHTML='Pluja acumulada · <b>QPE radar+estacions</b> · '+(PACUM_LAB[period]||period)+' · <b>radar de les '+hh+'</b>'+(meta&&meta.biaix!=null?(' · biaix estacions ×'+meta.biaix):'');
+  }catch(e){
+    if(seq!==qpeSeq || pacumFont!=='qpe' || period!==pacumPeriode) return;   // ja estem en un altre període: no esborres res
+    precGrid=null; if(precLayer)precLayer.redraw();
+    $('status').innerHTML='QPE de radar: encara no disponible per a «'+(PACUM_LAB[period]||period)+'» (buffer omplint-se o tall puntual). Torna-ho a provar en uns segons.';
+  }
 }
 ['showVal','onlyVar','fade','hideNoMatch','stale','netAemet','netMeteocat','netAemetCV','netAemetCentre'].forEach(id=>$(id).addEventListener('change',render));
 $('staleH').addEventListener('input',render);
@@ -2754,14 +2775,7 @@ let conatsZones=[];
 async function obteQPEGrid(period){          // torna la graella QPE (cau o baixa) SENSE tocar el mapa
   if(qpeCache[period]) return qpeCache[period];
   if(!PASS) return null;
-  try{
-    const r=await fetch(QPE_URL+'qpe_'+period+'.enc?_='+Date.now(),{cache:'no-store'});
-    if(!r.ok) return null;
-    const p=await desxifra(await r.json(),PASS);
-    const mb=b64(p.mask), dd=b64(p.d), tot=p.nx*p.ny, val=new Float32Array(tot); val.fill(NaN);
-    let k=0; for(let i=0;i<tot;i++){ if((mb[i>>3]>>(7-(i&7)))&1) val[i]=dd[k++]*p.esc; }
-    const G={bbox:p.bbox,nx:p.nx,ny:p.ny,val:val}; qpeCache[period]=G; qpeMetaCache[period]={obs:p.obs,biaix:p.biaix}; return G;
-  }catch(e){ return null; }
+  try{ const {G}=await _baixaQPE(period); return G; }catch(e){ return null; }
 }
 function pluAtRaw(G,lat,lon){                  // mm al punt · NaN si NO hi ha dada (fora de cobertura/Catalunya)
   if(!G) return NaN; const B=G.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3]) return NaN;
