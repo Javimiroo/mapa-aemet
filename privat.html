@@ -281,8 +281,9 @@
         <label class="switch"><input type="checkbox" id="radarOn"> Mostra la capa</label>
         <label style="display:block;margin-top:7px;font-size:12px">Producte
           <select id="radarProd" style="width:100%;margin-top:3px;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px">
-            <option value="echotop_composit">Echotop — alçada dels tops</option>
-            <option value="composit">Reflectivitat (compòsit)</option>
+            <option value="echotop_smc">Echotop Meteocat (SMC) — Catalunya</option>
+            <option value="echotop_composit">Echotop AEMET — alçada dels tops</option>
+            <option value="composit">Reflectivitat AEMET (compòsit)</option>
           </select>
         </label>
         <div id="radarBar" style="display:none;margin-top:9px">
@@ -302,7 +303,7 @@
           </div>
           <button class="btn small" id="estBtn" style="width:100%;margin-top:8px">📊 Estudi d'àrea (alçada màx)</button>
         </div>
-        <p class="muted" style="font-size:11px;margin:8px 0 0">La capa <b>segueix la màquina del temps</b>. La barra <b>Dia</b> escombra <b>tot el dia</b> d'echotop/radar de colp (arrossega-la); els botons <b>◀ ▶</b> i <b>Animar</b> van frame a frame. En eixos modes s'<b>amaguen les dades meteo</b> per veure'l net; <b>mou la barra del temps de baix per tornar</b>. Radar/echotop d'AEMET (tota la península).</p>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">La capa <b>segueix la màquina del temps</b>. La barra <b>Dia</b> escombra <b>tot el dia</b> d'echotop/radar de colp (arrossega-la); els botons <b>◀ ▶</b> i <b>Animar</b> van frame a frame. En eixos modes s'<b>amaguen les dades meteo</b> per veure'l net; <b>mou la barra del temps de baix per tornar</b>. <b>Echotop Meteocat (SMC)</b>: Catalunya, s'actualitza cada ~6 min (recomanat). Echotop/reflectivitat <b>AEMET</b>: tota la península.</p>
       </div>
     </div>
 
@@ -1710,8 +1711,9 @@ async function generarImatge(){
         const img=radOverlay.getElement();
         if(img && img.complete && img.naturalWidth){
           const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
-          const nw=p.mapObj.latLngToContainerPoint([RAD_BOUNDS[1][0],RAD_BOUNDS[0][1]]);
-          const se=p.mapObj.latLngToContainerPoint([RAD_BOUNDS[0][0],RAD_BOUNDS[1][1]]);
+          const rb=radOverlay.getBounds();       // límits reals de la capa (AEMET fix o SMC per frame)
+          const nw=p.mapObj.latLngToContainerPoint([rb.getNorth(),rb.getWest()]);
+          const se=p.mapObj.latLngToContainerPoint([rb.getSouth(),rb.getEast()]);
           const oa=c.globalAlpha; c.globalAlpha=(radOverlay.options.opacity!=null?radOverlay.options.opacity:0.88);
           c.drawImage(img, x+nw.x*sxp, mapY+nw.y*syp, (se.x-nw.x)*sxp, (se.y-nw.y)*syp);
           c.globalAlpha=oa;
@@ -2342,6 +2344,15 @@ async function zonaCalcula(){         // dispara el càlcul a partir de la flama
 // ---------------- capa Radar / Echotop (AEMET, tota la península) ----------------
 const RADAR_BASE='https://javimiroo.github.io/radar-arxiu/';
 const RAD_BOUNDS=[[35.5,-9.5],[44.0,4.5]];
+// Echotop del Servei Meteorològic de Catalunya (repo públic echotops-viewer). Ve ja en
+// lat/lon (imatge equirectangular amb límits per frame), s'actualitza cada ~6 min.
+const SMC_BASE='https://pauguarquec.github.io/echotops-viewer/data/png/';
+let smcManifest=null, radIsSMC=false;
+function smcTsToMs(ts){ const y=+ts.slice(0,4),mo=+ts.slice(4,6)-1,d=+ts.slice(6,8),h=+ts.slice(9,11),mi=+ts.slice(11,13); return Date.UTC(y,mo,d,h,mi); }
+function radFmtTs(ts){                        // AEMET "…T…:00Z" o SMC "YYYYMMDD_HHMM"
+  if(/^\d{8}_\d{4}$/.test(ts)) return ts.slice(6,8)+'/'+ts.slice(4,6)+' '+ts.slice(9,11)+':'+ts.slice(11,13);
+  return ts.replace('T',' ').replace(':00Z','');
+}
 function _radMercY(lat){return Math.log(Math.tan(Math.PI/4+lat*Math.PI/360));}
 const _RMN=_radMercY(44.0), _RMS=_radMercY(35.5);
 let radManifest=null, radFrames=[], radOverlay=null, radAnim=null, radWarpCache={}, radTok=0, radLast=-1;
@@ -2365,24 +2376,31 @@ function radUrl(path,cb){
   img.onerror=()=>cb(full);
   img.src=full;
 }
-async function radCarregaManifest(){
-  const inf=$('radarInfo'); if(inf) inf.textContent='carregant…';
-  try{ const r=await fetch(RADAR_BASE+'manifest.json?_='+Date.now(),{cache:'no-store'});
-       radManifest=await r.json(); radConstrueixFrames(); }
-  catch(e){ radManifest=null; if(inf) inf.textContent='error'; }
-}
-function radConstrueixFrames(){
+async function radCarregaManifest(){ return radConstrueixFrames(); }
+async function radConstrueixFrames(){
   radAturaAnim();
+  const inf=$('radarInfo'); if(inf) inf.textContent='carregant…';
   const prod=$('radarProd').value;
-  const dict=(radManifest && (prod==='composit'?radManifest.composit:radManifest.echotop_composit))||{};
-  radFrames=Object.keys(dict).sort().map(ts=>({ts:ts,t:Date.parse(ts),path:dict[ts]}));
+  radIsSMC=(prod==='echotop_smc');
+  try{
+    if(radIsSMC){
+      const r=await fetch(SMC_BASE+'manifest.json?_='+Date.now(),{cache:'no-store'}); smcManifest=await r.json();
+      const ts=(smcManifest&&smcManifest.timestamps)||[];
+      const bnd=(smcManifest&&smcManifest.bounds)||{};
+      radFrames=ts.map(t=>({ts:t,t:smcTsToMs(t),path:SMC_BASE+t+'.png',bounds:bnd[t]||null})).sort((a,b)=>a.t-b.t);
+    } else {
+      const r=await fetch(RADAR_BASE+'manifest.json?_='+Date.now(),{cache:'no-store'}); radManifest=await r.json();
+      const dict=(prod==='composit'?radManifest.composit:radManifest.echotop_composit)||{};
+      radFrames=Object.keys(dict).sort().map(t=>({ts:t,t:Date.parse(t),path:dict[t],bounds:null}));
+    }
+  }catch(e){ if(inf) inf.textContent='error'; radFrames=[]; }
   $('radarBar').style.display=radFrames.length?'block':'none';
   radLast=-1; radSetSliderBounds(); radSync();
 }
 function radSetSliderBounds(){ const s=$('radarFrame'); if(!s)return; const n=radIdxDia().length; s.max=Math.max(0,n-1); }
 function radSetSlider(){ const s=$('radarFrame'); if(s) s.value=radModeK; }
 // carrega (warp + cau) tots els frames del dia perquè escombrar siga instantani
-function radPreloadDia(){ radIdxDia().forEach(i=>{ const f=radFrames[i]; if(f) radUrl(f.path,function(){}); }); }
+function radPreloadDia(){ radIdxDia().forEach(i=>{ const f=radFrames[i]; if(!f)return; if(radIsSMC){ const im=new Image(); im.src=f.path; } else radUrl(f.path,function(){}); }); }
 // salta a un frame del dia per posició (des de la barra); entra en mode echotop si cal
 function radModeGoto(k){
   radAturaAnim();
@@ -2403,13 +2421,22 @@ function radShowFrame(i){
   if(i<0){ if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} radLast=-1;
     const inf=$('radarInfo'); if(inf) inf.textContent='sense dada a esta hora'; radAltLoaded=false; return; }
   const f=radFrames[i];
+  if(radIsSMC){                                // SMC: imatge lat/lon directa, límits per frame, sense warp ni _alt
+    radAltLoaded=false;
+    if(i===radLast && radOverlay) return;
+    radLast=i; ++radTok;
+    const nou=L.imageOverlay(f.path, f.bounds||RAD_BOUNDS, {opacity:($('radarOpac').value/100),zIndex:350,crossOrigin:'anonymous'}).addTo(map);
+    if(radOverlay) map.removeLayer(radOverlay); radOverlay=nou;
+    const inf=$('radarInfo'); if(inf) inf.textContent=radFmtTs(f.ts)+' UTC · SMC';
+    return;
+  }
   if(radModeOn){ if($('radarProd').value!=='composit') radCarregaAlt(f.path); else radAltLoaded=false; }
   if(i===radLast && radOverlay) return;
   radLast=i; const tok=++radTok;
   radUrl(f.path,url=>{ if(tok!==radTok) return;
     const nou=L.imageOverlay(url,RAD_BOUNDS,{opacity:($('radarOpac').value/100),zIndex:350}).addTo(map);
     if(radOverlay) map.removeLayer(radOverlay); radOverlay=nou; });
-  const inf=$('radarInfo'); if(inf) inf.textContent=f.ts.replace('T',' ').replace(':00Z',' UTC');
+  const inf=$('radarInfo'); if(inf) inf.textContent=radFmtTs(f.ts)+' UTC';
 }
 function radSync(){        // pinta el frame més pròxim a l'hora de la màquina del temps
   if(!$('radarOn').checked || radAnim) return;
@@ -2441,13 +2468,15 @@ function radAnimaToggle(){
   radAnim=setInterval(()=>{ radModeK=(radModeK+1)%radModeIdx.length; radShowFrame(radModeIdx[radModeK]); radSetSlider(); },650);
 }
 function radLleva(){ radAturaAnim(); radModeOn=false; radMeteoHide(false); radAltHide(); if(radOverlay){map.removeLayer(radOverlay);radOverlay=null;} $('radarBar').style.display='none'; radLast=-1; }
-$('radarOn').addEventListener('change',e=>{ if(e.target.checked){ if(!radManifest) radCarregaManifest(); else radConstrueixFrames(); } else radLleva(); });
+$('radarOn').addEventListener('change',e=>{ if(e.target.checked) radConstrueixFrames(); else radLleva(); });
 $('radarProd').addEventListener('change',()=>{ if($('radarOn').checked){ radModeExit(); radConstrueixFrames(); } });
 $('radarPrev').addEventListener('click',()=>radModeStep(-1));
 $('radarNext').addEventListener('click',()=>radModeStep(1));
 $('radarPlay').addEventListener('click',radAnimaToggle);
 $('radarFrame').addEventListener('input',e=>radModeGoto(+e.target.value));   // escombra tot el dia
 $('radarOpac').addEventListener('input',()=>{ if(radOverlay) radOverlay.setOpacity($('radarOpac').value/100); });
+// manté la capa al dia (l'SMC arriba cada ~6 min); no refresca si estàs escombrant o animant
+setInterval(()=>{ if($('radarOn').checked && !radModeOn && !radAnim) radConstrueixFrames(); }, 120000);
 
 // ── alçada del tope al cursor (NOMÉS en mode echotop) ──
 const RAD_ALT={1:'1–2 km',2:'2–3 km',3:'3–4 km',4:'4–5 km',5:'5–6 km',6:'6–7 km',7:'7–8 km',8:'8–10 km',9:'10–12 km',10:'12–14 km',11:'14–16 km',12:'16–20 km',13:'>20 km'};
@@ -2485,7 +2514,7 @@ const EST_KM={1:1.5,2:2.5,3:3.5,4:4.5,5:5.5,6:6.5,7:7.5,8:9,9:11,10:13,11:15,12:
 let estSel=false, estP0=null, estRect=null, estBusy=false, estSerie=[], estBounds=null;
 function estInicia(){
   if(!radFrames.length){ alert('Activa la capa Echotop primer.'); return; }
-  if($('radarProd').value==='composit'){ alert('L\'estudi d\'alçada només va amb el producte Echotop.'); return; }
+  if($('radarProd').value!=='echotop_composit'){ alert('L\'estudi d\'alçada del tope de moment només va amb l\'Echotop AEMET.'); return; }
   if(!radIdxDia().length){ alert('No hi ha frames d\'echotop d\'este dia a l\'arxiu.'); return; }
   if(!radModeOn) radModeEnter();
   estSel=true; estP0=null; if(estRect){ map.removeLayer(estRect); estRect=null; }
