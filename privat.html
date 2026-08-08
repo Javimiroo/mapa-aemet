@@ -307,6 +307,24 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>⚡ Llamps (XDDE Meteocat)</h2>
+      <div class="cardbody">
+        <label class="switch"><input type="checkbox" id="llampsOn"> Mostra la capa</label>
+        <div class="row" style="gap:6px;align-items:center;margin-top:6px">
+          <span class="muted" style="font-size:11px">Finestra</span>
+          <select id="llampsWin" style="flex:1;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:13px">
+            <option value="0.5">Última 30 min</option>
+            <option value="1">Última 1 h</option>
+            <option value="3" selected>Últimes 3 h</option>
+            <option value="6">Últimes 6 h</option>
+          </select>
+        </div>
+        <div id="llampsInfo" class="muted" style="font-size:11px;margin-top:6px">—</div>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">🔴 núvol-terra (CG, els que encenen) · 🔵 núvol-núvol (IC). <b>Segueix la màquina del temps.</b> Font: XDDE Meteocat.</p>
+      </div>
+    </div>
+
     <div class="card coll collapsed">
       <h2>📅 Dia històric (arxiu)</h2>
       <div class="cardbody">
@@ -1324,6 +1342,7 @@ function setTimeT(T){
   else { if(bar)bar.classList.add('tt'); $('tbLabel').textContent='🕘 '+fmtTemps(T); }
   if(ventClickOn&&ventLayer) ventLayer.redraw();   // el camp de vent segueix l'hora
   if(typeof radSync==='function'){ if(radModeOn) radModeExit(); else radSync(); }  // radar/echotop segueix l'hora
+  if(typeof llampsLayer!=='undefined' && llampsLayer && llampsOn){ llampsLayer.redraw(); llampsInfoAct(); }  // llamps segueixen l'hora
   render();
 }
 function tbStep(d){
@@ -2635,6 +2654,49 @@ async function carregaVent(){
     if(ventLayer&&ventClickOn) ventLayer.redraw();
   }catch(e){}
 }
+// ---------------- capa Llamps (XDDE Meteocat) ----------------
+const LLAMPS_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/llamps.enc';
+let llampsData=null, llampsLayer=null, llampsOn=false;
+async function carregaLlamps(){
+  try{
+    let r=await fetch(LLAMPS_URL+'?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+    if(!r||!r.ok) r=await fetch('llamps.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
+    if(!r||!r.ok) return;
+    const p=await desxifra(await r.json(), PASS);
+    const arr=(p.llamps||[]).map(x=>({t:Date.parse(x.t),lat:x.lat,lon:x.lon,cg:x.cg,kA:x.kA})).filter(x=>isFinite(x.t));
+    llampsData={t:arr, generat:p.generat};
+    if(llampsLayer&&llampsOn) llampsLayer.redraw();
+    llampsInfoAct();
+  }catch(e){}
+}
+function llampsRefT(){ return (typeof timeT!=='undefined'&&timeT!=null)?timeT:((toDate(DATA&&DATA.generat)||new Date()).getTime()); }
+function llampsWinMs(){ return (parseFloat($('llampsWin').value)||3)*3600000; }
+function llampsInfoAct(){ const inf=$('llampsInfo'); if(!inf)return; if(!llampsData){inf.textContent='—';return;}
+  const T=llampsRefT(), w=llampsWinMs(); let n=0,cg=0; llampsData.t.forEach(x=>{ if(x.t<=T&&x.t>T-w){ n++; if(x.cg)cg++; } });
+  inf.innerHTML='<b>'+n+'</b> llamps · '+cg+' núvol-terra'; }
+const LlampsLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    if(!llampsOn||!llampsData)return; const T=llampsRefT(), w=llampsWinMs(), arr=llampsData.t;
+    for(let i=0;i<arr.length;i++){ const x=arr[i]; if(x.t>T||x.t<=T-w)continue;
+      const p=m.latLngToContainerPoint([x.lat,x.lon]); if(p.x<-6||p.y<-6||p.x>s.x+6||p.y>s.y+6)continue;
+      const al=Math.max(0.30,1-((T-x.t)/w)*0.8);       // els recents més opacs
+      if(x.cg){ ctx.strokeStyle='rgba(225,20,20,'+al+')'; ctx.lineWidth=1.8; const r=3.3;
+        ctx.beginPath();ctx.moveTo(p.x-r,p.y);ctx.lineTo(p.x+r,p.y);ctx.moveTo(p.x,p.y-r);ctx.lineTo(p.x,p.y+r);ctx.stroke(); }
+      else { ctx.fillStyle='rgba(40,130,255,'+al+')'; ctx.beginPath();ctx.arc(p.x,p.y,2.1,0,6.283);ctx.fill(); }
+    }
+  }
+});
+$('llampsOn').addEventListener('change',e=>{ llampsOn=e.target.checked;
+  if(llampsOn){ if(!llampsData) carregaLlamps(); if(!llampsLayer) llampsLayer=new LlampsLayer(); llampsLayer.addTo(map); llampsLayer.redraw(); llampsInfoAct(); }
+  else if(llampsLayer){ map.removeLayer(llampsLayer); } });
+$('llampsWin').addEventListener('change',()=>{ if(llampsLayer&&llampsOn) llampsLayer.redraw(); llampsInfoAct(); });
+setInterval(()=>{ if(llampsOn) carregaLlamps(); }, 120000);
 function ventColor(s){const st=[[0,[95,160,255]],[2,[0,180,255]],[4,[0,215,110]],[6,[200,225,0]],[8,[255,150,0]],[10,[235,0,0]]];
   if(s<=0)return'rgb(40,70,170)'; if(s>=10)return'rgb(200,0,0)';
   for(let m=1;m<st.length;m++){if(s<=st[m][0]){const a=st[m-1],b=st[m],t=(s-a[0])/(b[0]-a[0]);const c=a[1].map((v,q)=>Math.round(v+(b[1][q]-v)*t));return'rgb('+c[0]+','+c[1]+','+c[2]+')';}}return'rgb(200,0,0)';}

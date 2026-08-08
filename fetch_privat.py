@@ -408,6 +408,32 @@ def accumula_precipitacio(estacions):
     print("  precipitació acumulada: %d estacions (referència %s UTC)" % (n, tref.strftime("%Y-%m-%d %H:%M")))
 
 
+# ============================ llamps (XDDE Meteocat) ============================
+XDDE_HORES = 6      # finestra de llamps que baixem (últimes N hores)
+
+
+def descarrega_llamps(hores=XDDE_HORES):
+    """Baixa els llamps de la XDDE (Meteocat) de les últimes 'hores' hores (una crida per
+    bloc horari). Retorna [{t, lat, lon, cg, kA}] (cg=True núvol-terra, False núvol-núvol)."""
+    ara = datetime.now(timezone.utc)
+    out = []
+    for k in range(hores, -1, -1):
+        h = ara - timedelta(hours=k)
+        try:
+            resp = mc_get("/xdde/v1/catalunya/%04d/%02d/%02d/%02d" % (h.year, h.month, h.day, h.hour))
+        except Exception as ex:  # noqa
+            print("  avis: llamps %04d-%02d-%02d %02dh no baixats (%s)" % (h.year, h.month, h.day, h.hour, str(ex)[:50]))
+            continue
+        for d in (resp or []):
+            c = d.get("coordenades") or {}
+            la, lo = c.get("latitud"), c.get("longitud")
+            if la is None or lo is None:
+                continue
+            out.append({"t": d.get("data"), "lat": round(float(la), 4), "lon": round(float(lo), 4),
+                        "cg": bool(d.get("nuvolTerra")), "kA": _num(d.get("correntPic"))})
+    return out
+
+
 # ============================ xifratge ============================
 def xifrar(text, password):
     salt = os.urandom(16); iv = os.urandom(12)
@@ -690,6 +716,20 @@ def main():
     except Exception as ex:  # mai ha de bloquejar l'actualització operativa
         print("  AVIS: camp de vents no generat (%s)" % str(ex)[:120])
     print("  ⏱ camp de vent: %.1f s" % (time.perf_counter() - _t))
+
+    # --- llamps (XDDE Meteocat) ---
+    _t = time.perf_counter()
+    try:
+        llamps = descarrega_llamps()
+        payload = {"generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+                   "n": len(llamps), "hores": XDDE_HORES, "llamps": llamps}
+        with open("llamps.enc", "w", encoding="utf-8") as f:
+            json.dump(xifrar(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), PASSWORD), f)
+        ncg = sum(1 for x in llamps if x.get("cg"))
+        print("OK -> llamps.enc  (%d llamps últimes %dh · %d núvol-terra)" % (len(llamps), XDDE_HORES, ncg))
+    except Exception as ex:  # mai ha de bloquejar l'operativa
+        print("  AVIS: llamps no baixats (%s)" % str(ex)[:120])
+    print("  ⏱ llamps: %.1f s" % (time.perf_counter() - _t))
 
     print("Arxivant històric per dies...")
     _t = time.perf_counter()
