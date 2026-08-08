@@ -354,8 +354,8 @@
       <h2>Variable al mapa</h2>
       <select id="var"></select>
       <select id="pacumFont" style="display:none;margin-top:6px">
+        <option value="qpe" selected>Radar + estacions (QPE)</option>
         <option value="idw">Estacions (interpolat IDW)</option>
-        <option value="qpe">Radar + estacions (QPE)</option>
       </select>
       <select id="pacumPer" style="display:none;margin-top:6px">
         <option value="1h">Acumulat última 1 h</option>
@@ -769,7 +769,7 @@ function actualitzaEscalaPacum(){
   if(precGrid&&precGrid.val){ const a=precGrid.val; for(let i=0;i<a.length;i++){ if(!isNaN(a[i])&&a[i]>m) m=a[i]; } }
   pacumMax=_ceilNicePacum(m);
 }
-let pacumFont = 'idw';                       // 'idw' (estacions) | 'qpe' (radar+estacions)
+let pacumFont = 'qpe';                       // 'qpe' (radar+estacions, per defecte) | 'idw' (estacions)
 const qpeCache = {};                          // ràsters QPE ja desxifrats per període
 const qpeMetaCache = {};                       // {period: {obs, biaix}}
 let qpeInfo = null;                            // meta de la QPE mostrada ara (per a la llegenda/hora)
@@ -2773,11 +2773,15 @@ function pluAt(G,lat,lon){ const v=pluAtRaw(G,lat,lon); return isNaN(v)?0:v; }
 let conatsLayer=null, conatsObert=false;
 async function calculaConats(){
   if(!llampsData) await carregaLlamps();
-  const badge=$('conatsBadge'), G=idwGrid('6h');          // pluja MESURADA d'estacions (6h)
+  const badge=$('conatsBadge'), G=await obteQPEGrid('6h');   // pluja QPE (radar+estacions), 6h
   if(!llampsData || !G){ conatsZones=[]; if(badge) badge.style.display='none'; conatsDibuixaZones(); return; }
+  const ests=(DATA?DATA.estacions:[]).filter(s=>s.lat!=null&&s.lon!=null&&xarxaActiva(s));
+  const cosL=Math.cos(41.7*Math.PI/180), CAT2=0.30*0.30;      // "dins Catalunya" = estació a <~33 km
+  const dinsCat=(lat,lon)=>{ let m=1e9; for(let i=0;i<ests.length;i++){ const dl=lat-ests[i].lat, dg=(lon-ests[i].lon)*cosL, d=dl*dl+dg*dg; if(d<m){m=d; if(m<=CAT2) return true;} } return m<=CAT2; };
   const Tref=llampsRefT(), T0=Tref-CONAT_HORES*3600000;
   const secs=llampsData.t.filter(x=>{ if(!x.cg || x.t<=T0 || x.t>Tref) return false;
-    const r=pluAtRaw(G,x.lat,x.lon); return !isNaN(r) && r<CONAT_MM; });   // dins cobertura (Catalunya) I sec
+    if(!dinsCat(x.lat,x.lon)) return false;              // només Catalunya (cobertura d'estacions)
+    return pluAt(G,x.lat,x.lon) < CONAT_MM; });          // sec segons QPE (NaN=0=sec)
   const dlat=CONAT_KM/111, buckets={};                    // agrupació per graella ~2 km
   secs.forEach(x=>{ const dlon=CONAT_KM/(111*Math.cos(x.lat*Math.PI/180));
     const key=Math.round(x.lat/dlat)+'|'+Math.round(x.lon/dlon); (buckets[key]=buckets[key]||[]).push(x); });
@@ -2851,8 +2855,8 @@ function graficaConatImg(st,Tref){
   }catch(e){ return null; }
 }
 async function conatDetall(z){
-  const G6=idwGrid('6h'), G24=idwGrid('24h'), G7=idwGrid('7d');
-  const p6=pluAtRaw(G6,z.lat,z.lon), p24=pluAtRaw(G24,z.lat,z.lon), p7=pluAtRaw(G7,z.lat,z.lon);
+  const G6=await obteQPEGrid('6h'), G24=await obteQPEGrid('24h'), G7=await obteQPEGrid('7d');
+  const p6=G6?pluAt(G6,z.lat,z.lon):NaN, p24=G24?pluAt(G24,z.lat,z.lon):NaN, p7=G7?pluAt(G7,z.lat,z.lon):NaN;
   let best=null,bd=Infinity; (DATA?DATA.estacions:[]).forEach(st=>{ if(st.lat==null||st.lon==null)return;
     const d=haversineKm(L.latLng(z.lat,z.lon),L.latLng(st.lat,st.lon)); if(d<bd){bd=d;best=st;} });
   const img=best?graficaConatImg(best,z.tmax):null;
@@ -2868,10 +2872,10 @@ async function conatDetall(z){
     +'<tr><td class="k">Hora (UTC)</td><td>'+q(z.tmin)+(z.n>1?(' – '+q(z.tmax)):'')+'</td></tr>'
     +'<tr><td class="k">Llamps núvol-terra a la zona</td><td class="big">'+z.n+'</td></tr>'
     +'<tr><td class="k">Intensitat màx</td><td>'+(z.kA?Math.round(Math.abs(z.kA))+' kA':'—')+'</td></tr>'
-    +'<tr><td class="k">Pluja (estacions) al punt</td><td>6 h: <b>'+(isFinite(p6)?p6.toFixed(1):'n/d')+' mm</b> &nbsp;·&nbsp; 24 h: '+(isFinite(p24)?p24.toFixed(1)+' mm':'n/d')+' &nbsp;·&nbsp; 7 dies: '+(isFinite(p7)?p7.toFixed(1)+' mm':'n/d')+'</td></tr>'
+    +'<tr><td class="k">Pluja (radar QPE) al punt</td><td>6 h: <b>'+(isFinite(p6)?p6.toFixed(1):'n/d')+' mm</b> &nbsp;·&nbsp; 24 h: '+(isFinite(p24)?p24.toFixed(1)+' mm':'n/d')+' &nbsp;·&nbsp; 7 dies: '+(isFinite(p7)?p7.toFixed(1)+' mm':'n/d')+'</td></tr>'
     +'<tr><td class="k">Estació més propera</td><td>'+(best?(best.nom+' ('+bd.toFixed(1)+' km)'):'—')+'</td></tr>'
     +'</table>'+(img?('<img src="'+img+'">'):'<p class="k">Sense dades meteo de l\'estació per a la gràfica.</p>')
-    +'<p class="k" style="font-size:11px;margin-top:16px">Generat '+new Date().toLocaleString('ca-ES')+' · Bombers GRAF · Llamps XDDE (Meteocat) + pluja d\'estacions · base satèl·lit Esri</p>'
+    +'<p class="k" style="font-size:11px;margin-top:16px">Generat '+new Date().toLocaleString('ca-ES')+' · Bombers GRAF · Llamps XDDE (Meteocat) + pluja radar QPE (AEMET+estacions) · base satèl·lit Esri</p>'
     +'<button onclick="window.print()">🖨 Imprimir</button></body></html>';
   w.document.write(html); w.document.close();
 }
