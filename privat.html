@@ -233,6 +233,14 @@
       #tabs .tab{flex:1 1 auto;min-width:66px;padding:7px 6px;font:600 12px system-ui;color:var(--txt);background:var(--bg);border:1px solid var(--line);border-radius:8px;cursor:pointer;opacity:.6;transition:opacity .12s}
       #tabs .tab:hover{opacity:.85}
       #tabs .tab.actiu{opacity:1;border-color:var(--accent);box-shadow:inset 0 -2px 0 0 var(--accent)}
+      /* elements FLOTANTS sobre el mapa (fora del menú vertical) */
+      #floatTop{position:absolute;top:10px;left:316px;z-index:1200;display:flex;gap:8px;align-items:center;background:rgba(18,20,26,.85);backdrop-filter:blur(4px);padding:6px 8px;border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+      #floatTop #cercaWrap{position:relative;width:230px;margin:0}
+      #floatTop #cerca{width:100%}
+      #floatTop #exportar{width:auto!important;white-space:nowrap;margin:0!important;padding:7px 11px}
+      #floatFons{position:absolute;right:12px;bottom:40px;z-index:1200;display:flex;align-items:center;background:rgba(18,20,26,.85);backdrop-filter:blur(4px);padding:6px 9px;border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+      #floatFons #basemap{background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px}
+      @media(max-width:720px){ #floatTop{left:10px;right:10px} #floatTop #cercaWrap{width:auto;flex:1} }
     </style>
     <div id="tabs">
       <button class="tab actiu" data-t="temps">🌦️ Temps real</button>
@@ -4283,27 +4291,52 @@ async function desaCorreguda(){
   }catch(e){}
 }
 
-// ---- PESTANYES del menú (agrupa les 17 seccions en 4: Temps real / Anàlisi / Incendi / Arxiu) ----
+// ---- PESTANYES + REORGANITZACIÓ del menú ----
 (function(){
-  const MAP=[['Cerca un poble','temps'],['Incendi','incendi'],['Camp de vents','temps'],
-    ['Radar','temps'],['Llamps','temps'],['Dia històric','arxiu'],['Xarxes','temps'],
-    ['Variable al mapa','temps'],['Llindar','analisi'],['Filtre combinat','analisi'],
-    ['Hores consecutives','analisi'],["Comptador d'hores",'analisi'],['Altitud','analisi'],
-    ['Fons del mapa','temps'],['Mapes combinats','analisi'],['Opcions','analisi'],['Dades','temps']];
-  const panel=document.getElementById('panel'); if(!panel) return;
-  panel.querySelectorAll(':scope > .card').forEach(c=>{
-    const h=c.querySelector('h2'), t=h?h.textContent:'';
-    let tab='temps'; for(const kv of MAP){ if(t.indexOf(kv[0])>=0){ tab=kv[1]; break; } }
-    c.dataset.tab=tab;
-  });
+  const panel=document.getElementById('panel'), app=document.getElementById('app');
+  if(!panel||!app) return;
+  const card=(txt)=>{ let r=null; panel.querySelectorAll(':scope > .card').forEach(c=>{ const h=c.querySelector('h2'); if(!r && h && h.textContent.indexOf(txt)>=0) r=c; }); return r; };
+
+  // 1) FLOTANTS sobre el mapa (fora del menú): dalt = Cerca + Generar imatge · baix-dreta = Fons
+  const fTop=document.createElement('div'); fTop.id='floatTop';
+  const fFons=document.createElement('div'); fFons.id='floatFons';
+  app.appendChild(fTop); app.appendChild(fFons);
+  const cercaWrap=document.getElementById('cercaWrap');
+  const exportBtn=document.getElementById('exportar'), expWrap=exportBtn?exportBtn.parentElement:null;
+  if(cercaWrap) fTop.appendChild(cercaWrap);
+  if(exportBtn) fTop.appendChild(exportBtn);
+  if(expWrap) expWrap.style.display='none';                 // amaga el bloc buit (només queda el text d'ajuda)
+  const basemap=document.getElementById('basemap');
+  if(basemap){ const l=document.createElement('span'); l.className='muted'; l.textContent='Fons'; l.style.cssText='font-size:11px;margin-right:6px'; fFons.appendChild(l); fFons.appendChild(basemap); }
+
+  // 2) COMPRIMEIX Radar / Camp de vents / Llamps (afegint el plegat als que no en tenien)
+  ['Camp de vents','Llamps'].forEach(t=>{ const c=card(t); if(c){ c.classList.add('coll','collapsed'); const h=c.querySelector('h2'); if(h) h.addEventListener('click',()=>c.classList.toggle('collapsed')); } });
+  const rad=card('Radar'); if(rad) rad.classList.add('collapsed');
+
+  // 3) PESTANYA de cada secció
+  const set=(txt,tab)=>{ const c=card(txt); if(c) c.dataset.tab=tab; return c; };
+  ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes'].forEach(t=>set(t,'temps'));
+  ['Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Altitud','Mapes combinats'].forEach(t=>set(t,'analisi'));
+  set('Incendi','incendi'); set('Dia històric','arxiu');
+  set('Opcions','hidden'); set('Dades','all');
+  const cc=card('Cerca un poble'); if(cc) cc.dataset.tab='hidden';
+  const cf=card('Fons del mapa'); if(cf) cf.dataset.tab='hidden';
+
+  // 4) ORDRE dins del menú (= ordre al DOM). Dades l'últim -> sempre a baix de tot.
+  ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes',
+   'Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Altitud','Mapes combinats',
+   'Incendi','Dia històric','Opcions','Cerca un poble','Fons del mapa','Dades']
+   .forEach(t=>{ const c=card(t); if(c) panel.appendChild(c); });
+
+  // 5) PESTANYES (Dades i 'all' es mostren sempre; 'hidden' mai)
   function mostraTab(t){
-    panel.querySelectorAll(':scope > .card').forEach(c=>{ c.style.display=(c.dataset.tab===t)?'':'none'; });
+    panel.querySelectorAll(':scope > .card').forEach(c=>{ const dt=c.dataset.tab;
+      c.style.display=(dt===t||dt==='all')?'':'none'; });
     document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('actiu', b.dataset.t===t));
     try{ panel.scrollTop=0; }catch(e){}
   }
   document.querySelectorAll('#tabs .tab').forEach(b=> b.addEventListener('click',()=>mostraTab(b.dataset.t)) );
-  window.mostraTab=mostraTab;
-  mostraTab('temps');
+  window.mostraTab=mostraTab; mostraTab('temps');
 })();
 </script>
 </body>
