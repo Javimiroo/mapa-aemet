@@ -1367,15 +1367,29 @@ async function computeRec(thr){
   const out={};
   for(const idema in perStDay){
     const days=Object.keys(perStDay[idema]).sort();    // AAAA-MM-DD ascendent (cronològic)
-    let streak=0, consecR=0, tot=0, total=0;
+    let streak=0, consecR=0, tot=0, total=0; const dd=[];
     for(const dk of days){ const arr=perStDay[idema][dk]; if(arr.length<3) continue; tot++;
-      const avg=arr.reduce((a,b)=>a+b,0)/arr.length;
+      const avg=arr.reduce((a,b)=>a+b,0)/arr.length; dd.push({dk,avg,n:arr.length});
       if(avg<thr){ streak+=1; consecR=0; total+=1; }   // dia sense recuperació -> allarga la ratxa i suma al total
       else { consecR+=1; if(consecR>=2){ streak=0; consecR=0; } }   // 2 dies seguits recuperant -> trenca; 1 dia solt es tolera
     }
-    if(tot>0) out[idema]={streak, total, tot};         // streak = ratxa actual · total = dies sense recuperar (30d)
+    if(tot>0) out[idema]={streak, total, tot, days:dd, thr};   // days = desglossament per dia (per inspeccionar)
   }
   return out;
+}
+function recDetallHTML(st,r){
+  const thr=r.thr, esT=recMode&&recMode.mode==='total';
+  // marca quins dies formen la RATXA actual (des de l'últim trencament per 2 recuperacions seguides)
+  let consecR=0, lastReset=-1;
+  for(let i=0;i<r.days.length;i++){ if(r.days[i].avg>=thr){ consecR++; if(consecR>=2) lastReset=i; } else consecR=0; }
+  const files=r.days.slice().reverse().map((d,ri)=>{ const i=r.days.length-1-ri; const sec=d.avg<thr, enRatxa=(i>lastReset && sec);
+    return `<tr style="${enRatxa?'background:rgba(200,16,16,.10)':''}"><td style="padding:1px 8px 1px 0;white-space:nowrap">${d.dk.slice(5)}</td>`
+      +`<td style="text-align:right;padding:1px 8px 1px 0"><b>${d.avg.toFixed(0)}%</b></td>`
+      +`<td style="color:${sec?'#c81010':'#2b8a3e'}">${sec?'✗ sec':'✓ recupera'}</td></tr>`; }).join('');
+  return `<div style="min-width:236px"><b>${st.nom}</b> <span class="muted">(${st.font})</span>`
+    +`<div class="muted" style="font-size:11px;margin:4px 0 6px">Mitjana d'humitat de <b>matinada (02–06 h)</b> de cada dia · llindar recuperació <b>${thr}%</b>.<br>`
+    +(esT?('<b>Total 30 dies:</b> '+r.total+' dies sense recuperar.'):('<b>Ratxa actual:</b> '+r.streak+' dies (fila ombrejada = ratxa; es trenca amb 2 ✓ seguits).'))+`</div>`
+    +`<div style="max-height:230px;overflow:auto"><table style="font-size:12px;border-collapse:collapse">${files}</table></div></div>`;
 }
 function recVal(r){ return recMode && recMode.mode==='total' ? r.total : r.streak; }
 function diesColor(n,maxN){ const f=maxN>0?Math.max(0,Math.min(1,n/maxN)):0;
@@ -1401,7 +1415,7 @@ function renderRec(){
     const m=L.marker([st.lat,st.lon],{icon:makeCountIcon(st,nv,maxn||1,col,alerta)});
     m.setOpacity(1); m.setZIndexOffset(6000+nv*20);
     m.bindTooltip(recTooltip(st,r),{direction:'top',opacity:.97,offset:[0,-6]});
-    m.on('click',()=>{m.bindPopup(popupHTML(st,'hr'),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st,'hr'),60);});
+    m.on('click',()=>{ m.bindPopup(recDetallHTML(st,r),{minWidth:250}).openPopup(); });   // desglossament dia a dia
     m.addTo(map); markers.push(m); shown++;
   });
   mapLeg(recLegHTML(maxn));
