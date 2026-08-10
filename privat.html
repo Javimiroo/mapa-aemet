@@ -263,8 +263,9 @@
     <div class="card coll collapsed">
       <h2>Incendi</h2>
       <div class="cardbody">
-        <div class="subhdr">CREAR INCENDI</div>
-        <button class="btn" id="focNou" style="width:100%;margin-bottom:9px">➕ Nou incendi (buida el formulari)</button>
+        <details id="crearInc">
+        <summary class="subhdr" style="cursor:pointer;user-select:none">CREAR INCENDI</summary>
+        <button class="btn" id="focNou" style="width:100%;margin:8px 0 9px">➕ Nou incendi (buida el formulari)</button>
         <label>Nom / lloc</label>
         <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
         <label style="margin-top:8px">Hora d'inici de l'incendi</label>
@@ -282,6 +283,7 @@
           <button class="btn primary" id="focGuarda" style="flex:1">💾 Guardar este incendi</button>
           <button class="btn small" id="focSync" style="flex:0 0 auto" title="Refrescar la llista de l'equip">↻</button>
         </div>
+        </details>
         <div class="subhdr" style="margin-top:14px">INCENDIS DESATS</div>
         <div id="focList" style="margin-top:8px"></div>
         <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>20 últims</b> (nom, flama, perímetres, corregudes de vent) i els veu <b>tot l'equip</b>. Clica un incendi per situar-lo; 📊 obri el seu tauler.</p>
