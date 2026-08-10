@@ -228,6 +228,19 @@
     <h1>AEMET + Meteocat</h1>
     <p class="sub" id="fontline">Observació en temps real</p>
 
+    <style>
+      #tabs{position:sticky;top:0;z-index:6;display:flex;gap:4px;flex-wrap:wrap;background:var(--bg);padding:6px 0 8px;margin:0 0 8px;border-bottom:1px solid var(--line)}
+      #tabs .tab{flex:1 1 auto;min-width:66px;padding:7px 6px;font:600 12px system-ui;color:var(--txt);background:var(--bg);border:1px solid var(--line);border-radius:8px;cursor:pointer;opacity:.6;transition:opacity .12s}
+      #tabs .tab:hover{opacity:.85}
+      #tabs .tab.actiu{opacity:1;border-color:var(--accent);box-shadow:inset 0 -2px 0 0 var(--accent)}
+    </style>
+    <div id="tabs">
+      <button class="tab actiu" data-t="temps">🌦️ Temps real</button>
+      <button class="tab" data-t="analisi">🔎 Anàlisi</button>
+      <button class="tab" data-t="incendi">🔥 Incendi</button>
+      <button class="tab" data-t="arxiu">📅 Arxiu</button>
+    </div>
+
     <div class="card">
       <h2>Cerca un poble</h2>
       <div id="cercaWrap">
@@ -4269,6 +4282,29 @@ async function desaCorreguda(){
     if(a){ focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(focActualId)); if(g) focActualRuns=g.runs||[]; focsRender(); }
   }catch(e){}
 }
+
+// ---- PESTANYES del menú (agrupa les 17 seccions en 4: Temps real / Anàlisi / Incendi / Arxiu) ----
+(function(){
+  const MAP=[['Cerca un poble','temps'],['Incendi','incendi'],['Camp de vents','temps'],
+    ['Radar','temps'],['Llamps','temps'],['Dia històric','arxiu'],['Xarxes','temps'],
+    ['Variable al mapa','temps'],['Llindar','analisi'],['Filtre combinat','analisi'],
+    ['Hores consecutives','analisi'],["Comptador d'hores",'analisi'],['Altitud','analisi'],
+    ['Fons del mapa','temps'],['Mapes combinats','analisi'],['Opcions','analisi'],['Dades','temps']];
+  const panel=document.getElementById('panel'); if(!panel) return;
+  panel.querySelectorAll(':scope > .card').forEach(c=>{
+    const h=c.querySelector('h2'), t=h?h.textContent:'';
+    let tab='temps'; for(const kv of MAP){ if(t.indexOf(kv[0])>=0){ tab=kv[1]; break; } }
+    c.dataset.tab=tab;
+  });
+  function mostraTab(t){
+    panel.querySelectorAll(':scope > .card').forEach(c=>{ c.style.display=(c.dataset.tab===t)?'':'none'; });
+    document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('actiu', b.dataset.t===t));
+    try{ panel.scrollTop=0; }catch(e){}
+  }
+  document.querySelectorAll('#tabs .tab').forEach(b=> b.addEventListener('click',()=>mostraTab(b.dataset.t)) );
+  window.mostraTab=mostraTab;
+  mostraTab('temps');
+})();
 </script>
 </body>
 </html>
