@@ -4313,6 +4313,7 @@ async function desaCorreguda(){
   // 2) COMPRIMEIX Radar / Camp de vents / Llamps (afegint el plegat als que no en tenien)
   ['Camp de vents','Llamps'].forEach(t=>{ const c=card(t); if(c){ c.classList.add('coll','collapsed'); const h=c.querySelector('h2'); if(h) h.addEventListener('click',()=>c.classList.toggle('collapsed')); } });
   const rad=card('Radar'); if(rad) rad.classList.add('collapsed');
+  ['Incendi','Dia històric'].forEach(t=>{ const c=card(t); if(c) c.classList.remove('collapsed'); });   // pestanyes Incendi i Arxiu: desplegades
 
   // 3) PESTANYA de cada secció
   const set=(txt,tab)=>{ const c=card(txt); if(c) c.dataset.tab=tab; return c; };
