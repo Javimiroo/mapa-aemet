@@ -241,13 +241,14 @@
       #floatTop #exportar{width:auto!important;white-space:nowrap;margin:0!important;padding:7px 11px}
       #floatFons{position:absolute;right:12px;bottom:40px;z-index:1200;display:flex;align-items:center;background:rgba(18,20,26,.85);backdrop-filter:blur(4px);padding:6px 9px;border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.45)}
       #floatFons #basemap{background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px}
+      .subhdr{font:700 11px system-ui;letter-spacing:.6px;color:var(--muted);margin:0 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
       @media(max-width:720px){ #floatTop{left:10px;right:10px} #floatTop #cercaWrap{width:auto;flex:1} }
     </style>
     <div id="tabs">
-      <button class="tab actiu" data-t="temps">🌦️ Temps real</button>
-      <button class="tab" data-t="analisi">🔎 Anàlisi</button>
-      <button class="tab" data-t="incendi">🔥 Incendi</button>
-      <button class="tab" data-t="arxiu">📅 Arxiu</button>
+      <button class="tab actiu" data-t="temps">Temps real</button>
+      <button class="tab" data-t="analisi">Anàlisi</button>
+      <button class="tab" data-t="incendi">Incendi</button>
+      <button class="tab" data-t="arxiu">Arxiu</button>
     </div>
 
     <div class="card">
@@ -260,8 +261,9 @@
     </div>
 
     <div class="card coll collapsed">
-      <h2>🔥 Incendi</h2>
+      <h2>Incendi</h2>
       <div class="cardbody">
+        <div class="subhdr">CREAR INCENDI</div>
         <button class="btn" id="focNou" style="width:100%;margin-bottom:9px">➕ Nou incendi (buida el formulari)</button>
         <label>Nom / lloc</label>
         <input type="text" id="incident" placeholder="p. ex. Vandellòs" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 8px;font-size:13px">
@@ -280,6 +282,7 @@
           <button class="btn primary" id="focGuarda" style="flex:1">💾 Guardar este incendi</button>
           <button class="btn small" id="focSync" style="flex:0 0 auto" title="Refrescar la llista de l'equip">↻</button>
         </div>
+        <div class="subhdr" style="margin-top:14px">INCENDIS DESATS</div>
         <div id="focList" style="margin-top:8px"></div>
         <p class="muted" style="font-size:11px;margin:8px 0 0">Es guarden els <b>20 últims</b> (nom, flama, perímetres, corregudes de vent) i els veu <b>tot l'equip</b>. Clica un incendi per situar-lo; 📊 obri el seu tauler.</p>
       </div>
