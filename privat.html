@@ -473,6 +473,22 @@
     </div>
 
     <div class="card coll collapsed">
+      <h2>Dies sense recuperació</h2>
+      <div class="cardbody">
+        <p class="muted" style="font-size:11px;margin:0 0 8px">Compta, per estació, els <b>dies</b> en què la humitat de <b>matinada (02–06 h)</b> no va superar de mitjana el llindar. Sobre <b>tot l'històric d'arxiu</b> disponible.</p>
+        <div class="row" style="gap:6px;align-items:center">
+          <span class="muted" style="font-size:12px">Humitat mitjana &lt;</span>
+          <input type="number" id="recThr" value="30" step="any" style="width:64px">
+          <span class="muted" style="font-size:12px">%</span>
+        </div>
+        <button class="btn primary" id="recBtn" style="width:100%;margin-top:9px">Comptar dies sense recuperació</button>
+        <button class="btn" id="recOff" style="width:100%;margin-top:6px">Desactivar</button>
+        <div id="recInfo" class="muted" style="font-size:11px;margin-top:8px"></div>
+        <p class="muted" style="font-size:10px;margin:6px 0 0">🔴 més dies sense recuperar (destacats) · 🔵 pocs o cap. Un dia compta si té ≥3 hores de matinada amb dada. Requereix estar dins amb contrasenya.</p>
+      </div>
+    </div>
+
+    <div class="card coll collapsed">
       <h2>Altitud</h2>
       <div class="cardbody">
         <label class="switch"><input type="checkbox" class="banda" value="plana" checked> Plana / interior (&lt;300 m)</label>
@@ -911,6 +927,7 @@ function amagaVella(st){return $('stale')&&$('stale').checked && esVella(st);}
 // ------------------------------------------------------------------ estat
 let DATA=null, markers=[], activeFilter=null;
 let streakMode=null, countMode=null;
+let recMode=null, recData=null;                 // comptador de DIES sense recuperació d'humitat (matinada)
 let timeT=null, tDomain=null;   // màquina del temps (timeT=null → en directe)
 let reviewMode=null;            // dia de l'arxiu que s'està revisant (null → dades en directe)
 const map=L.map('map',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView([41.75,1.75],8);
@@ -1103,7 +1120,7 @@ function applyCombined(){
   render();
 }
 function clearStreak(){streakMode=null;document.querySelectorAll('#streakPresets .chip').forEach(x=>x.classList.remove('on'));}
-function surtModes(){ clearStreak(); countMode=null; }   // deixa ratxa/comptador per mostrar un altre mapa
+function surtModes(){ clearStreak(); countMode=null; recMode=null; }   // deixa ratxa/comptador/dies per mostrar un altre mapa
 function setThreshold(vk,op,val){surtModes();activeFilter={type:'single',v:vk,op,val:parseFloat(val)};render();}
 $('applyThr').onclick=()=>{const t=$('thr').value;if(t==='')return;setThreshold(selVar.value,$('op').value,t);highlightChip(null);};
 $('clearThr').onclick=()=>{surtModes();activeFilter=null;highlightChip(null);renderLegend();render();};
@@ -1313,6 +1330,66 @@ function renderCount(){
     : '<div class="muted">Color = hores que compleixen (0 → '+hores+') · número = hores</div>';
 }
 
+// ---- COMPTADOR DE DIES SENSE RECUPERACIÓ D'HUMITAT (matinada 02-06 h, sobre l'arxiu) ----
+function _diaKeyLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+const arxiuRecCache={};                          // dk(AAAA-MM-DD) -> {idema:[hr de matinada]}
+async function assegurarArxiuDies(){
+  if(arxiuDies && arxiuDies.size) return;
+  try{ const r=await fetch(ARXIU_URL+'index.json?_='+Date.now(),{cache:'no-store'}); if(r.ok){ const j=await r.json(); (j.dies||[]).forEach(k=>arxiuDies.add(k)); } }catch(e){}
+}
+async function matinadaDia(dk){
+  if(arxiuRecCache[dk]) return arxiuRecCache[dk];
+  const out={};
+  try{
+    const r=await fetch(ARXIU_URL+dk+'.enc?_='+Date.now(),{cache:'no-store'});
+    if(r.ok){ const d=await desxifra(await r.json(),PASS);
+      (d.estacions||[]).forEach(e=>{ const arr=[];
+        (e.historic||[]).forEach(row=>{ const h=new Date(row.t).getHours(); if(h>=2&&h<=6){ const v=row.hr; if(v!=null&&!isNaN(v)) arr.push(+v); } });
+        if(arr.length) out[e.idema]=arr; }); }
+  }catch(e){}
+  arxiuRecCache[dk]=out; return out;
+}
+async function computeRec(thr){
+  await assegurarArxiuDies();
+  const perStDay={};                              // idema -> { dk -> [hr...] de matinada }
+  const add=(idema,dk,hr)=>{ if(hr==null||isNaN(hr))return; if(!perStDay[idema])perStDay[idema]={}; (perStDay[idema][dk]||(perStDay[idema][dk]=[])).push(+hr); };
+  (DATA?DATA.estacions:[]).forEach(st=>{ (st.historic||[]).forEach(row=>{ const d=new Date(row.t), h=d.getHours(); if(h>=2&&h<=6) add(st.idema,_diaKeyLocal(d),row.hr); }); });
+  for(const dk of [...(arxiuDies||[])]){ const day=await matinadaDia(dk);
+    for(const idema in day){ if(!perStDay[idema])perStDay[idema]={}; perStDay[idema][dk]=(perStDay[idema][dk]||[]).concat(day[idema]); } }
+  const out={};
+  for(const idema in perStDay){ let n=0,tot=0;
+    for(const dk in perStDay[idema]){ const arr=perStDay[idema][dk]; if(arr.length<3) continue; tot++;
+      const avg=arr.reduce((a,b)=>a+b,0)/arr.length; if(avg<thr) n++; }
+    if(tot>0) out[idema]={n,tot}; }
+  return out;
+}
+function diesColor(n,maxN){ const f=maxN>0?Math.max(0,Math.min(1,n/maxN)):0;
+  if(f<=0.5){ const t=f/0.5; return rgb([lerp(43,240,t),lerp(108,192,t),lerp(176,0,t)]); }   // blau -> groc
+  const t=(f-0.5)/0.5; return rgb([lerp(240,200,t),lerp(192,16,t),lerp(0,16,t)]); }           // groc -> roig
+function recLegHTML(maxN){ const N=Math.max(1,maxN); const stops=[];
+  for(let i=0;i<=10;i++) stops.push(diesColor(Math.round(i/10*N),N)+' '+(i*10)+'%');
+  const ticks=[0,Math.round(N/2),N].map((v,i)=>'<span style="left:'+(i*50)+'%">'+v+'</span>').join('');
+  return '<div class="wl-title">Dies sense recuperació (matinada)</div><div class="wl-bar" style="background:linear-gradient(90deg,'+stops.join(',')+')"></div><div class="wl-ticks">'+ticks+'</div>';
+}
+function recTooltip(st,r){ return `<div class="lp-tt"><b>${st.nom}</b> <span class="muted">(${st.font} · ${st.provincia})</span><br><span class="big">${r.n} dies</span> sense recuperació<br><span class="muted">de ${r.tot} dies amb dada · matinada 02–06 h &lt; ${recMode.thr}%</span></div>`; }
+function renderRec(){
+  if(!recData) return;
+  let maxn=0; for(const k in recData) if(recData[k].n>maxn) maxn=recData[k].n;
+  let shown=0;
+  DATA.estacions.forEach(st=>{
+    if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
+    const r=recData[st.idema]; if(!r||r.tot===0) return;
+    const col=diesColor(r.n,maxn), alerta=(maxn>0 && r.n>0 && r.n>=Math.max(2,Math.ceil(maxn*0.6)));
+    const m=L.marker([st.lat,st.lon],{icon:makeCountIcon(st,r.n,maxn||1,col,alerta)});
+    m.setOpacity(1); m.setZIndexOffset(6000+r.n*20);
+    m.bindTooltip(recTooltip(st,r),{direction:'top',opacity:.97,offset:[0,-6]});
+    m.on('click',()=>{m.bindPopup(popupHTML(st,'hr'),{minWidth:300}).openPopup();setTimeout(()=>drawChart(st,'hr'),60);});
+    m.addTo(map); markers.push(m); shown++;
+  });
+  mapLeg(recLegHTML(maxn));
+  $('status').innerHTML=`Dies sense recuperació d'humitat · matinada 02–06 h &lt; <b>${recMode.thr}%</b> · tot l'històric d'arxiu<br>Estacions: <b>${shown}</b> · màxim: <b>${maxn} dies</b>`;
+  $('legend').innerHTML='<div class="muted">🔴 més dies sense recuperar (destacats) · 🔵 pocs o cap · número = dies</div>';
+}
 let chart=null;
 function popupHTML(st,vk){
   vk=vk||selVar.value;
@@ -1435,6 +1512,7 @@ function render(){
   if(!DATA)return;
   if(streakMode){ renderStreak(); return; }
   if(countMode){ renderCount(); return; }
+  if(recMode){ renderRec(); return; }
   const vk=selVar.value, barbMode=(vk==='barbes');
   if(vk==='pacum'){ if(pacumFont==='idw'){ precGrid=null; calculaPrecGrid(); } actualitzaEscalaPacum(); if(precLayer) precLayer.redraw(); }   // IDW recalcula; escala dinàmica al rang real
   if(vk==='cap'){                                  // sense variable: mapa net (només base + capes de vent/radar)
@@ -1732,7 +1810,7 @@ function renderStreakPresets(){
     const c=document.createElement('div'); c.className='chip';
     c.textContent=(op==='>'?'>':'<')+val+(v==='ta'?'°':'%');
     c.onclick=()=>{
-      streakMode={v,op,val}; countMode=null; activeFilter=null; highlightChip(null);
+      streakMode={v,op,val}; countMode=null; recMode=null; activeFilter=null; highlightChip(null);
       document.querySelectorAll('#streakPresets .chip').forEach(x=>x.classList.remove('on')); c.classList.add('on');
       render();
     };
@@ -1750,10 +1828,23 @@ $('cntHores').addEventListener('input',()=>{$('cntHL').textContent=$('cntHores')
 $('cntApply').onclick=()=>{
   const v=selCntVar.value, op=$('cntOp').value, val=parseFloat($('cntVal').value), hores=parseInt($('cntHores').value,10)||8;
   if(isNaN(val)){ $('cntVal').focus(); return; }
-  countMode={v,op,val,hores}; clearStreak(); activeFilter=null; highlightChip(null);
+  countMode={v,op,val,hores}; recMode=null; clearStreak(); activeFilter=null; highlightChip(null);
   if(comboActive){ $('combo').value=''; aplicaCombo(''); } else { render(); }
 };
 $('cntOff').onclick=()=>{ countMode=null; renderLegend(); render(); };
+$('recBtn').onclick=async()=>{
+  if(!PASS){ $('recInfo').textContent='Cal entrar amb contrasenya.'; return; }
+  const thr=parseFloat($('recThr').value); if(isNaN(thr)){ $('recInfo').textContent='Posa un llindar vàlid.'; return; }
+  surtModes(); recMode={thr}; activeFilter=null; highlightChip(null);
+  const b=$('recBtn'), o=b.textContent; b.disabled=true; b.textContent='Calculant…'; $('recInfo').textContent='Baixant l\'històric d\'arxiu (pot tardar uns segons)…';
+  try{ recData=await computeRec(thr); }catch(e){ recData=null; }
+  b.disabled=false; b.textContent=o;
+  if(!recMode) return;                            // s'ha canviat de mode mentre calculava
+  const ns=Object.keys(recData||{}).length;
+  $('recInfo').textContent = ns ? (ns+' estacions · '+(arxiuDies?arxiuDies.size:0)+' dies d\'arxiu analitzats') : 'Encara no hi ha històric d\'arxiu disponible.';
+  renderLegend(); render();
+};
+$('recOff').onclick=()=>{ recMode=null; recData=null; $('recInfo').textContent=''; renderLegend(); render(); };
 
 // màquina del temps
 $('tbRange').addEventListener('input',()=>{ if(!tDomain)return; const i=parseInt($('tbRange').value,10); setTimeT(i>=tDomain.steps?null:tDomain.min+i*3600000); });
@@ -4410,7 +4501,7 @@ async function desaCorreguda(){
   // 3) PESTANYA de cada secció
   const set=(txt,tab)=>{ const c=card(txt); if(c) c.dataset.tab=tab; return c; };
   ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes'].forEach(t=>set(t,'temps'));
-  ['Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Altitud','Mapes combinats'].forEach(t=>set(t,'analisi'));
+  ['Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Dies sense recuperació','Altitud','Mapes combinats'].forEach(t=>set(t,'analisi'));
   set('Incendi','incendi'); set('Dia històric','arxiu');
   set('Opcions','hidden'); set('Dades','all');
   const cc=card('Cerca un poble'); if(cc) cc.dataset.tab='hidden';
@@ -4418,7 +4509,7 @@ async function desaCorreguda(){
 
   // 4) ORDRE dins del menú (= ordre al DOM). Dades l'últim -> sempre a baix de tot.
   ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes',
-   'Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Altitud','Mapes combinats',
+   'Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Dies sense recuperació','Altitud','Mapes combinats',
    'Incendi','Dia històric','Opcions','Cerca un poble','Fons del mapa','Dades']
    .forEach(t=>{ const c=card(t); if(c) panel.appendChild(c); });
 
