@@ -1213,9 +1213,9 @@ function countColor(frac){
 }
 function makeCountIcon(st,n,denom,colOverride,alerta){
   const col=colOverride||countColor(denom?n/denom:0), zf=pillZoom();
-  const d=Math.round((alerta?26:20)*zf), fs=Math.max(10,Math.round((alerta?13:12)*zf)), radius=(st.font==='Meteocat')?'6px':'50%';
-  const ring=alerta?';box-shadow:0 0 0 2px #fff, 0 0 9px 3px rgba(220,0,40,.85);outline:1px solid #7a0016':'';
-  const html=`<div class="pill" style="width:${d}px;height:${d}px;border-radius:${radius};background:${col};color:${txtColor(col)};font-size:${fs}px;font-weight:700${ring}">${n}</div>`;
+  const d=Math.round(20*zf), fs=Math.max(10,Math.round(12*zf)), radius=(st.font==='Meteocat')?'6px':'50%';
+  const ring=alerta?';box-shadow:0 0 0 2px #fff, 0 0 9px 3px rgba(220,0,40,.85);outline:1px solid #7a0016':'';   // mida normal, només l'halo per assenyalar
+  const html=`<div class="pill" style="width:${d}px;height:${d}px;border-radius:${radius};background:${col};color:${txtColor(col)};font-size:${fs}px${ring}">${n}</div>`;
   return L.divIcon({className:'',html,iconSize:[d,d],iconAnchor:[d/2,d/2]});
 }
 function countLegHTML(denom, title){
