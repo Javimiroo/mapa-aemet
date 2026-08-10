@@ -15,7 +15,7 @@ El workflow fa el git de la branca 'qpe' (checkout a --store, commit i push).
 Ús (al workflow):
     python qpe_prod.py --store qpe_store
 """
-import argparse, base64, json, os, glob
+import argparse, base64, json, os, glob, urllib.request
 from datetime import datetime, timezone, timedelta
 
 import numpy as np
@@ -203,11 +203,101 @@ def main():
             json.dump(xifrar(json.dumps(payload, separators=(",", ":")), pwd), f)
         print("  sèrie escombrable: %d tiles (fins %s)" % (len(frames), serie[0][0].strftime("%Y-%m-%d %H:%M")))
 
+    # ---- ARXIU DIARI de QPE (pluja d'un dia + acumulats 3d/30d) ----
+    # Un fitxer per dia (00-24h HORA LOCAL), CORREGIT amb el biaix d'estacions D'EIXE DIA:
+    #   HUI -> biaix amb els totals 'dia' de les estacions (live, ja en mà); reescrit cada run (parcial).
+    #   Dies TANCATS -> biaix amb els totals de l'arxiu d'estacions; es finalitza UNA sola vegada
+    #   (marcat a _final.json) i queda immutable. Si l'arxiu del dia encara no hi és, es reintenta.
+    try:
+        from zoneinfo import ZoneInfo
+        tzl = ZoneInfo("Europe/Madrid")
+    except Exception:  # noqa
+        tzl = timezone.utc
+    diadir = os.path.join(a.store, "dia")
+    os.makedirs(diadir, exist_ok=True)
+    finalpath = os.path.join(diadir, "_final.json")
+    try:
+        final = set(json.load(open(finalpath)).get("final", []))
+    except Exception:  # noqa
+        final = set()
+    ndia = 0
+    for dback in range(0, 8):
+        d0l = (tmax.astimezone(tzl) - timedelta(days=dback)).replace(hour=0, minute=0, second=0, microsecond=0)
+        d0 = d0l.astimezone(timezone.utc)
+        d1 = min((d0l + timedelta(days=1)).astimezone(timezone.utc), tmax)
+        key = d0l.strftime("%Y%m%d")
+        es_avui = (dback == 0)
+        if not es_avui and key in final:
+            continue                              # dia tancat i ja finalitzat -> immutable
+        grid = suma(tiles, d0, d1)
+        if grid is None:
+            continue
+        if es_avui:
+            ests_dia = ests_win.get("dia") or []                       # estacions d'HUI (live, sense cost)
+            arxiu_ok = True
+        else:
+            ests_dia = estacions_dia_arxiu(d0l.strftime("%Y-%m-%d"), pwd)   # dia tancat -> arxiu d'estacions
+            arxiu_ok = ests_dia is not None
+        factor, nfit = biaix_global(grid, ests_dia or [])
+        meta = {"dia": key, "obs": int(d1.timestamp() * 1000), "parcial": bool(es_avui),
+                "biaix": round(factor, 3), "nfit": nfit}
+        with open(os.path.join(diadir, key + ".enc"), "w", encoding="utf-8") as f:
+            json.dump(quantitza_xifra(grid * factor, meta, pwd), f)
+        ndia += 1
+        if not es_avui and arxiu_ok:              # l'arxiu del dia ja hi era -> congela el dia
+            final.add(key)
+    json.dump({"final": sorted(final)}, open(finalpath, "w"))
+    tall = (tmax.astimezone(tzl) - timedelta(days=400)).strftime("%Y%m%d")   # poda > 400 dies
+    for p in glob.glob(os.path.join(diadir, "*.enc")):
+        if os.path.splitext(os.path.basename(p))[0] < tall:
+            try: os.remove(p)
+            except OSError: pass
+    dies = sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(diadir, "*.enc")))
+    with open(os.path.join(a.store, "qpe_dies.json"), "w", encoding="utf-8") as f:
+        json.dump({"dies": dies, "n": len(dies),
+                   "generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")}, f)
+    print("  arxiu diari: %d dies (re)escrits · %d en total · %d finalitzats (biaix estacions)" % (ndia, len(dies), len(final)))
+
     with open(os.path.join(a.store, "qpe.json"), "w", encoding="utf-8") as f:
         json.dump({"generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
                    "obs": int(tmax.timestamp() * 1000), "n_tiles": len(tiles), "serie_tiles": len(frames),
                    "windows": meta_windows, "font": "AEMET RN1 (radar) + biaix Meteocat"}, f)
     print("Fet: %d tiles al buffer · %d finestres · %d tiles a la sèrie" % (len(tiles), len(meta_windows), len(frames)))
+
+
+ARXIU_RAW = "https://raw.githubusercontent.com/Javimiroo/mapa-aemet/arxiu/arxiu/"
+
+
+def estacions_dia_arxiu(dkdash, password):
+    """Totals de pluja DIARIS de cada estació d'un dia TANCAT, llegits de l'arxiu
+    d'estacions (branca 'arxiu', gratis i immutable). Suma historic[].prec del dia.
+    Torna [(lat,lon,mm)] o None si l'arxiu del dia encara no està disponible."""
+    try:
+        req = urllib.request.Request(ARXIU_RAW + dkdash + ".enc?_=" + str(int(datetime.now(timezone.utc).timestamp())),
+                                     headers={"User-Agent": "graf-qpe"})
+        blob = json.loads(urllib.request.urlopen(req, timeout=30).read())
+        salt = base64.b64decode(blob["salt"]); iv = base64.b64decode(blob["iv"]); ct = base64.b64decode(blob["ct"])
+        keyb = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=blob.get("it", ITER)).derive(password.encode())
+        d = json.loads(AESGCM(keyb).decrypt(iv, ct, None).decode("utf-8"))
+    except Exception:  # noqa (dia encara no arxivat, o xarxa) -> reintentarem un altre run
+        return None
+    out = []
+    for e in d.get("estacions", []):
+        if e.get("lat") is None:
+            continue
+        mm = 0.0
+        for r in e.get("historic", []):
+            v = r.get("prec")
+            if v is not None:
+                try:
+                    fv = float(v)
+                    if fv >= 0:
+                        mm += fv
+                except (TypeError, ValueError):
+                    pass
+        if mm > 0:
+            out.append((float(e["lat"]), float(e["lon"]), round(mm, 1)))
+    return out
 
 
 def carrega_pacums(password):
