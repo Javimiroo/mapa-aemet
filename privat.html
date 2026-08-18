@@ -1702,7 +1702,7 @@ function aplicaCombo(key){
 // en històric (màquina del temps enrere) la sèrie horària acabant a l'hora triada.
 function recarregaPacumQPE(){ if(pacumFont!=='qpe') return;
   const p=pacumPeriode;
-  if(reviewMode){ const m=(p==='30d'?'30d':(p==='7d'?'7d':(p==='3d'?'3d':'dia'))); qpeDailyRender(m); if(m!=='dia') preparaPacumEstacions(m).then(()=>render()); return; }
+  if(reviewMode){ const m=(p==='30d'?'30d':(p==='7d'?'7d':(p==='3d'?'3d':'dia'))); qpeDailyRender(m); preparaPacumEstacions(m).then(()=>render()); return; }
   if(p==='3d'||p==='30d'){ qpeDailyRender(p); preparaPacumEstacions(p).then(()=>render()); return; }   // superfície + discos d'estació
   if(typeof timeT!=='undefined' && timeT!=null) qpeSync(); else carregaQPE(p); }     // horari: finestres "ara" o sèrie
 // ---- ARXIU DIARI de QPE (pluja d'un dia i acumulats 3d/30d, sumant fitxers diaris) ----
@@ -1754,7 +1754,7 @@ async function precDiaArxiu(dk){
 }
 // injecta a les estacions l'acumulat de pluja de 3d/30d (històric viu + arxiu) perquè isquen els discos
 async function preparaPacumEstacions(period){
-  if(!DATA) return; const n=period==='30d'?30:(period==='7d'?7:(period==='3d'?3:0)); if(!n) return;
+  if(!DATA) return; const n=period==='30d'?30:(period==='7d'?7:(period==='3d'?3:(period==='dia'?1:0))); if(!n) return;
   const keys=[]; let d=_keyDate(qpeRefDayKey()); for(let i=0;i<n;i++){ keys.push(_diaKeyLocal(d)); d.setDate(d.getDate()-1); }
   const live={};                                  // idema -> {dk: mm}
   DATA.estacions.forEach(st=>{ (st.historic||[]).forEach(r=>{ const dk=_diaKeyLocal(new Date(r.t)); if(keys.indexOf(dk)<0)return; const p=r.prec; if(p==null||isNaN(p))return; if(!live[st.idema])live[st.idema]={}; live[st.idema][dk]=(live[st.idema][dk]||0)+ +p; }); });
