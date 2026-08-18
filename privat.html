@@ -379,6 +379,11 @@
         <div id="arxiuVarWrap" style="display:none;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)">
           <label style="font-size:12px;display:block;margin-bottom:4px">Variable arxivada d'aquest dia</label>
           <select id="arxiuVar" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px"></select>
+          <select id="arxiuPer" style="display:none;width:100%;margin-top:5px;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px">
+            <option value="dia">24 h (del dia)</option>
+            <option value="3d">3 dies</option>
+            <option value="7d">7 dies</option>
+          </select>
         </div>
       </div>
     </div>
@@ -1697,7 +1702,7 @@ function aplicaCombo(key){
 // en històric (màquina del temps enrere) la sèrie horària acabant a l'hora triada.
 function recarregaPacumQPE(){ if(pacumFont!=='qpe') return;
   const p=pacumPeriode;
-  if(reviewMode){ const m=(p==='30d'?'30d':(p==='3d'?'3d':'dia')); qpeDailyRender(m); if(m!=='dia') preparaPacumEstacions(m).then(()=>render()); return; }
+  if(reviewMode){ const m=(p==='30d'?'30d':(p==='7d'?'7d':(p==='3d'?'3d':'dia'))); qpeDailyRender(m); if(m!=='dia') preparaPacumEstacions(m).then(()=>render()); return; }
   if(p==='3d'||p==='30d'){ qpeDailyRender(p); preparaPacumEstacions(p).then(()=>render()); return; }   // superfície + discos d'estació
   if(typeof timeT!=='undefined' && timeT!=null) qpeSync(); else carregaQPE(p); }     // horari: finestres "ara" o sèrie
 // ---- ARXIU DIARI de QPE (pluja d'un dia i acumulats 3d/30d, sumant fitxers diaris) ----
@@ -1749,7 +1754,7 @@ async function precDiaArxiu(dk){
 }
 // injecta a les estacions l'acumulat de pluja de 3d/30d (històric viu + arxiu) perquè isquen els discos
 async function preparaPacumEstacions(period){
-  if(!DATA) return; const n=period==='30d'?30:(period==='3d'?3:0); if(!n) return;
+  if(!DATA) return; const n=period==='30d'?30:(period==='7d'?7:(period==='3d'?3:0)); if(!n) return;
   const keys=[]; let d=_keyDate(qpeRefDayKey()); for(let i=0;i<n;i++){ keys.push(_diaKeyLocal(d)); d.setDate(d.getDate()-1); }
   const live={};                                  // idema -> {dk: mm}
   DATA.estacions.forEach(st=>{ (st.historic||[]).forEach(r=>{ const dk=_diaKeyLocal(new Date(r.t)); if(keys.indexOf(dk)<0)return; const p=r.prec; if(p==null||isNaN(p))return; if(!live[st.idema])live[st.idema]={}; live[st.idema][dk]=(live[st.idema][dk]||0)+ +p; }); });
@@ -1764,7 +1769,7 @@ async function preparaPacumEstacions(period){
 let qpeDiaSeq=0;
 async function qpeDailyRender(mode){
   if(selVar.value!=='pacum'||pacumFont!=='qpe') return;
-  const seq=++qpeDiaSeq, endKey=qpeRefDayKey(), n=(mode==='30d'?30:(mode==='3d'?3:1));
+  const seq=++qpeDiaSeq, endKey=qpeRefDayKey(), n=(mode==='30d'?30:(mode==='7d'?7:(mode==='3d'?3:1)));
   $('status').innerHTML='Carregant QPE diari…';
   let G=null, used=0;
   if(n===1){ G=await obteQPEDia(endKey); used=G?1:0; }
@@ -1775,7 +1780,7 @@ async function qpeDailyRender(mode){
   precGrid=G; qpeInfo={diari:true,obs:_keyDate(endKey).getTime()};
   actualitzaEscalaPacum(); if(precLayer)precLayer.redraw(); renderLegend();
   const dl=_diaLabelK(endKey);
-  const lab = (mode==='dia') ? ('pluja del dia · '+dl) : ((mode==='30d'?'30 dies':'3 dies')+' fins al '+dl);
+  const lab = (mode==='dia') ? ('pluja del dia · '+dl) : ((mode==='30d'?'30 dies':(mode==='7d'?'7 dies':'3 dies'))+' fins al '+dl);
   $('status').innerHTML='Pluja <b>QPE radar+estacions</b> · '+lab+(n>1?(' · '+used+'/'+n+' dies'):'')+' · corregit amb estacions';
 }
 selVar.onchange=()=>{surtModes();
@@ -2320,16 +2325,27 @@ let arxiuDies=new Set(), calMes=null;   // dies amb dades + mes mostrat al calen
 function diaLabelLlarg(k){ const p=String(k).split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]); return d.toLocaleDateString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}); }
 // selector de variables ARXIVADES sota el calendari (només les que tenen dada eixe dia)
 function renderArxiuVars(){
-  const wrap=$('arxiuVarWrap'), sel=$('arxiuVar'); if(!wrap||!sel) return;
+  const wrap=$('arxiuVarWrap'), sel=$('arxiuVar'), per=$('arxiuPer'); if(!wrap||!sel) return;
   if(!reviewMode || !DATA){ wrap.style.display='none'; return; }
   const disp=[];
-  ORDER.forEach(vk=>{ if(vk==='pacum') return;                 // el pacum no s'arxiva
+  ORDER.forEach(vk=>{ if(vk==='pacum') return;
     let te=false; for(const st of DATA.estacions){ if(vk==='barbes'){ if(st.actual&&st.actual.vv!=null){te=true;break;} } else if(getVal(st,vk)!=null){te=true;break;} }
     if(te) disp.push(vk); });
-  sel.innerHTML=disp.map(vk=>'<option value="'+vk+'"'+(selVar.value===vk?' selected':'')+'>'+VARS[vk].label+'</option>').join('');
-  wrap.style.display= disp.length?'':'none';
+  let teQPE=false;                                              // pluja QPE (radar) si eixe dia té QPE arxivat
+  if(qpeDiesList===null){ carregaQPEDies().then(()=>renderArxiuVars()); }
+  else teQPE=(qpeDiesList.indexOf(String(reviewMode).replace(/-/g,''))>=0);
+  const opts=disp.map(vk=>'<option value="'+vk+'"'+(selVar.value===vk?' selected':'')+'>'+VARS[vk].label+'</option>');
+  if(teQPE) opts.push('<option value="pacum"'+(selVar.value==='pacum'?' selected':'')+'>Precipitació QPE (radar)</option>');
+  sel.innerHTML=opts.join('');
+  wrap.style.display= opts.length?'':'none';
+  if(per){ if(selVar.value==='pacum' && teQPE){ per.style.display=''; per.value=(['dia','3d','7d'].indexOf(pacumPeriode)>=0?pacumPeriode:'dia'); } else per.style.display='none'; }
 }
-$('arxiuVar').onchange=()=>{ if(selVar.value!==$('arxiuVar').value){ selVar.value=$('arxiuVar').value; selVar.onchange(); } };
+$('arxiuVar').onchange=()=>{ const v=$('arxiuVar').value;
+  if(v==='pacum'){ pacumFont='qpe'; if($('pacumFont'))$('pacumFont').value='qpe';
+    pacumPeriode=$('arxiuPer').value||'dia'; if($('pacumPer'))$('pacumPer').value=pacumPeriode; $('arxiuPer').style.display='';
+    if(selVar.value!=='pacum') selVar.value='pacum'; selVar.onchange(); }
+  else { $('arxiuPer').style.display='none'; if(selVar.value!==v){ selVar.value=v; selVar.onchange(); } } };
+$('arxiuPer').onchange=()=>{ pacumPeriode=$('arxiuPer').value; if($('pacumPer'))$('pacumPer').value=pacumPeriode; renderLegend(); recarregaPacumQPE(); };
 function claDia(y,m,d){ return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
 function renderCalArxiu(){
   const box=$('calArxiu'); if(!box||!calMes) return;
