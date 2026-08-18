@@ -376,6 +376,10 @@
       <div class="cardbody">
         <div id="calArxiu"></div>
         <p class="muted" style="font-size:11px;margin:7px 0 0">Els dies en <b style="color:#16a34a">verd</b> tenen dades guardades. Clica'n un per revisar-lo amb la màquina del temps i el meteograma.</p>
+        <div id="arxiuVarWrap" style="display:none;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)">
+          <label style="font-size:12px;display:block;margin-bottom:4px">Variable arxivada d'aquest dia</label>
+          <select id="arxiuVar" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px"></select>
+        </div>
       </div>
     </div>
 
@@ -1542,6 +1546,7 @@ function setTimeT(T){
   if(typeof radSync==='function'){ if(radModeOn) radModeExit(); else radSync(); }  // radar/echotop segueix l'hora
   if(typeof llampsLayer!=='undefined' && llampsLayer && llampsOn){ llampsLayer.redraw(); llampsInfoAct(); }  // llamps segueixen l'hora
   if(selVar.value==='pacum' && pacumFont==='qpe' && $('pacumSurf') && $('pacumSurf').checked) recarregaPacumQPE();  // pluja QPE segueix l'hora/dia
+  if(typeof renderArxiuVars==='function') renderArxiuVars();   // selector de variables arxivades (Arxiu)
   render();
 }
 function tbStep(d){
@@ -2313,6 +2318,18 @@ const ARXIU_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/arxiu/ar
 const LLAMPS_DIA_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/arxiu/llamps_dia/';   // arxiu diari de llamps (informes)
 let arxiuDies=new Set(), calMes=null;   // dies amb dades + mes mostrat al calendari {y,m}
 function diaLabelLlarg(k){ const p=String(k).split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]); return d.toLocaleDateString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}); }
+// selector de variables ARXIVADES sota el calendari (només les que tenen dada eixe dia)
+function renderArxiuVars(){
+  const wrap=$('arxiuVarWrap'), sel=$('arxiuVar'); if(!wrap||!sel) return;
+  if(!reviewMode || !DATA){ wrap.style.display='none'; return; }
+  const disp=[];
+  ORDER.forEach(vk=>{ if(vk==='pacum') return;                 // el pacum no s'arxiva
+    let te=false; for(const st of DATA.estacions){ if(vk==='barbes'){ if(st.actual&&st.actual.vv!=null){te=true;break;} } else if(getVal(st,vk)!=null){te=true;break;} }
+    if(te) disp.push(vk); });
+  sel.innerHTML=disp.map(vk=>'<option value="'+vk+'"'+(selVar.value===vk?' selected':'')+'>'+VARS[vk].label+'</option>').join('');
+  wrap.style.display= disp.length?'':'none';
+}
+$('arxiuVar').onchange=()=>{ if(selVar.value!==$('arxiuVar').value){ selVar.value=$('arxiuVar').value; selVar.onchange(); } };
 function claDia(y,m,d){ return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
 function renderCalArxiu(){
   const box=$('calArxiu'); if(!box||!calMes) return;
