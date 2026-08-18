@@ -479,6 +479,61 @@ def mostra_consum():
         print("  quota %-18s %s/%s restants (%s)%s" % (p.get("nom", "?"), rest, mx, p.get("periode", "?"), marca))
 
 
+LLAMPS_DIA_DIR = "llamps_dia"
+
+
+def arxiva_llamps(llamps):
+    """Acumula els llamps que JA hem baixat en un fitxer per DIA LOCAL (per als informes).
+    NO gasta quota XDDE (reaprofita 'llamps'). Merge+dedup; els dies de fa >=2 dies es congelen
+    (ja no arriben pel finestral de 6 h). S'omple cap endavant des d'avui."""
+    os.makedirs(LLAMPS_DIA_DIR, exist_ok=True)
+    avui = datetime.now(timezone.utc).astimezone(TZ_LOCAL).date() if TZ_LOCAL else datetime.now(timezone.utc).date()
+    finalpath = os.path.join(LLAMPS_DIA_DIR, "_final.json")
+    try:
+        final = set(json.load(open(finalpath)).get("final", []))
+    except Exception:  # noqa
+        final = set()
+    perdia = {}
+    for x in (llamps or []):
+        dk = _dia_local(x.get("t"))
+        if dk:
+            perdia.setdefault(dk, []).append(x)
+    nnou = 0
+    for dk, arr in perdia.items():
+        if dk in final:
+            continue
+        path = os.path.join(LLAMPS_DIA_DIR, dk + ".enc")
+        prev = []
+        if os.path.exists(path):
+            try:
+                prev = desxifrar(json.load(open(path)), PASSWORD).get("llamps", [])
+            except Exception:  # noqa
+                prev = []
+        vist, out = set(), []
+        for y in prev + arr:
+            k = (y.get("t"), y.get("lat"), y.get("lon"))
+            if k in vist:
+                continue
+            vist.add(k); out.append(y)
+        obj = {"dia": dk, "generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+               "n": len(out), "llamps": out}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(xifrar(json.dumps(obj, ensure_ascii=False, separators=(",", ":")), PASSWORD), f)
+        nnou += 1
+    for fn in os.listdir(LLAMPS_DIA_DIR):
+        if fn.endswith(".enc"):
+            try:
+                if (avui - datetime.fromisoformat(fn[:-4]).date()).days >= 2:
+                    final.add(fn[:-4])
+            except ValueError:
+                pass
+    json.dump({"final": sorted(final)}, open(finalpath, "w"))
+    dies = sorted(fn[:-4] for fn in os.listdir(LLAMPS_DIA_DIR) if fn.endswith(".enc"))
+    with open(os.path.join(LLAMPS_DIA_DIR, "index.json"), "w", encoding="utf-8") as f:
+        json.dump({"dies": dies, "n": len(dies)}, f)
+    print("  arxiu de llamps: %d dies actualitzats · %d en total" % (nnou, len(dies)))
+
+
 def descarrega_llamps(hores=XDDE_FETCH_HORES):
     """Baixa els llamps de la XDDE (Meteocat) de les últimes 'hores' hores (una crida per
     bloc horari). Retorna [{t, lat, lon, cg, kA}] (cg=True núvol-terra, False núvol-núvol)."""
@@ -810,6 +865,7 @@ def main():
             json.dump(xifrar(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), PASSWORD), f)
         ncg = sum(1 for x in llamps if x.get("cg"))
         print("OK -> llamps.enc  (%d llamps últimes %dh · %d núvol-terra · %d nous)" % (len(llamps), XDDE_HORES, ncg, len(nous)))
+        arxiva_llamps(llamps)                        # acumula per dia (informes) · no gasta quota
     except Exception as ex:  # mai ha de bloquejar l'operativa
         print("  AVIS: llamps no baixats (%s)" % str(ex)[:120])
     print("  ⏱ llamps: %.1f s" % (time.perf_counter() - _t))
