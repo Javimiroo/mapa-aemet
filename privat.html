@@ -399,6 +399,8 @@
       </select>
       <label id="pacumSurfWrap" class="switch" style="display:none;margin-top:6px;font-size:12px">
         <input type="checkbox" id="pacumSurf" checked> Superfície interpolada (IDW)</label>
+      <label id="amagaEstWrap" class="switch" style="display:none;margin-top:4px;font-size:12px">
+        <input type="checkbox" id="amagaEst"> Amagar estacions (només superfície)</label>
       <div class="legend" id="legend"></div>
     </div>
 
@@ -1553,8 +1555,10 @@ function render(){
     return;
   }
   const filtering=!!activeFilter; let nOk=0, shown=0;
+  const amagaEstacions=(selVar.value==='pacum' && $('amagaEst') && $('amagaEst').checked);   // només superfície
   DATA.estacions.forEach(st=>{
     if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
+    if(amagaEstacions) return;                        // casella "amagar estacions (només superfície)"
     if(barbMode){
       if(st.actual.vv==null) return;               // barbes: només estacions amb vent
       afegirMarker(map,markers,st,makeBarbIcon(st)); shown++; return;
@@ -1676,8 +1680,8 @@ function aplicaCombo(key){
 // en històric (màquina del temps enrere) la sèrie horària acabant a l'hora triada.
 function recarregaPacumQPE(){ if(pacumFont!=='qpe') return;
   const p=pacumPeriode;
-  if(reviewMode){ qpeDailyRender(p==='30d'?'30d':(p==='3d'?'3d':'dia')); return; }   // dia d'arxiu -> QPE DIARI d'eixe dia
-  if(p==='3d'||p==='30d'){ qpeDailyRender(p); return; }                              // acumulats llargs -> suma de dies
+  if(reviewMode){ const m=(p==='30d'?'30d':(p==='3d'?'3d':'dia')); qpeDailyRender(m); if(m!=='dia') preparaPacumEstacions(m).then(()=>render()); return; }
+  if(p==='3d'||p==='30d'){ qpeDailyRender(p); preparaPacumEstacions(p).then(()=>render()); return; }   // superfície + discos d'estació
   if(typeof timeT!=='undefined' && timeT!=null) qpeSync(); else carregaQPE(p); }     // horari: finestres "ara" o sèrie
 // ---- ARXIU DIARI de QPE (pluja d'un dia i acumulats 3d/30d, sumant fitxers diaris) ----
 function _keyDate(k){ return new Date(+k.slice(0,4), +k.slice(4,6)-1, +k.slice(6,8)); }
@@ -1716,6 +1720,30 @@ async function qpeSumaDies(endKey,n){
     const v=G.val; for(let i=0;i<v.length;i++){ const x=v[i]; if(isNaN(x))continue; out[i]=isNaN(out[i])?x:out[i]+x; } }
   return used?{grid:{bbox,nx,ny,val:out},used}:null;
 }
+const arxiuPrecCache={};                          // dk(AAAA-MM-DD) -> {idema: mm total del dia}
+async function precDiaArxiu(dk){
+  if(arxiuPrecCache[dk]) return arxiuPrecCache[dk];
+  const out={};
+  try{ const r=await fetch(ARXIU_URL+dk+'.enc?_='+Date.now(),{cache:'no-store'});
+    if(r.ok){ const d=await desxifra(await r.json(),PASS);
+      (d.estacions||[]).forEach(e=>{ let mm=0,has=false; (e.historic||[]).forEach(row=>{ const p=row.prec; if(p!=null&&!isNaN(p)&&+p>=0){ mm+=+p; has=true; } }); if(has) out[e.idema]=Math.round(mm*10)/10; }); }
+  }catch(e){}
+  arxiuPrecCache[dk]=out; return out;
+}
+// injecta a les estacions l'acumulat de pluja de 3d/30d (històric viu + arxiu) perquè isquen els discos
+async function preparaPacumEstacions(period){
+  if(!DATA) return; const n=period==='30d'?30:(period==='3d'?3:0); if(!n) return;
+  const keys=[]; let d=_keyDate(qpeRefDayKey()); for(let i=0;i<n;i++){ keys.push(_diaKeyLocal(d)); d.setDate(d.getDate()-1); }
+  const live={};                                  // idema -> {dk: mm}
+  DATA.estacions.forEach(st=>{ (st.historic||[]).forEach(r=>{ const dk=_diaKeyLocal(new Date(r.t)); if(keys.indexOf(dk)<0)return; const p=r.prec; if(p==null||isNaN(p))return; if(!live[st.idema])live[st.idema]={}; live[st.idema][dk]=(live[st.idema][dk]||0)+ +p; }); });
+  const liveDies=new Set(); for(const id in live) for(const dk in live[id]) liveDies.add(dk);
+  const arx={}; for(const dk of keys.filter(k=>!liveDies.has(k))) arx[dk]=await precDiaArxiu(dk);
+  DATA.estacions.forEach(st=>{ let s=0,has=false;
+    for(const dk of keys){ let mm=(live[st.idema]&&live[st.idema][dk]!=null)?live[st.idema][dk]:(arx[dk]?arx[dk][st.idema]:undefined);
+      if(mm!=null&&!isNaN(mm)){ s+=+mm; has=true; } }
+    if(!st.actual)st.actual={}; if(!st.actual.pacum)st.actual.pacum={};
+    st.actual.pacum[period]= has? Math.round(s*10)/10 : null; });
+}
 let qpeDiaSeq=0;
 async function qpeDailyRender(mode){
   if(selVar.value!=='pacum'||pacumFont!=='qpe') return;
@@ -1735,15 +1763,18 @@ async function qpeDailyRender(mode){
 }
 selVar.onchange=()=>{surtModes();
   const esP=(selVar.value==='pacum');
-  $('pacumPer').style.display=esP?'':'none'; $('pacumSurfWrap').style.display=esP?'':'none'; $('pacumFont').style.display=esP?'':'none';
+  $('pacumPer').style.display=esP?'':'none'; $('pacumSurfWrap').style.display=esP?'':'none'; $('amagaEstWrap').style.display=esP?'':'none'; $('pacumFont').style.display=esP?'':'none';
   precGrid=null; actualitzaPrecLayer();
   if(esP && pacumFont==='qpe') recarregaPacumQPE();
   renderPresets();renderLegend();highlightChip(null);render();};
 $('pacumPer').onchange=()=>{ pacumPeriode=$('pacumPer').value; precGrid=null; renderLegend();
-  if(pacumFont==='qpe') recarregaPacumQPE(); actualitzaPrecLayer(); render(); };
+  if(pacumFont==='qpe') recarregaPacumQPE();
+  else if(pacumPeriode==='3d'||pacumPeriode==='30d') preparaPacumEstacions(pacumPeriode).then(()=>{ precGrid=null; actualitzaPrecLayer(); render(); });
+  actualitzaPrecLayer(); render(); };
 $('pacumFont').onchange=()=>{ pacumFont=$('pacumFont').value; precGrid=null;
   if(pacumFont==='qpe') recarregaPacumQPE(); actualitzaPrecLayer(); renderLegend(); render(); };
 $('pacumSurf').onchange=()=>actualitzaPrecLayer();
+$('amagaEst').onchange=()=>render();
 // ---- SÈRIE HORÀRIA ESCOMBRABLE (pluja QPE seguint la màquina del temps) ----
 async function carregaQPESerie(){
   if(qpeSerie) return qpeSerie;
