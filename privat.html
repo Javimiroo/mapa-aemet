@@ -1150,6 +1150,7 @@ function applyCombined(){
 }
 function clearStreak(){streakMode=null;document.querySelectorAll('#streakPresets .chip').forEach(x=>x.classList.remove('on'));}
 function surtModes(){ clearStreak(); countMode=null; recMode=null; }   // deixa ratxa/comptador/dies per mostrar un altre mapa
+function netejaAnalisi(){ surtModes(); activeFilter=null; if(typeof highlightChip==='function') highlightChip(null); const ri=$('recInfo'); if(ri) ri.textContent=''; }   // buida totes les anàlisis actives
 function setThreshold(vk,op,val){surtModes();activeFilter={type:'single',v:vk,op,val:parseFloat(val)};render();}
 $('applyThr').onclick=()=>{const t=$('thr').value;if(t==='')return;setThreshold(selVar.value,$('op').value,t);highlightChip(null);};
 $('clearThr').onclick=()=>{surtModes();activeFilter=null;highlightChip(null);renderLegend();render();};
@@ -4697,6 +4698,12 @@ async function desaCorreguda(){
 
   // 5) PESTANYES (Dades i 'all' es mostren sempre; 'hidden' mai)
   function mostraTab(t){
+    // en canviar de pestanya: neteja les anàlisis actives; i si tornes a Temps real, ix de l'arxiu
+    try{
+      if(typeof netejaAnalisi==='function') netejaAnalisi();
+      if(t==='temps' && typeof reviewMode!=='undefined' && reviewMode && typeof tornaDirecte==='function') tornaDirecte();
+      else if(typeof render==='function') render();
+    }catch(e){}
     panel.querySelectorAll(':scope > .card').forEach(c=>{ const dt=c.dataset.tab;
       c.style.display=(dt===t||dt==='all')?'':'none'; });
     document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('actiu', b.dataset.t===t));
