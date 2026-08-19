@@ -1633,6 +1633,7 @@ function specLabel(sp){
   if(sp.k==='barbs') base='Barbes de vent';
   else if(sp.k==='streak') base = sp.v==='hr' ? ('Hores humitat < '+sp.val+'%') : ('Hores temp > '+sp.val+'°');
   else if(sp.k==='count') base = 'Hores '+VARS[sp.v].label+' '+sp.op+' '+sp.val+(VARS[sp.v].unit||'')+' · últimes '+sp.hores+' h';
+  else if(sp.k==='rec') base = 'Dies sense recuperació d\'humitat ('+(sp.mode==='total'?'últims 30 dies':'ratxa')+') · matinada 02–06 h < '+sp.thr+'%';
   else base=VARS[sp.v].label;
   return base + (sp.altnom ? (' · '+sp.altnom) : '');
 }
@@ -1955,6 +1956,7 @@ function especMapaUnic(){
   if(selVar.value==='barbes') return {k:'barbs'};
   if(streakMode) return {k:'streak',v:streakMode.v,op:streakMode.op,val:streakMode.val,hide0:streakMode.op==='<',ref:streakMode.ref||12};
   if(countMode) return {k:'count',v:countMode.v,op:countMode.op,val:countMode.val,hores:countMode.hores};
+  if(recMode){ let m=0; if(recData) for(const k in recData){ const v=recVal(recData[k]); if(v>m)m=v; } return {k:'rec',mode:recMode.mode,thr:recMode.thr,maxn:m}; }
   return {k:'var',v:selVar.value};
 }
 function dibuixaLogoBombers(c,x,y,h){
@@ -2002,6 +2004,18 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
     c.fillStyle='#555'; c.font=(11*S)+'px Arial';
     const lab = spec.k==='count' ? ('hores que compleixen (de les últimes '+N+' h) · número = hores') : ('hores consecutives · número = hores');
     c.fillText(lab, x+w/2, by+bh+18*S);
+    c.restore(); return;
+  }
+  if(spec.k==='rec'){                            // dies sense recuperació: barra blau -> roig
+    const N=spec.maxn||1, by=y+22*S, bw=w*0.82, bh=14*S, bx=x+(w-bw)/2;
+    const g=c.createLinearGradient(bx,0,bx+bw,0);
+    for(let i=0;i<=10;i++) g.addColorStop(i/10, diesColor(Math.round(i/10*N),N));
+    c.fillStyle=g; c.fillRect(bx,by,bw,bh);
+    c.strokeStyle='#777'; c.lineWidth=S; c.strokeRect(bx,by,bw,bh);
+    c.fillStyle='#111'; c.font=(11*S)+'px Arial';
+    [0,Math.round(N/2),N].forEach((v,i)=>c.fillText(v, bx+bw*(i/2), by+bh+3*S));
+    c.fillStyle='#555'; c.font=(11*S)+'px Arial';
+    c.fillText('número = dies sense recuperar · roig = més dies · blau = pocs o cap', x+w/2, by+bh+18*S);
     c.restore(); return;
   }
   const by=y+22*S, isBarb=spec.k==='barbs', vk=isBarb?'vv':spec.v;
