@@ -3185,9 +3185,11 @@ async function calculaConats(){
   const ests=(DATA?DATA.estacions:[]).filter(s=>s.lat!=null&&s.lon!=null&&xarxaActiva(s));
   const cosL=Math.cos(41.7*Math.PI/180), CAT2=0.30*0.30;      // "dins Catalunya" = estació a <~33 km
   const dinsCat=(lat,lon)=>{ let m=1e9; for(let i=0;i<ests.length;i++){ const dl=lat-ests[i].lat, dg=(lon-ests[i].lon)*cosL, d=dl*dl+dg*dg; if(d<m){m=d; if(m<=CAT2) return true;} } return m<=CAT2; };
+  const FM=await carregaForestMask();                        // màscara: terreny forestal DINS Catalunya (mar/fora fora)
   const Tref=llampsRefT(), T0=Tref-CONAT_HORES*3600000;
   const secs=llampsData.t.filter(x=>{ if(!x.cg || x.t<=T0 || x.t>Tref) return false;
-    if(!dinsCat(x.lat,x.lon)) return false;              // només Catalunya (cobertura d'estacions)
+    if(FM){ if(!enForest(FM,x.lat,x.lon)) return false; }     // amb màscara: només terreny forestal de CAT (exclou mar/França/Aragó)
+    else if(!dinsCat(x.lat,x.lon)) return false;             // sense màscara: gate per estacions (~33 km)
     return pluAt(G,x.lat,x.lon) < CONAT_MM; });          // sec segons QPE (NaN=0=sec)
   const dlat=CONAT_KM/111, buckets={};                    // agrupació per graella ~2 km
   secs.forEach(x=>{ const dlon=CONAT_KM/(111*Math.cos(x.lat*Math.PI/180));
@@ -3273,16 +3275,37 @@ async function carregaLlampsDia(dk){
   }catch(e){ return []; }
 }
 function _horaColor(ms){ return 'hsl('+((new Date(ms).getHours()*15)%360)+',80%,50%)'; }   // color per hora LOCAL
+// ---- MÀSCARA DE TERRENY FORESTAL (cremable: bosc/matoll/pastura · ESA WorldCover) ----
+let forestMask=null;                              // null=no provat · 0=no disponible · objecte=graella
+async function carregaForestMask(){
+  if(forestMask!==null) return forestMask||0;
+  try{ const r=await fetch('mascara_forestal.json?_='+Date.now(),{cache:'no-store'});
+    if(!r.ok){ forestMask=0; return 0; }
+    const j=await r.json(); j._mb=b64(j.mask); forestMask=j; return j;
+  }catch(e){ forestMask=0; return 0; }
+}
+function enForest(M,lat,lon){                     // true si el punt és terreny forestal (sud-primer)
+  if(!M||!M.bbox) return true;
+  const B=M.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3]) return false;
+  const i=Math.min(M.nx-1,Math.max(0,Math.floor((lon-B[0])/(B[1]-B[0])*M.nx)));
+  const j=Math.min(M.ny-1,Math.max(0,Math.floor((lat-B[2])/(B[3]-B[2])*M.ny)));
+  const idx=j*M.nx+i; return ((M._mb[idx>>3]>>(7-(idx&7)))&1)===1;
+}
 // Criteri de conat (base científica: l'ignició la fa el corrent continu llarg, no la intensitat):
 //  - terreny SEC el dia (<CONAT_MM) i els últims 3 dies (<mm3)
 //  - s'exclouen els negatius forts (|kA|>kaMaxNeg): poc probable corrent continu
 //  - es prioritzen els POSITIUS (solen portar corrent continu -> més ignició)
 function infConats(strikes,Gday,G3,opts){
   const o=opts||{}, mm3=(o.mm3!=null?o.mm3:5), kaMaxNeg=(o.kaMaxNeg!=null?o.kaMaxNeg:20);
+  const ests=(DATA?DATA.estacions:[]).filter(s=>s.lat!=null&&s.lon!=null&&xarxaActiva(s));   // per acotar a Catalunya
+  const cosL=Math.cos(41.7*Math.PI/180), CAT2=0.32*0.32;
+  const dinsCat=(lat,lon)=>{ for(let i=0;i<ests.length;i++){ const dl=lat-ests[i].lat,dg=(lon-ests[i].lon)*cosL; if(dl*dl+dg*dg<=CAT2) return true; } return false; };
   const secs=strikes.filter(x=>{ if(!x.cg) return false;
     const pd=Gday?pluAt(Gday,x.lat,x.lon):0, p3=G3?pluAt(G3,x.lat,x.lon):0;
     if(pd>=CONAT_MM || p3>=mm3) return false;                // ha plogut (dia o 3 dies) -> terreny banyat
     const ka=x.kA||0; if(ka<0 && Math.abs(ka)>kaMaxNeg) return false;   // negatiu fort -> poc probable
+    if(o.forest && !enForest(o.forest,x.lat,x.lon)) return false;        // fora de terreny forestal (bosc/matoll/pastura)
+    if(!dinsCat(x.lat,x.lon)) return false;                  // fora de Catalunya -> fora
     return true; });
   const buckets={};
   secs.forEach(x=>{ const dlat=CONAT_KM/111, dlon=CONAT_KM/(111*Math.cos(x.lat*Math.PI/180));
@@ -3298,7 +3321,8 @@ async function generaInforme(dk){
   const Gday=await obteQPEDia(key), R3=await qpeSumaDies(key,3), R7=await qpeSumaDies(key,7);
   const G3=R3?R3.grid:null, G7=R7?R7.grid:null;
   const mm3=parseFloat($('infMm3').value), mm3v=isNaN(mm3)?5:mm3;
-  const zones=infConats(strikes,Gday,G3,{mm3:mm3v});
+  const FM=await carregaForestMask();             // màscara forestal (si existeix)
+  const zones=infConats(strikes,Gday,G3,{mm3:mm3v,forest:FM});
   const gridDraw=(c,proj,G,al)=>{ if(!G)return; const B=G.bbox,dlon=(B[1]-B[0])/(G.nx-1),dlat=(B[3]-B[2])/(G.ny-1);
     const a=proj(B[2],B[0]),b=proj(B[2]+dlat,B[0]+dlon), cw=Math.abs(b[0]-a[0])+1, ch=Math.abs(b[1]-a[1])+1;
     c.globalAlpha=al; for(let j=0;j<G.ny;j++)for(let i=0;i<G.nx;i++){ const v=G.val[j*G.nx+i]; if(isNaN(v)||v<0.2)continue; const p=proj(B[2]+j*dlat,B[0]+i*dlon); c.fillStyle=colorFor('pacum',v); c.fillRect(p[0]-cw/2,p[1]-ch/2,cw,ch); } c.globalAlpha=1; };
@@ -3324,7 +3348,7 @@ async function generaInforme(dk){
     +'<h2>3 · Possibles conats sobre pluja acumulada 3 dies</h2><img src="'+mapaC+'"><div class="sub">Cercle roig = amb positius · taronja = només negatius · fons = pluja 3 dies (com més blau, més mullat).</div>'
     +'<h2>Possibles conats (agrupats per zona)</h2>'
     +(zones.length?('<table><tr><th>#</th><th>Coordenades</th><th>Hora</th><th>CG</th><th>Pol.</th><th>kA</th><th>Pluja dia</th><th>3 dies</th><th>7 dies</th></tr>'+files+'</table>'+(zones.length>capN?('<p class="sub">…i '+(zones.length-capN)+' zones més (abaixa el llindar de pluja 3 dies per acotar).</p>'):'')):'<p class="sub">Cap conat: cap llamp núvol-terra en terreny sec eixe dia.</p>')
-    +'<p class="sub" style="font-size:11px;margin-top:10px">Criteri: llamp núvol-terra en terreny SEC (dia &lt; '+CONAT_MM+' mm i 3 dies &lt; '+mm3v+' mm), excloent negatius forts (&gt;20 kA). Els <b>positius (+)</b> tenen més probabilitat d\'ignició (corrent continu llarg). És un cribratge de probabilitat, no una predicció d\'ignició certa.</p>'
+    +'<p class="sub" style="font-size:11px;margin-top:10px">Criteri: llamp núvol-terra dins de Catalunya, en terreny SEC (dia &lt; '+CONAT_MM+' mm i 3 dies &lt; '+mm3v+' mm)'+(FM?', sobre <b>terreny forestal</b> (bosc/matoll/pastura)':'')+', excloent negatius forts (&gt;20 kA). Els <b>positius (+)</b> tenen més probabilitat d\'ignició (corrent continu llarg). És un cribratge de probabilitat, no una predicció d\'ignició certa.</p>'
     +'<p class="sub" style="font-size:10px;margin-top:6px">Generat '+new Date().toLocaleString('ca-ES')+' · Llamps XDDE (Meteocat) · Pluja QPE (AEMET+estacions) · base Esri</p></body></html>');
   w.document.close();
   $('infInfo').textContent='Informe generat: '+cg.length+' CG · '+zones.length+' conats.';
