@@ -1,0 +1,33 @@
+name: Genera màscara forestal (una vegada)
+
+# Manual: Actions -> "Genera màscara forestal" -> Run workflow. Baixa ESA WorldCover
+# (porció de Catalunya), construeix mascara_forestal.json i el commiteja a 'main'
+# (Pages el serveix i el frontend el mostreja). La cobertura del sòl no canvia, així
+# que amb executar-lo una vegada n'hi ha prou (repetir-lo si es vol actualitzar).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  mascara:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Dependències
+        run: pip install rasterio numpy
+      - name: Genera la màscara
+        run: python mascara_forestal.py
+      - name: Publica mascara_forestal.json (main)
+        run: |
+          git config user.name "aemet-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add mascara_forestal.json
+          git commit -m "màscara forestal (ESA WorldCover) $(date -u +%FT%TZ)" || { echo "sense canvis"; exit 0; }
+          git push
