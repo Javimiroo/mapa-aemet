@@ -11,13 +11,16 @@ S'exclouen: 40 cultiu, 50 urbà, 60 roca/nu, 70 neu, 80 aigua, 90 aiguamoll, 95,
 Requisits: pip install rasterio numpy   (necessita internet; llig els COG per /vsicurl)
 Ús:   python mascara_forestal.py
 """
-import base64, json
+import base64, json, urllib.request
 import numpy as np
 import rasterio
 from rasterio import Affine
 from rasterio.windows import Window
 from rasterio.transform import from_bounds
 from rasterio.warp import reproject, Resampling
+from rasterio.features import rasterize
+
+NUTS_URL = "https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_20M_2021_4326_LEVL_2.geojson"
 
 BBOX = [0.10, 3.35, 40.50, 42.90]     # lon0, lon1, lat0, lat1 (Catalunya + marge)
 RES_DEG = 0.0045                      # ~500 m per cel·la
@@ -64,12 +67,28 @@ def main():
         except Exception as ex:  # noqa
             print("  %s: no disponible (%s)" % (t, str(ex)[:70]))
 
+    # RETALL a Catalunya (NUTS2 ES51): exclou França, Aragó, Andorra i el mar
+    catmask = None
+    try:
+        req = urllib.request.Request(NUTS_URL, headers={"User-Agent": "graf-mascara"})
+        gj = json.loads(urllib.request.urlopen(req, timeout=90).read())
+        geoms = [f["geometry"] for f in gj.get("features", []) if f.get("properties", {}).get("NUTS_ID") == "ES51"]
+        if geoms:
+            catmask = rasterize([(g, 1) for g in geoms], out_shape=(ny, nx), transform=dst_tr, fill=0, dtype="uint8")
+            print("  retall a Catalunya (ES51): OK")
+        else:
+            print("  avis: no s'ha trobat ES51 -> sense retall a CAT")
+    except Exception as ex:  # noqa
+        print("  avis: no s'ha pogut retallar a CAT (%s) -> màscara només forestal" % str(ex)[:60])
+
     mask_nord = (frac >= FRAC_MIN)                        # nord-a-dalt
+    if catmask is not None:
+        mask_nord = mask_nord & (catmask == 1)           # cremable I dins de Catalunya
     mask = np.flipud(mask_nord)                           # -> SUD-primer (com espera el frontend)
     packed = np.packbits(mask.ravel().astype(np.uint8))
     obj = {"bbox": BBOX, "nx": nx, "ny": ny,
            "mask": base64.b64encode(packed.tobytes()).decode(),
-           "nota": "ESA WorldCover 2021 · cremable=arbrat/matoll/pastura · frac>=%.2f" % FRAC_MIN}
+           "nota": "ESA WorldCover 2021 · cremable=arbrat/matoll/pastura · frac>=%.2f · retallat a Catalunya (NUTS2 ES51)" % FRAC_MIN}
     with open("mascara_forestal.json", "w", encoding="utf-8") as f:
         json.dump(obj, f)
     print("Fet: mascara_forestal.json  (%d x %d cel·les · %.1f%% forestal)"
