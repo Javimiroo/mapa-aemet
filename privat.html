@@ -550,7 +550,7 @@
       <div class="cardbody">
         <select id="basemap">
           <option value="blanc">Blanc + comarques</option>
-          <option value="icgc">Comarques i relleu (ICGC)</option>
+          <option value="icgc" selected>Comarques i relleu (ICGC)</option>
           <option value="icgctopo">Topogràfic (ICGC)</option>
           <option value="dark">Fosc</option>
           <option value="light">Clar</option>
@@ -1022,7 +1022,7 @@ function setBase(key){
     if(map2){ baseLayer2=L.tileLayer(b.u,opt).addTo(map2); baseLayer2.bringToBack(); }
   }
 }
-setBase('icgc'); if($('basemap')) $('basemap').value='icgc';
+setBase('icgc');
 
 // ------------------------------------------------------------------ UI init
 const $=id=>document.getElementById(id);
