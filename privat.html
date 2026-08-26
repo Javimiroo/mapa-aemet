@@ -991,7 +991,7 @@ let perimLL=[], perim=null, perim2=null, dibuixantPerim=false;
 // ---- Fons "Blanc + comarques" (estil Meteocat): límits comarcals sobre blanc ----
 let comarcaGeo=null, catGeo=null, comarcaLoad=null, comarcaLayer=null, comarcaLayer2=null;
 const COMARCA_STYLE={color:'#9aa3b2',weight:0.7,opacity:0.8,fill:false,interactive:false};   // línies de comarca fines
-const CAT_STYLE={color:'#374151',weight:2.4,opacity:0.95,fill:false,interactive:false};      // perfil de Catalunya gruixut
+const CAT_STYLE={color:'#374151',weight:1.6,opacity:0.95,fill:false,interactive:false};      // perfil de Catalunya
 function carregaComarques(){
   if(comarcaGeo && catGeo) return Promise.resolve(true);
   if(!comarcaLoad) comarcaLoad=Promise.all([
@@ -2138,11 +2138,12 @@ async function generarImatge(){
     // així que l'IGNOREM a la captura i el dibuixem per PROJECCIÓ (alineat amb dades i discos).
     const esBlanc = ($('basemap') && $('basemap').value==='blanc');
     const esPluja = (selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
+    const discsApart = (esBlanc || esPluja);   // capturem els discos a part per posar-los SEMPRE a dalt
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
-      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane')))};
+      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane'))||(discsApart&&el.classList.contains('leaflet-marker-pane')))};
     for(const p of panes){
       p.canvas=await html2canvas(p.el, opts);
-      if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // estacions a part, per posar-les DAMUNT de la superfície
+      if(discsApart){                                  // discos (caixes d'info) capturats a part -> es dibuixen els últims
         p.markers=await html2canvas(p.el, Object.assign({}, opts, {backgroundColor:null,
           ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||el.classList.contains('leaflet-tile-pane')||el.classList.contains('leaflet-comarques-pane')),
           onclone:docClone=>{ docClone.querySelectorAll('.leaflet-container,.leaflet-pane,.leaflet-tile-container').forEach(el=>{el.style.background='transparent';}); }}));
@@ -2167,6 +2168,7 @@ async function generarImatge(){
       c.fillText('Filtre aplicat:  '+filtreTxt, pad, pad+headerH+filtreH*0.5); }
     let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
+      c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();   // RES es pot pintar fora del requadre del mapa
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
       // COMARQUES + perfil de Catalunya per PROJECCIÓ (per a TOTES les variables quan el fons és
       // Blanc+comarques): queden alineades amb dades i discos (el SVG l'hem ignorat a la captura).
@@ -2197,7 +2199,6 @@ async function generarImatge(){
           c.drawImage(off, x+pNW.x*sxp, mapY+pNW.y*syp, (pSE.x-pNW.x)*sxp, (pSE.y-pNW.y)*syp);
           c.restore();
         }
-        if(p.markers) c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);   // discos nítids damunt
       }
       if($('radarOn') && $('radarOn').checked && radOverlay && p.mapObj){   // radar/echotop a la captura
         const img=radOverlay.getElement();
@@ -2269,6 +2270,8 @@ async function generarImatge(){
         c.fillStyle='rgba(232,56,13,0.10)'; c.fill();
         c.strokeStyle='#e8380d'; c.lineWidth=3*S; c.lineJoin='round'; c.stroke();
       }
+      if(p.markers) c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);   // discos (caixes d'info) SEMPRE els últims (a dalt de tot)
+      c.restore();                                     // fi del retall al requadre del mapa
       c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,mapY,mapW,mapH);
       const zOn=$('zonaOn')&&$('zonaOn').checked&&zonaData;
       if(ventClickOn||zOn)                            // escala del vent damunt del mapa
