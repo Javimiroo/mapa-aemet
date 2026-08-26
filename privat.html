@@ -2134,17 +2134,17 @@ async function generarImatge(){
     const panes = comboActive
       ? [{el:$('map'),mapObj:map,spec:specWithThr(comboActive.a)},{el:$('map2'),mapObj:map2,spec:specWithThr(comboActive.b)}]
       : [{el:$('map'),mapObj:map,spec:especMapaUnic()}];
-    // Mapa de pluja: la superfície QPE la dibuixem a mà per projecció; i com html2canvas
-    // desplaça el SVG de comarques a zoom fraccionari, també les DIBUIXEM per projecció
-    // (ignorant el seu panell a la captura) perquè quedin alineades amb QPE i discos.
+    // Fons "Blanc + comarques": html2canvas desplaça el SVG de comarques a zoom fraccionari,
+    // així que l'IGNOREM a la captura i el dibuixem per PROJECCIÓ (alineat amb dades i discos).
+    const esBlanc = ($('basemap') && $('basemap').value==='blanc');
     const esPluja = (selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
-      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esPluja&&el.classList.contains('leaflet-comarques-pane')))};
+      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane')))};
     for(const p of panes){
       p.canvas=await html2canvas(p.el, opts);
       if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // estacions a part, per posar-les DAMUNT de la superfície
         p.markers=await html2canvas(p.el, Object.assign({}, opts, {backgroundColor:null,
-          ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||el.classList.contains('leaflet-tile-pane')),
+          ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||el.classList.contains('leaflet-tile-pane')||el.classList.contains('leaflet-comarques-pane')),
           onclone:docClone=>{ docClone.querySelectorAll('.leaflet-container,.leaflet-pane,.leaflet-tile-container').forEach(el=>{el.style.background='transparent';}); }}));
       }
     }
@@ -2168,9 +2168,9 @@ async function generarImatge(){
     let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
-      // COMARQUES + perfil de Catalunya per PROJECCIÓ (mapa de pluja): així queden alineades
-      // amb la QPE i els discos (html2canvas desplaça el SVG a zoom fraccionari).
-      if(esPluja && comarcaLayer && (comarcaGeo||catGeo) && p.mapObj){
+      // COMARQUES + perfil de Catalunya per PROJECCIÓ (per a TOTES les variables quan el fons és
+      // Blanc+comarques): queden alineades amb dades i discos (el SVG l'hem ignorat a la captura).
+      if(esBlanc && (comarcaGeo||catGeo) && p.mapObj){
         const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
         const drawGeo=(geo,st)=>{ if(!geo||!geo.features) return; c.save(); c.strokeStyle=st.color; c.lineWidth=Math.max(0.6,st.weight)*S; c.globalAlpha=st.opacity==null?1:st.opacity; c.lineJoin='round'; c.lineCap='round';
           geo.features.forEach(f=>{ const gg=f.geometry; if(!gg) return; const polys=gg.type==='MultiPolygon'?gg.coordinates:(gg.type==='Polygon'?[gg.coordinates]:[]);
