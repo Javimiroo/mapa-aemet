@@ -989,19 +989,25 @@ let focActualId=null, focActualPerims=[], focActualRuns=[];   // incendi carrega
 function tempsEfectiu(){ return (typeof timeT!=='undefined'&&timeT!=null)?timeT:Date.now(); }
 let perimLL=[], perim=null, perim2=null, dibuixantPerim=false;
 // ---- Fons "Blanc + comarques" (estil Meteocat): límits comarcals sobre blanc ----
-let comarcaGeo=null, comarcaLoad=null, comarcaLayer=null, comarcaLayer2=null;
-const COMARCA_STYLE={color:'#8a94a6',weight:0.9,opacity:0.85,fill:false,interactive:false};
+let comarcaGeo=null, catGeo=null, comarcaLoad=null, comarcaLayer=null, comarcaLayer2=null;
+const COMARCA_STYLE={color:'#9aa3b2',weight:0.7,opacity:0.8,fill:false,interactive:false};   // línies de comarca fines
+const CAT_STYLE={color:'#374151',weight:2.4,opacity:0.95,fill:false,interactive:false};      // perfil de Catalunya gruixut
 function carregaComarques(){
-  if(comarcaGeo) return Promise.resolve(comarcaGeo);
-  if(!comarcaLoad) comarcaLoad=fetch('comarques.geojson').then(r=>r.json()).then(g=>{comarcaGeo=g;return g;}).catch(()=>null);
+  if(comarcaGeo && catGeo) return Promise.resolve(true);
+  if(!comarcaLoad) comarcaLoad=Promise.all([
+    fetch('comarques.geojson').then(r=>r.json()).then(g=>{comarcaGeo=g;}).catch(()=>{}),
+    fetch('catalunya.geojson').then(r=>r.json()).then(g=>{catGeo=g;}).catch(()=>{})
+  ]).then(()=>true);
   return comarcaLoad;
 }
 function mostraComarques(m,which){
   if(!m.getPane('comarquesPane')){ m.createPane('comarquesPane'); m.getPane('comarquesPane').style.zIndex=250; }
-  carregaComarques().then(g=>{ if(!g) return;
-    const L2=L.geoJSON(g,{pane:'comarquesPane',style:()=>COMARCA_STYLE});
-    if(which===2){ if(comarcaLayer2)m.removeLayer(comarcaLayer2); comarcaLayer2=L2; } else { if(comarcaLayer)m.removeLayer(comarcaLayer); comarcaLayer=L2; }
-    L2.addTo(m);
+  carregaComarques().then(()=>{
+    const grp=L.layerGroup([],{pane:'comarquesPane'});
+    if(comarcaGeo) L.geoJSON(comarcaGeo,{pane:'comarquesPane',style:()=>COMARCA_STYLE}).addTo(grp);
+    if(catGeo)     L.geoJSON(catGeo,{pane:'comarquesPane',style:()=>CAT_STYLE}).addTo(grp);   // perfil per damunt
+    if(which===2){ if(comarcaLayer2)m.removeLayer(comarcaLayer2); comarcaLayer2=grp; } else { if(comarcaLayer)m.removeLayer(comarcaLayer); comarcaLayer=grp; }
+    grp.addTo(m);
   });
 }
 function llevaComarques(){ if(comarcaLayer){map.removeLayer(comarcaLayer);comarcaLayer=null;} if(map2&&comarcaLayer2){map2.removeLayer(comarcaLayer2);comarcaLayer2=null;} }
@@ -1789,12 +1795,16 @@ async function qpeSumaDies(endKey,n){
 const arxiuPrecCache={};                          // dk(AAAA-MM-DD) -> {idema: mm total del dia}
 async function precDiaArxiu(dk){
   if(arxiuPrecCache[dk]) return arxiuPrecCache[dk];
-  const out={};
-  try{ const r=await fetch(ARXIU_URL+dk+'.enc?_='+Date.now(),{cache:'no-store'});
-    if(r.ok){ const d=await desxifra(await r.json(),PASS);
-      (d.estacions||[]).forEach(e=>{ let mm=0,has=false; (e.historic||[]).forEach(row=>{ const p=row.prec; if(p!=null&&!isNaN(p)&&+p>=0){ mm+=+p; has=true; } }); if(has) out[e.idema]=Math.round(mm*10)/10; }); }
-  }catch(e){}
-  arxiuPrecCache[dk]=out; return out;
+  for(let a=0;a<3;a++){                                     // reintenta: raw.githubusercontent pot donar 429/error puntual
+    try{
+      const r=await fetch(ARXIU_URL+dk+'.enc?_='+Date.now(),{cache:'no-store'});
+      if(!r.ok){ if(r.status===404){ arxiuPrecCache[dk]={}; return {}; } throw new Error('HTTP '+r.status); }
+      const d=await desxifra(await r.json(),PASS); const out={};
+      (d.estacions||[]).forEach(e=>{ let mm=0,has=false; (e.historic||[]).forEach(row=>{ const p=row.prec; if(p!=null&&!isNaN(p)&&+p>=0){ mm+=+p; has=true; } }); if(has) out[e.idema]=Math.round(mm*10)/10; });
+      arxiuPrecCache[dk]=out; return out;                  // ÈXIT: només ara cachegem
+    }catch(e){ if(a<2) await new Promise(res=>setTimeout(res, 500*(a+1))); }
+  }
+  return {};                                               // fallada transitòria: NO cachegem -> es reintentarà al pròxim render
 }
 // injecta a les estacions l'acumulat de pluja de 3d/30d (històric viu + arxiu) perquè isquen els discos
 async function preparaPacumEstacions(period){
@@ -1802,8 +1812,9 @@ async function preparaPacumEstacions(period){
   const keys=[]; let d=_keyDate(qpeRefDayKey()); for(let i=0;i<n;i++){ keys.push(_diaKeyLocal(d)); d.setDate(d.getDate()-1); }
   const live={};                                  // idema -> {dk: mm}
   DATA.estacions.forEach(st=>{ (st.historic||[]).forEach(r=>{ const dk=_diaKeyLocal(new Date(r.t)); if(keys.indexOf(dk)<0)return; const p=r.prec; if(p==null||isNaN(p))return; if(!live[st.idema])live[st.idema]={}; live[st.idema][dk]=(live[st.idema][dk]||0)+ +p; }); });
-  const arx={};                                    // arxiu per a TOTS els dies (en paral·lel); per estació+dia triem el major entre viu i arxiu
-  await Promise.all(keys.map(async dk=>{ arx[dk]=await precDiaArxiu(dk); }));
+  const arx={};                                    // arxiu per a TOTS els dies; per estació+dia triem el major entre viu i arxiu
+  for(let i=0;i<keys.length;i+=5){ await Promise.all(keys.slice(i,i+5).map(async dk=>{ arx[dk]=await precDiaArxiu(dk); })); }   // de 5 en 5 (evita 429 de raw.githubusercontent)
+  try{ console.log('[pacum '+period+'] arxiu per dia:', keys.map(k=>{const o=arx[k]||{},v=Object.values(o);return k+'→'+v.length+'est/màx'+(v.length?Math.max.apply(null,v):0);}).join(' · ')); }catch(_){}
   DATA.estacions.forEach(st=>{ let s=0,has=false;
     for(const dk of keys){
       const lv=(live[st.idema]&&live[st.idema][dk]!=null)?+live[st.idema][dk]:null;   // viu (pot ser parcial en el dia límit)
@@ -3534,7 +3545,7 @@ const PrecipLayer=L.Layer.extend({
       oc.putImageData(im,0,0);
       const pNW=m.latLngToContainerPoint([B[3],B[0]]), pSE=m.latLngToContainerPoint([B[2],B[1]]);
       ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-      ctx.globalAlpha=0.85;
+      ctx.globalAlpha=0.72;
       ctx.drawImage(off, pNW.x, pNW.y, pSE.x-pNW.x, pSE.y-pNW.y);
       ctx.globalAlpha=1;
     }catch(e){ ctx.globalAlpha=1; console.error('QPE superfície: error de dibuix →', e);
