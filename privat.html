@@ -2167,27 +2167,16 @@ async function generarImatge(){
       // superfície de precipitació acumulada (IDW estacions o QPE radar) — es dibuixa a mà
       if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked && p.mapObj){
         if(!precGrid && pacumFont==='idw') calculaPrecGrid();
-        // ALINEACIÓ EXACTA: reutilitzem el MATEIX canvas que es veu a pantalla (ja projectat
-        // correctament), escalat igual que la base. Així mai queda desplaçat respecte els discos.
-        const surfCv=(p.mapObj===map)?(precLayer&&precLayer._c):null;
-        if(surfCv){
-          c.save(); c.imageSmoothingEnabled=true; c.imageSmoothingQuality='high';
-          c.drawImage(surfCv, 0,0, surfCv.width, surfCv.height, x, mapY, mapW, mapH);
-          c.restore();
-        } else if(precGrid){                              // reserva (mapa combinat): render suau projectat
-          const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
-          const G=precGrid,B=G.bbox,nx=G.nx,ny=G.ny;
-          const off=document.createElement('canvas'); off.width=nx; off.height=ny;
-          const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data;
-          for(let j=0;j<ny;j++){ const row=(ny-1-j)*nx;
-            for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; const q=(row+i)*4;
-              if(isNaN(v)||v<0.1){ d[q+3]=0; continue; }
-              const cc=colorRGB('pacum',v); d[q]=cc[0]; d[q+1]=cc[1]; d[q+2]=cc[2]; d[q+3]=255; } }
-          oc.putImageData(im,0,0);
-          const pNW=p.mapObj.latLngToContainerPoint([B[3],B[0]]), pSE=p.mapObj.latLngToContainerPoint([B[2],B[1]]);
-          c.save(); c.imageSmoothingEnabled=true; c.imageSmoothingQuality='high'; c.globalAlpha=0.72;
-          c.drawImage(off, x+pNW.x*sxp, mapY+pNW.y*syp, (pSE.x-pNW.x)*sxp, (pSE.y-pNW.y)*syp);
-          c.restore();
+        // ALINEACIÓ EXACTA: capturem la superfície EN EL SEU LLOC amb html2canvas, aïllant només
+        // el canvas .prec-cv (mantenint les transformacions dels panells). Es dibuixa a la MATEIXA
+        // caixa (x,mapY,mapW,mapH) que la base -> mai queda desplaçada respecte els discos/comarques.
+        const cvEl=p.el.querySelector('canvas.prec-cv');
+        if(cvEl){
+          try{
+            const surf=await html2canvas(p.el, {backgroundColor:null, scale:2, useCORS:true, logging:false,
+              ignoreElements:(node)=> !(node===cvEl || node.contains(cvEl) || cvEl.contains(node)) });
+            c.drawImage(surf, 0,0, surf.width, surf.height, x, mapY, mapW, mapH);
+          }catch(e){ console.error('export superfície:', e); }
         }
         if(p.markers) c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);   // estacions NÍTIDES damunt
       }
