@@ -549,6 +549,7 @@
       <h2>Fons del mapa</h2>
       <div class="cardbody">
         <select id="basemap">
+          <option value="blanc">Blanc + comarques</option>
           <option value="icgc">Comarques i relleu (ICGC)</option>
           <option value="icgctopo">Topogràfic (ICGC)</option>
           <option value="dark">Fosc</option>
@@ -893,6 +894,7 @@ function colorFor(vk,val){
   return '#64748b';
 }
 function rgb(a){return `rgb(${a[0]},${a[1]},${a[2]})`}
+function colorRGB(vk,val){const s=colorFor(vk,val);const m=s.match(/(\d+)\D+(\d+)\D+(\d+)/);return m?[+m[1],+m[2],+m[3]]:[100,116,139];}
 function fmt(vk,v){if(v==null||isNaN(v))return '—';return Number(v).toFixed(VARS[vk].dec)}
 function getVal(st,vk){
   const a=st.actual;
@@ -972,6 +974,7 @@ let timeT=null, tDomain=null;   // màquina del temps (timeT=null → en directe
 let reviewMode=null;            // dia de l'arxiu que s'està revisant (null → dades en directe)
 const map=L.map('map',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView([41.75,1.75],8);
 const BASEMAPS={
+  blanc:{blanc:true,o:{attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
   icgc:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
   icgctopo:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=estandard&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
   dark:{u:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',o:{maxZoom:19,subdomains:'abcd',attribution:'© OSM · © CARTO · AEMET · Meteocat (SMC)'}},
@@ -985,14 +988,41 @@ let flame=null, flame2=null, flameLL=null;
 let focActualId=null, focActualPerims=[], focActualRuns=[];   // incendi carregat/en edició
 function tempsEfectiu(){ return (typeof timeT!=='undefined'&&timeT!=null)?timeT:Date.now(); }
 let perimLL=[], perim=null, perim2=null, dibuixantPerim=false;
+// ---- Fons "Blanc + comarques" (estil Meteocat): límits comarcals sobre blanc ----
+let comarcaGeo=null, comarcaLoad=null, comarcaLayer=null, comarcaLayer2=null;
+const COMARCA_STYLE={color:'#8a94a6',weight:0.9,opacity:0.85,fill:false,interactive:false};
+function carregaComarques(){
+  if(comarcaGeo) return Promise.resolve(comarcaGeo);
+  if(!comarcaLoad) comarcaLoad=fetch('comarques.geojson').then(r=>r.json()).then(g=>{comarcaGeo=g;return g;}).catch(()=>null);
+  return comarcaLoad;
+}
+function mostraComarques(m,which){
+  if(!m.getPane('comarquesPane')){ m.createPane('comarquesPane'); m.getPane('comarquesPane').style.zIndex=250; }
+  carregaComarques().then(g=>{ if(!g) return;
+    const L2=L.geoJSON(g,{pane:'comarquesPane',style:()=>COMARCA_STYLE});
+    if(which===2){ if(comarcaLayer2)m.removeLayer(comarcaLayer2); comarcaLayer2=L2; } else { if(comarcaLayer)m.removeLayer(comarcaLayer); comarcaLayer=L2; }
+    L2.addTo(m);
+  });
+}
+function llevaComarques(){ if(comarcaLayer){map.removeLayer(comarcaLayer);comarcaLayer=null;} if(map2&&comarcaLayer2){map2.removeLayer(comarcaLayer2);comarcaLayer2=null;} }
 function setBase(key){
   const b=BASEMAPS[key]||BASEMAPS.dark;
   const opt=Object.assign({crossOrigin:true}, b.o);
-  if(baseLayer)map.removeLayer(baseLayer);
-  baseLayer=L.tileLayer(b.u,opt).addTo(map); baseLayer.bringToBack();
-  if(map2){ if(baseLayer2)map2.removeLayer(baseLayer2); baseLayer2=L.tileLayer(b.u,opt).addTo(map2); baseLayer2.bringToBack(); }
+  if(baseLayer){map.removeLayer(baseLayer);baseLayer=null;}
+  if(map2&&baseLayer2){map2.removeLayer(baseLayer2);baseLayer2=null;}
+  if(b.blanc){
+    map.getContainer().style.background='#ffffff';
+    if(map2) map2.getContainer().style.background='#ffffff';
+    mostraComarques(map,1); if(map2) mostraComarques(map2,2);
+  }else{
+    map.getContainer().style.background='';
+    if(map2) map2.getContainer().style.background='';
+    llevaComarques();
+    baseLayer=L.tileLayer(b.u,opt).addTo(map); baseLayer.bringToBack();
+    if(map2){ baseLayer2=L.tileLayer(b.u,opt).addTo(map2); baseLayer2.bringToBack(); }
+  }
 }
-setBase('icgc');
+setBase('icgc'); if($('basemap')) $('basemap').value='icgc';
 
 // ------------------------------------------------------------------ UI init
 const $=id=>document.getElementById(id);
@@ -1680,7 +1710,8 @@ function ensureMap2(){
   if(map2)return;
   map2=L.map('map2',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView(map.getCenter(),map.getZoom());
   const b=BASEMAPS[$('basemap').value]||BASEMAPS.dark;
-  baseLayer2=L.tileLayer(b.u,Object.assign({crossOrigin:true},b.o)).addTo(map2); baseLayer2.bringToBack();
+  if(b.blanc){ map2.getContainer().style.background='#ffffff'; mostraComarques(map2,2); }
+  else { baseLayer2=L.tileLayer(b.u,Object.assign({crossOrigin:true},b.o)).addTo(map2); baseLayer2.bringToBack(); }
   syncMaps(map,map2); syncMaps(map2,map);
 }
 function renderCombinat(){
@@ -3486,15 +3517,22 @@ const PrecipLayer=L.Layer.extend({
     if(selVar.value!=='pacum'||!$('pacumSurf').checked) return;
     if(!precGrid){ if(pacumFont==='qpe') return; calculaPrecGrid(); }   // QPE: la graella la carrega carregaQPE, no IDW
     const G=precGrid; if(!G) return;
-    const B=G.bbox,nx=G.nx,ny=G.ny,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1);
-    const pa=m.latLngToContainerPoint([B[2],B[0]]),pb=m.latLngToContainerPoint([B[2]+dlat,B[0]+dlon]);
-    const cw=Math.abs(pb.x-pa.x)+1.3,ch=Math.abs(pb.y-pa.y)+1.3;
-    ctx.globalAlpha=0.70;
-    for(let j=0;j<ny;j++){ const lat=B[2]+j*dlat;
-      for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; if(isNaN(v)||v<0.1) continue;
-        const p=m.latLngToContainerPoint([lat,B[0]+i*dlon]);
-        if(p.x<-cw||p.y<-ch||p.x>s.x+cw||p.y>s.y+ch) continue;
-        ctx.fillStyle=colorFor('pacum',v); ctx.fillRect(p.x-cw/2,p.y-ch/2,cw,ch); } }
+    const B=G.bbox,nx=G.nx,ny=G.ny;
+    // Render suau (estil Meteocat): es pinta la graella en un canvas a resolució
+    // nativa i es reescala amb suavitzat bilineal -> desapareixen les cel·les.
+    let off=this._off||(this._off=document.createElement('canvas'));
+    off.width=nx; off.height=ny;
+    const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data;
+    for(let j=0;j<ny;j++){                         // j=0 és SUD -> fila (ny-1-j) del canvas (nord a dalt)
+      const row=(ny-1-j)*nx;
+      for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; const p=(row+i)*4;
+        if(isNaN(v)||v<0.1){ d[p+3]=0; continue; }
+        const c=colorRGB('pacum',v); d[p]=c[0]; d[p+1]=c[1]; d[p+2]=c[2]; d[p+3]=255; } }
+    oc.putImageData(im,0,0);
+    const pNW=m.latLngToContainerPoint([B[3],B[0]]), pSE=m.latLngToContainerPoint([B[2],B[1]]);
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.globalAlpha=0.85;
+    ctx.drawImage(off, pNW.x, pNW.y, pSE.x-pNW.x, pSE.y-pNW.y);
     ctx.globalAlpha=1;}
 });
 function actualitzaPrecLayer(){
