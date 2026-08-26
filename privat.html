@@ -1802,11 +1802,14 @@ async function preparaPacumEstacions(period){
   const keys=[]; let d=_keyDate(qpeRefDayKey()); for(let i=0;i<n;i++){ keys.push(_diaKeyLocal(d)); d.setDate(d.getDate()-1); }
   const live={};                                  // idema -> {dk: mm}
   DATA.estacions.forEach(st=>{ (st.historic||[]).forEach(r=>{ const dk=_diaKeyLocal(new Date(r.t)); if(keys.indexOf(dk)<0)return; const p=r.prec; if(p==null||isNaN(p))return; if(!live[st.idema])live[st.idema]={}; live[st.idema][dk]=(live[st.idema][dk]||0)+ +p; }); });
-  const liveDies=new Set(); for(const id in live) for(const dk in live[id]) liveDies.add(dk);
-  const arx={}; for(const dk of keys.filter(k=>!liveDies.has(k))) arx[dk]=await precDiaArxiu(dk);
+  const arx={};                                    // arxiu per a TOTS els dies (en paral·lel); per estació+dia triem el major entre viu i arxiu
+  await Promise.all(keys.map(async dk=>{ arx[dk]=await precDiaArxiu(dk); }));
   DATA.estacions.forEach(st=>{ let s=0,has=false;
-    for(const dk of keys){ let mm=(live[st.idema]&&live[st.idema][dk]!=null)?live[st.idema][dk]:(arx[dk]?arx[dk][st.idema]:undefined);
-      if(mm!=null&&!isNaN(mm)){ s+=+mm; has=true; } }
+    for(const dk of keys){
+      const lv=(live[st.idema]&&live[st.idema][dk]!=null)?+live[st.idema][dk]:null;   // viu (pot ser parcial en el dia límit)
+      const ax=(arx[dk]&&arx[dk][st.idema]!=null)?+arx[dk][st.idema]:null;            // arxiu (dia complet)
+      let mm=(lv!=null&&ax!=null)?Math.max(lv,ax):(lv!=null?lv:ax);                    // el major evita subestimar per buits o dies parcials
+      if(mm!=null&&!isNaN(mm)){ s+=mm; has=true; } }
     if(!st.actual)st.actual={}; if(!st.actual.pacum)st.actual.pacum={};
     st.actual.pacum[period]= has? Math.round(s*10)/10 : null; });
 }
@@ -3521,8 +3524,7 @@ const PrecipLayer=L.Layer.extend({
       const B=G.bbox,nx=G.nx,ny=G.ny;
       // Render suau (estil Meteocat): es pinta la graella en un canvas a resolució
       // nativa i es reescala amb suavitzat bilineal -> desapareixen les cel·les.
-      let off=this._off||(this._off=document.createElement('canvas'));
-      off.width=nx; off.height=ny;
+      const off=document.createElement('canvas'); off.width=nx; off.height=ny;
       const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data;
       for(let j=0;j<ny;j++){                         // j=0 és SUD -> fila (ny-1-j) del canvas (nord a dalt)
         const row=(ny-1-j)*nx;
