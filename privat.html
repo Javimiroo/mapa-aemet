@@ -2134,8 +2134,10 @@ async function generarImatge(){
     const panes = comboActive
       ? [{el:$('map'),mapObj:map,spec:specWithThr(comboActive.a)},{el:$('map2'),mapObj:map2,spec:specWithThr(comboActive.b)}]
       : [{el:$('map'),mapObj:map,spec:especMapaUnic()}];
+    // NO ignorem l'overlay-pane: així html2canvas capta la SUPERFÍCIE QPE en el seu lloc,
+    // dins de la mateixa passada que la base -> queda sempre alineada amb comarques i discos.
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
-      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane'))};
+      ignoreElements:el=>el.classList&&el.classList.contains('leaflet-control-zoom')};
     for(const p of panes){
       p.canvas=await html2canvas(p.el, opts);
       if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // estacions a part, per posar-les DAMUNT de la superfície
@@ -2164,21 +2166,10 @@ async function generarImatge(){
     let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
-      // superfície de precipitació acumulada (IDW estacions o QPE radar) — es dibuixa a mà
-      if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked && p.mapObj){
-        if(!precGrid && pacumFont==='idw') calculaPrecGrid();
-        // ALINEACIÓ EXACTA: capturem la superfície EN EL SEU LLOC amb html2canvas, aïllant només
-        // el canvas .prec-cv (mantenint les transformacions dels panells). Es dibuixa a la MATEIXA
-        // caixa (x,mapY,mapW,mapH) que la base -> mai queda desplaçada respecte els discos/comarques.
-        const cvEl=p.el.querySelector('canvas.prec-cv');
-        if(cvEl){
-          try{
-            const surf=await html2canvas(p.el, {backgroundColor:null, scale:2, useCORS:true, logging:false,
-              ignoreElements:(node)=> !(node===cvEl || node.contains(cvEl) || cvEl.contains(node)) });
-            c.drawImage(surf, 0,0, surf.width, surf.height, x, mapY, mapW, mapH);
-          }catch(e){ console.error('export superfície:', e); }
-        }
-        if(p.markers) c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);   // estacions NÍTIDES damunt
+      // La SUPERFÍCIE QPE ja ve dins de 'p.canvas' (base), capturada al seu lloc per html2canvas
+      // (ara no ignorem l'overlay-pane) -> alineada. Només posem els discos NÍTIDS per damunt.
+      if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked && p.mapObj && p.markers){
+        c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);
       }
       if($('radarOn') && $('radarOn').checked && radOverlay && p.mapObj){   // radar/echotop a la captura
         const img=radOverlay.getElement();
