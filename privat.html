@@ -3516,24 +3516,28 @@ const PrecipLayer=L.Layer.extend({
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
     if(selVar.value!=='pacum'||!$('pacumSurf').checked) return;
     if(!precGrid){ if(pacumFont==='qpe') return; calculaPrecGrid(); }   // QPE: la graella la carrega carregaQPE, no IDW
-    const G=precGrid; if(!G) return;
-    const B=G.bbox,nx=G.nx,ny=G.ny;
-    // Render suau (estil Meteocat): es pinta la graella en un canvas a resolució
-    // nativa i es reescala amb suavitzat bilineal -> desapareixen les cel·les.
-    let off=this._off||(this._off=document.createElement('canvas'));
-    off.width=nx; off.height=ny;
-    const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data;
-    for(let j=0;j<ny;j++){                         // j=0 és SUD -> fila (ny-1-j) del canvas (nord a dalt)
-      const row=(ny-1-j)*nx;
-      for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; const p=(row+i)*4;
-        if(isNaN(v)||v<0.1){ d[p+3]=0; continue; }
-        const c=colorRGB('pacum',v); d[p]=c[0]; d[p+1]=c[1]; d[p+2]=c[2]; d[p+3]=255; } }
-    oc.putImageData(im,0,0);
-    const pNW=m.latLngToContainerPoint([B[3],B[0]]), pSE=m.latLngToContainerPoint([B[2],B[1]]);
-    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-    ctx.globalAlpha=0.85;
-    ctx.drawImage(off, pNW.x, pNW.y, pSE.x-pNW.x, pSE.y-pNW.y);
-    ctx.globalAlpha=1;}
+    const G=precGrid; if(!G||!G.val||!G.bbox||!G.nx||!G.ny) return;
+    try{
+      const B=G.bbox,nx=G.nx,ny=G.ny;
+      // Render suau (estil Meteocat): es pinta la graella en un canvas a resolució
+      // nativa i es reescala amb suavitzat bilineal -> desapareixen les cel·les.
+      let off=this._off||(this._off=document.createElement('canvas'));
+      off.width=nx; off.height=ny;
+      const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data;
+      for(let j=0;j<ny;j++){                         // j=0 és SUD -> fila (ny-1-j) del canvas (nord a dalt)
+        const row=(ny-1-j)*nx;
+        for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; const p=(row+i)*4;
+          if(isNaN(v)||v<0.1){ d[p+3]=0; continue; }
+          const c=colorRGB('pacum',v); d[p]=c[0]; d[p+1]=c[1]; d[p+2]=c[2]; d[p+3]=255; } }
+      oc.putImageData(im,0,0);
+      const pNW=m.latLngToContainerPoint([B[3],B[0]]), pSE=m.latLngToContainerPoint([B[2],B[1]]);
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+      ctx.globalAlpha=0.85;
+      ctx.drawImage(off, pNW.x, pNW.y, pSE.x-pNW.x, pSE.y-pNW.y);
+      ctx.globalAlpha=1;
+    }catch(e){ ctx.globalAlpha=1; console.error('QPE superfície: error de dibuix →', e);
+      try{ $('status').innerHTML+=' <span style="color:#dc2626">· err superfície: '+((e&&e.message)||e)+'</span>'; }catch(_){} }
+  }
 });
 function actualitzaPrecLayer(){
   const on=(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
