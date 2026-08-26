@@ -2124,6 +2124,7 @@ async function generarImatge(){
   if(!DATA){ alert('Espera que carreguen les dades.'); return; }
   if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
   const btn=$('exportar'), old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
+  let zoomRestore=[];
   try{
     if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // assegura la superfície carregada
       if(pacumFont==='qpe'){ if(!precGrid) await carregaQPE(pacumPeriode); }
@@ -2134,10 +2135,15 @@ async function generarImatge(){
     const panes = comboActive
       ? [{el:$('map'),mapObj:map,spec:specWithThr(comboActive.a)},{el:$('map2'),mapObj:map2,spec:specWithThr(comboActive.b)}]
       : [{el:$('map'),mapObj:map,spec:especMapaUnic()}];
-    // NO ignorem l'overlay-pane: així html2canvas capta la SUPERFÍCIE QPE en el seu lloc,
-    // dins de la mateixa passada que la base -> queda sempre alineada amb comarques i discos.
+    // Ignorem l'overlay-pane (la superfície QPE la dibuixem a mà per projecció, amb el zoom
+    // forçat a ENTER -> coincideix amb la base de html2canvas). html2canvas no capta fiable el canvas.
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
-      ignoreElements:el=>el.classList&&el.classList.contains('leaflet-control-zoom')};
+      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane'))};
+    // html2canvas NO captura bé el canvas de la superfície a zoom fraccionari (zoomSnap:0.25):
+    // forcem zoom ENTER només per a la captura i el restaurem al final.
+    for(const p of panes){ if(p.mapObj){ const z=p.mapObj.getZoom(), zi=Math.round(z);
+      if(Math.abs(z-zi)>0.01){ zoomRestore.push([p.mapObj,z]); p.mapObj.setZoom(zi,{animate:false}); } } }
+    if(zoomRestore.length){ await new Promise(r=>setTimeout(r,950)); if(precLayer)precLayer.redraw(); }
     for(const p of panes){
       p.canvas=await html2canvas(p.el, opts);
       if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // estacions a part, per posar-les DAMUNT de la superfície
@@ -2166,10 +2172,26 @@ async function generarImatge(){
     let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
-      // La SUPERFÍCIE QPE ja ve dins de 'p.canvas' (base), capturada al seu lloc per html2canvas
-      // (ara no ignorem l'overlay-pane) -> alineada. Només posem els discos NÍTIDS per damunt.
-      if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked && p.mapObj && p.markers){
-        c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);
+      // SUPERFÍCIE QPE dibuixada a mà per projecció (render suau). Amb el zoom forçat a ENTER,
+      // latLngToContainerPoint coincideix amb la base de html2canvas -> alineada amb comarques i discos.
+      if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked && p.mapObj){
+        if(!precGrid && pacumFont==='idw') calculaPrecGrid();
+        if(precGrid){
+          const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
+          const G=precGrid,B=G.bbox,nx=G.nx,ny=G.ny;
+          const off=document.createElement('canvas'); off.width=nx; off.height=ny;
+          const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data;
+          for(let j=0;j<ny;j++){ const row=(ny-1-j)*nx;
+            for(let i=0;i<nx;i++){ const v=G.val[j*nx+i]; const q=(row+i)*4;
+              if(isNaN(v)||v<0.1){ d[q+3]=0; continue; }
+              const cc=colorRGB('pacum',v); d[q]=cc[0]; d[q+1]=cc[1]; d[q+2]=cc[2]; d[q+3]=255; } }
+          oc.putImageData(im,0,0);
+          const pNW=p.mapObj.latLngToContainerPoint([B[3],B[0]]), pSE=p.mapObj.latLngToContainerPoint([B[2],B[1]]);
+          c.save(); c.imageSmoothingEnabled=true; c.imageSmoothingQuality='high'; c.globalAlpha=0.72;
+          c.drawImage(off, x+pNW.x*sxp, mapY+pNW.y*syp, (pSE.x-pNW.x)*sxp, (pSE.y-pNW.y)*syp);
+          c.restore();
+        }
+        if(p.markers) c.drawImage(p.markers,0,0,p.markers.width,p.markers.height, x,mapY,mapW,mapH);   // discos nítids damunt
       }
       if($('radarOn') && $('radarOn').checked && radOverlay && p.mapObj){   // radar/echotop a la captura
         const img=radOverlay.getElement();
@@ -2257,12 +2279,14 @@ async function generarImatge(){
     c.fillText('Informe generat: '+fmtD(new Date())+' (hora local)', pad, y2);
     c.textAlign='right'; c.fillStyle='#888'; c.font=(12*S)+'px Arial';
     c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC', W-pad, y2);
+    zoomRestore.forEach(([mo,z])=>mo.setZoom(z,{animate:false})); zoomRestore=[];   // restaura el zoom original
     cv.toBlob(bl=>{
       const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
       a.download='situacio_meteo_'+(nom||'incendi').replace(/[^\w]+/g,'_')+'.png'; a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     },'image/png');
   }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
+  try{ zoomRestore.forEach(([mo,z])=>mo.setZoom(z,{animate:false})); }catch(_){}   // per si ha fallat a mitges
   btn.disabled=false; btn.textContent=old;
 }
 $('exportar').addEventListener('click',generarImatge);
