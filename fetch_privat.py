@@ -367,6 +367,37 @@ def _parse_iso_utc(s):
         return None
 
 
+def _prec_total_dies_socrata(n_dies):
+    """Total de pluja (mm) per estació dels últims n_dies via Dades Obertes (Socrata),
+    AGREGAT al servidor amb una sola consulta lleugera (il·limitat, no gasta quota API).
+    Suma totes les lectures de 30 min (codi 35), així que és el total real (no la meitat).
+    Retorna {codi_estacio: mm_total}."""
+    from xema_obert import _soql, DS_LECTURES
+    d0 = (datetime.now(timezone.utc) - timedelta(days=n_dies)).strftime("%Y-%m-%d")
+    where = ("codi_variable='%d' AND valor_lectura >= 0 AND data_lectura >= '%sT00:00:00'"
+             % (PREC_CODI, d0))
+    tot, off = {}, 0
+    while True:
+        rows = _soql(DS_LECTURES, {
+            "$select": "codi_estacio, sum(valor_lectura) as mm",
+            "$where": where, "$group": "codi_estacio",
+            "$limit": 5000, "$offset": off})
+        if not rows:
+            break
+        for r in rows:
+            st = r.get("codi_estacio"); mm = r.get("mm")
+            if st is None or mm is None:
+                continue
+            try:
+                tot[st] = round(float(mm), 1)
+            except (TypeError, ValueError):
+                pass
+        if len(rows) < 5000:
+            break
+        off += 5000
+    return tot
+
+
 def accumula_precipitacio(estacions):
     """Baixa la precipitació 30-min (codi 35) dels últims PACUM_DIES dies per l'API i
     calcula per estació els acumulats 1h/3h/6h/24h/dia(local)/setmana. Els deixa a
@@ -412,15 +443,26 @@ def accumula_precipitacio(estacions):
     for st, arr in ser.items():
         pac = {k: suma(arr, tref - timedelta(hours=h)) for k, h in (("1h", 1), ("3h", 3), ("6h", 6), ("24h", 24))}
         pac["dia"] = suma(arr, mit_utc)
+        pac["3d"] = suma(arr, tref - timedelta(days=3))     # NOU: 3 dies (dades completes de 30 min, com el 7d)
         pac["7d"] = suma(arr, tref - timedelta(days=7))
         per_codi[st] = pac
+    # 30 dies: totals diaris agregats via Dades Obertes (Socrata, il·limitat) -> no gasta quota API
+    prec30 = {}
+    try:
+        prec30 = _prec_total_dies_socrata(30)
+    except Exception as ex:  # noqa
+        print("  avis: 30d per Dades Obertes ha fallat (%s)" % str(ex)[:90])
     n = 0
     for e in estacions:
         idema = str(e.get("idema", ""))
         if idema.startswith("MC_") and idema[3:] in per_codi:
-            e.setdefault("actual", {})["pacum"] = per_codi[idema[3:]]
+            pac = per_codi[idema[3:]]
+            if idema[3:] in prec30:
+                pac["30d"] = prec30[idema[3:]]
+            e.setdefault("actual", {})["pacum"] = pac
             n += 1
-    print("  precipitació acumulada: %d estacions (referència %s UTC)" % (n, tref.strftime("%Y-%m-%d %H:%M")))
+    print("  precipitació acumulada: %d estacions (1h/3h/6h/24h/dia/3d/7d%s · ref %s UTC)"
+          % (n, "/30d" if prec30 else "", tref.strftime("%Y-%m-%d %H:%M")))
 
 
 # ============================ llamps (XDDE Meteocat) ============================

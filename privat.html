@@ -1809,6 +1809,10 @@ async function precDiaArxiu(dk){
 // injecta a les estacions l'acumulat de pluja de 3d/30d (històric viu + arxiu) perquè isquen els discos
 async function preparaPacumEstacions(period){
   if(!DATA) return; const n=period==='30d'?30:(period==='7d'?7:(period==='3d'?3:(period==='dia'?1:0))); if(!n) return;
+  // Si el backend ja dóna aquest període (3d/7d/30d calculats amb dades completes de 30 min),
+  // és l'AUTORITATIU: no el recalculem des de l'arxiu (que és horari :00 = la meitat de la pluja).
+  const ambBackend=DATA.estacions.filter(st=>st.actual&&st.actual.pacum&&st.actual.pacum[period]!=null).length;
+  if(ambBackend>=DATA.estacions.length*0.4) return;
   const keys=[]; let d=_keyDate(qpeRefDayKey()); for(let i=0;i<n;i++){ keys.push(_diaKeyLocal(d)); d.setDate(d.getDate()-1); }
   const live={};                                  // idema -> {dk: mm}
   DATA.estacions.forEach(st=>{ (st.historic||[]).forEach(r=>{ const dk=_diaKeyLocal(new Date(r.t)); if(keys.indexOf(dk)<0)return; const p=r.prec; if(p==null||isNaN(p))return; if(!live[st.idema])live[st.idema]={}; live[st.idema][dk]=(live[st.idema][dk]||0)+ +p; }); });
