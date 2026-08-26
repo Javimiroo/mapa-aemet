@@ -866,7 +866,7 @@ let qpeSerie = null;                            // sèrie horària escombrable {
 let qpeDiesList = null;                          // índex de dies QPE arxivats (['AAAAMMDD',...])
 const qpeDiaCache = {};                          // graella QPE d'un dia arxivat (per clau AAAAMMDD)
 const QPE_URL = 'https://raw.githubusercontent.com/Javimiroo/mapa-aemet/qpe/';
-const PACUM_LAB = {'1h':'1 h','3h':'3 h','6h':'6 h','24h':'24 h','dia':'del dia (des de 00 h)','3d':'3 dies','7d':'7 dies','30d':'30 dies'};
+const PACUM_LAB = {'1h':'1 h','3h':'3 h','6h':'6 h','24h':'24 h','dia':'del dia (des de 00 h)','3d':'3 dies complets','7d':'7 dies complets','30d':'30 dies complets'};
 
 const SCALES = {
   temp:[[6,[150,225,230]],[12,[130,205,190]],[16,[150,210,150]],[20,[200,225,120]],[24,[250,240,110]],[28,[252,205,80]],[32,[250,150,60]],[36,[235,85,50]],[40,[195,25,35]],[44,[150,10,30]]],
@@ -1831,7 +1831,9 @@ async function preparaPacumEstacions(period){
 let qpeDiaSeq=0;
 async function qpeDailyRender(mode){
   if(selVar.value!=='pacum'||pacumFont!=='qpe') return;
-  const seq=++qpeDiaSeq, endKey=qpeRefDayKey(), n=(mode==='30d'?30:(mode==='7d'?7:(mode==='3d'?3:1)));
+  const seq=++qpeDiaSeq, n=(mode==='30d'?30:(mode==='7d'?7:(mode==='3d'?3:1)));
+  let endKey=qpeRefDayKey();
+  if(!reviewMode && n>1){ const y=_keyDate(endKey); y.setDate(y.getDate()-1); endKey=_dateKey(y); }   // últims N dies COMPLETS: acaba AHIR (sense el dia d'avui, parcial)
   $('status').innerHTML='Carregant QPE diari…';
   let G=null, used=0;
   if(n===1){ G=await obteQPEDia(endKey); used=G?1:0; }
@@ -1842,7 +1844,7 @@ async function qpeDailyRender(mode){
   precGrid=G; qpeInfo={diari:true,obs:_keyDate(endKey).getTime()};
   actualitzaEscalaPacum(); if(precLayer)precLayer.redraw(); renderLegend();
   const dl=_diaLabelK(endKey);
-  const lab = (mode==='dia') ? ('pluja del dia · '+dl) : ((mode==='30d'?'30 dies':(mode==='7d'?'7 dies':'3 dies'))+' fins al '+dl);
+  const lab = (mode==='dia') ? ('pluja del dia · '+dl) : ((mode==='30d'?'30 dies':(mode==='7d'?'7 dies':'3 dies'))+' complets (fins al '+dl+')');
   $('status').innerHTML='Pluja <b>QPE radar+estacions</b> · '+lab+(n>1?(' · '+used+'/'+n+' dies'):'')+' · corregit amb estacions';
 }
 selVar.onchange=()=>{surtModes();
