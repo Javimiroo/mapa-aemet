@@ -8,8 +8,14 @@ name: QPE pluja (radar AEMET + estacions)
 
 on:
   workflow_dispatch: {}
+  # CADÈNCIA PRINCIPAL: s'engega cada vegada que ACABA el workflow del privat (que corre
+  # cada ~10 min via cron-job.org). Així el QPE va tan fresc com el privat, SENSE dependre
+  # del cron de GitHub (que salta hores) ni d'un disparador extern propi.
+  workflow_run:
+    workflows: ["Actualitza mapa privat (AEMET + Meteocat)"]
+    types: [completed]
   schedule:
-    - cron: "8,23,38,53 * * * *"     # ~cada 15 min (xarxa de seguretat; el cron de GitHub salta)
+    - cron: "8,23,38,53 * * * *"     # xarxa de seguretat (el cron de GitHub salta sovint)
 
 permissions:
   contents: write
