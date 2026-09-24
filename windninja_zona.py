@@ -101,8 +101,12 @@ def converteix(dirpath, bbox, nx=220, ny=220, estacions=None):
     u = -sp * np.sin(rad)                            # component est
     v = -sp * np.cos(rad)                            # component nord
 
-    # comprovació de seguretat: el camp ha de reproduir les estacions
-    avis = comprova(estacions, fwd, vel, ang, nod, hv, rows, cols)
+    # comprovació de seguretat: el camp ha de reproduir les estacions (vel + direcció)
+    avis, ajust = comprova(estacions, fwd, vel, ang, nod, hv, rows, cols)
+    if os.path.exists(os.path.join(dirpath, "PLA_B")):
+        pb = ("Règim complex: l'ajust exacte a les estacions no ha convergit; "
+              "camp APROXIMAT d'una sola passada.")
+        avis = pb + (" " + avis if avis else "")
 
     idx = np.nonzero(val.ravel())[0]
     n = int(idx.size)
@@ -123,44 +127,78 @@ def converteix(dirpath, bbox, nx=220, ny=220, estacions=None):
     }
     if avis:
         payload["avis"] = avis
+    if ajust:
+        payload["ajust"] = ajust
     print("  camp: %dx%d (%d cel·les vàlides) · malla WindNinja %g m · vent %.1f-%.1f km/h"
           % (nx, ny, n, cs, sp[val].min() * 3.6, sp[val].max() * 3.6))
     return payload
 
 
+DIR_LLINDAR = 45.0      # error mitjà de direcció (graus) a partir del qual el camp s'avisa
+VEL_MIN_DIR = 0.8       # m/s (~3 km/h): per davall, la direcció observada és soroll i no es compara
+
+
 def comprova(estdir, fwd, vel, ang, nod, hv, rows, cols):
-    """Compara el camp amb les estacions: si el factor no és ~1, les unitats fallen."""
+    """Compara el camp final amb les estacions observades: unitats (velocitat) i
+    DIRECCIÓ (error angular circular, estació per estació). Retorna (avis, ajust):
+    avis = text per al visor si algo no quadra; ajust = {n, dir_err, factor}."""
     if not estdir or not os.path.isdir(estdir):
-        return None
-    difs = []
+        return None, None
+    difs = []          # factors de velocitat (unitats)
+    derr = []          # errors de direcció (graus)
+    # cada fitxer pot dur VÀRIES estacions (format antic: totes en un únic
+    # estacions.csv, una fila per estació) — es comproven totes les files
     for fn in glob.glob(os.path.join(estdir, "*.csv")):
         try:
             linies = open(fn, encoding="utf-8").read().splitlines()
-            if len(linies) < 2:
-                continue
-            c = [x.strip().strip('"') for x in linies[1].split(",")]
-            lat, lon, sp_obs = float(c[3]), float(c[4]), float(c[7])   # m/s
-            x, y = fwd.transform(lon, lat)
-            cc = int((x - hv["xllcorner"]) / hv["cellsize"])
-            rr = int(rows - 1 - (y - hv["yllcorner"]) / hv["cellsize"])
-            if not (0 <= rr < rows and 0 <= cc < cols):
-                continue
-            v = vel[rr, cc]
-            if v == nod or sp_obs < 0.5:
-                continue
-            difs.append((v * MPH) / sp_obs)
         except Exception:
             continue
-    if not difs:
-        return None
-    f = float(np.median(difs))
-    print("  comprovació d'unitats amb %d estacions: factor mitjà %.2f" % (len(difs), f))
-    if not (0.6 <= f <= 1.6):
-        av = ("ATENCIÓ: el camp no quadra amb les estacions (factor %.2f). "
-              "Revisa les unitats de sortida de WindNinja." % f)
-        print("  " + av)
-        return av
-    return None
+        for linia in linies[1:]:
+            try:
+                c = [x.strip().strip('"') for x in linia.split(",")]
+                if len(c) < 10:
+                    continue
+                nomest = c[0]
+                lat, lon, sp_obs, dir_obs = float(c[3]), float(c[4]), float(c[7]), float(c[9])
+                x, y = fwd.transform(lon, lat)
+                cc = int((x - hv["xllcorner"]) / hv["cellsize"])
+                rr = int(rows - 1 - (y - hv["yllcorner"]) / hv["cellsize"])
+                if not (0 <= rr < rows and 0 <= cc < cols):
+                    continue
+                v = vel[rr, cc]; a = ang[rr, cc]
+                if v == nod or a == nod:
+                    continue
+                if sp_obs >= 0.5:
+                    difs.append((v * MPH) / sp_obs)
+                if sp_obs >= VEL_MIN_DIR:
+                    d = abs((float(a) - dir_obs + 180.0) % 360.0 - 180.0)
+                    derr.append(d)
+                    print("  direcció %-28s obs %3d° · camp %3d° · dif %3d°"
+                          % (nomest[:28], round(dir_obs), round(float(a)), round(d)))
+            except Exception:
+                continue
+    if not difs and not derr:
+        return None, None
+    avis = None
+    ajust = {}
+    if difs:
+        f = float(np.median(difs))
+        ajust["factor"] = round(f, 2)
+        print("  comprovació d'unitats amb %d estacions: factor mitjà %.2f" % (len(difs), f))
+        if not (0.6 <= f <= 1.6):
+            avis = ("ATENCIÓ: el camp s'aparta de la velocitat observada "
+                    "(factor %.2f: <1 subestima, >1 sobreestima)." % f)
+    if derr:
+        e = float(np.median(derr))
+        ajust["n"] = len(derr)
+        ajust["dir_err"] = int(round(e))
+        print("  comprovació de DIRECCIÓ amb %d estacions: error mitjà %d°" % (len(derr), round(e)))
+        if avis is None and e > DIR_LLINDAR:
+            avis = ("Règim fluix/desorganitzat: el camp s'aparta una mitjana de %d° "
+                    "de les %d estacions de la caixa — direcció poc fiable." % (round(e), len(derr)))
+    if avis:
+        print("  ⚠ " + avis)
+    return avis, (ajust or None)
 
 
 def main():

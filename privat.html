@@ -2740,6 +2740,7 @@ async function carregaZona(){
     zonaData=decodeVentHores(p);
     if(inf) inf.innerHTML=((zonaMeta&&zonaMeta.nom)?('<b>'+zonaMeta.nom+'</b> · '):'')
       +(p.t&&p.t.length?('vent de les '+fmtTemps(p.t[0])):'')+' · malla '+(p.malla_m||'?')+' m'
+      +((p.ajust&&p.ajust.dir_err!=null)?(' · ajust amb les '+(p.ajust.n||'?')+' estacions: ±'+p.ajust.dir_err+'°'):'')
       +(p.avis?('<br><span style="color:#f59e0b">⚠ '+p.avis+'</span>'):'');
   }catch(e){ if(inf) inf.textContent='error carregant la zona'; }
 }
