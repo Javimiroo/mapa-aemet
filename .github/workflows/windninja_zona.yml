@@ -84,8 +84,20 @@ jobs:
         run: |
           set -o pipefail
           t0=$(date +%s)
-          docker run --rm -v "$PWD/wn/zona":/data \
-            --entrypoint WindNinja_cli ekeenan/windninja-momentum:latest /data/run.cfg 2>&1 | tail -20
+          # 1r intent: ajust exacte a estacions, limitat a 40 iteracions (per
+          # defecte serien 150 i en règims contradictoris es menja 20-40 min i
+          # igualment acaba en excepció sense camp).
+          # PLA B: si no convergeix, es recalcula sense ajust exacte (una sola
+          # passada, sempre trau camp); la comprovació de fidelitat del pas
+          # següent quantifica la diferència i el mapa mostra l'avís.
+          if ! docker run --rm -e NINJA_POINT_MAX_MATCH_ITERS=40 -v "$PWD/wn/zona":/data \
+            --entrypoint WindNinja_cli ekeenan/windninja-momentum:latest /data/run.cfg 2>&1 | tail -25; then
+            echo "⚠ l'ajust exacte no ha convergit: recalculant SENSE ajust (pla B)"
+            touch wn/zona/PLA_B   # windninja_zona.py ho llig i avisa al mapa
+            rm -f wn/zona/*.asc
+            docker run --rm -v "$PWD/wn/zona":/data \
+              --entrypoint WindNinja_cli ekeenan/windninja-momentum:latest /data/run_sense_ajust.cfg 2>&1 | tail -15
+          fi
           echo "càlcul: $(( $(date +%s) - t0 )) s"
           ls -la wn/zona/*.asc
 
