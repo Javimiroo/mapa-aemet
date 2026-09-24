@@ -680,6 +680,13 @@
 <style>
 #focPrevList input{background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:5px;padding:2px 4px;font-size:11px}
 #focPrevBoxBtn.on,#focPrevAddBtn.on{background:#0369a1;border-color:#38bdf8;color:#e0f2fe}
+#focRight .acc{border-bottom:1px solid #1e293b}
+#focRight .acc-h{display:flex;align-items:center;gap:7px;padding:9px 12px;cursor:pointer;font-size:13px;font-weight:600;color:#e5e7eb;background:#0f172a;user-select:none}
+#focRight .acc-h:hover{background:#152238}
+#focRight .acc-h .chev{margin-left:6px;color:#94a3b8;transition:transform .15s}
+#focRight .acc.collapsed .chev{transform:rotate(-90deg)}
+#focRight .acc.collapsed .acc-b{display:none}
+#focRight .acc-b{padding:8px 12px;background:#0b1220}
 </style>
 <div id="focModal" style="display:none;position:fixed;inset:0;z-index:5000;background:#0b1220;color:#e5e7eb;flex-direction:column">
   <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #334155;background:#0f172a;flex-wrap:wrap">
@@ -697,17 +704,8 @@
   </div>
   <div style="flex:1;display:flex;min-height:0">
     <div style="flex:1.4;position:relative;min-width:0;display:flex;flex-direction:column;border-right:1px solid #334155">
-      <div style="display:flex;gap:10px;align-items:center;padding:6px 10px;background:#0f172a;border-bottom:1px solid #1e293b;flex-wrap:wrap">
-        <label style="font-size:12px;color:#cbd5e1">Fons:</label>
-        <select id="focBase" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:4px 6px;font-size:12px">
-          <option value="satellite">Satèl·lit</option>
-          <option value="icgctopo">ICGC topogràfic</option>
-          <option value="icgc">ICGC base</option>
-          <option value="topo">Topogràfic (OTM)</option>
-          <option value="dark">Fosc</option>
-          <option value="light">Clar</option>
-          <option value="streets">Carrers (OSM)</option>
-        </select>
+      <!-- barra d'eines slim: només observació i edició -->
+      <div style="display:flex;gap:8px;align-items:center;padding:6px 10px;background:#0f172a;border-bottom:1px solid #1e293b;flex-wrap:wrap">
         <label style="font-size:12px;color:#cbd5e1">Variable:</label>
         <select id="focVar" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:4px 6px;font-size:12px"></select>
         <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="focVentOn" checked> Vent WindNinja</label>
@@ -716,72 +714,94 @@
         <span id="focDataTime" style="font-size:11px;color:#94a3b8"></span>
         <button class="btn small" id="focArrowBtn" title="Dibuixar fletxes de propagació (arrossega sobre el mapa)">✏️ Fletxes</button>
         <button class="btn small" id="focArrowClear" title="Esborrar les fletxes dibuixades">🗑</button>
-        <span style="width:1px;height:18px;background:#334155;margin:0 2px"></span>
-        <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:4px;cursor:pointer" title="Superposar la previsió del model HARMONIE sobre el mapa"><input type="checkbox" id="focHarOn"> 🛰️ Model</label>
+        <span id="focRunInfo" style="font-size:11px;color:#94a3b8;margin-left:auto"></span>
+      </div>
+      <div id="focMap" style="flex:1;min-height:0;position:relative">
+        <!-- fons del mapa: selector compacte DINS del mapa -->
+        <div style="position:absolute;top:8px;left:8px;z-index:1200">
+          <select id="focBase" title="Fons del mapa" style="background:rgba(15,23,42,.92);color:#e5e7eb;border:1px solid #334155;border-radius:7px;padding:4px 7px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.45)">
+            <option value="satellite">🛰️ Satèl·lit</option>
+            <option value="icgctopo">ICGC topogràfic</option>
+            <option value="icgc">ICGC base</option>
+            <option value="topo">Topogràfic (OTM)</option>
+            <option value="dark">Fosc</option>
+            <option value="light">Clar</option>
+            <option value="streets">Carrers (OSM)</option>
+          </select>
+        </div>
+      </div>
+      <div id="focVentLeg" style="display:none;position:absolute;left:12px;bottom:104px;z-index:1200;width:190px;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:9px;padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)"></div>
+      <!-- BARRA DE PREVISIÓ (model HARMONIE sobre el mapa) -->
+      <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;background:#0b1a2b;border-top:1px solid #1e3a52;flex-wrap:wrap">
+        <b style="font-size:12px;color:#38bdf8">🔮 Previsió</b>
+        <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px;cursor:pointer" title="Superposar la previsió del model HARMONIE sobre el mapa"><input type="checkbox" id="focHarOn"> 🛰️ Model</label>
         <select id="focHarVar" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px" title="Variable de la previsió">
           <option value="temp">Tª</option><option value="vent">Vent</option><option value="ratxa">Ratxa</option>
           <option value="precip">Pluja</option><option value="nuvol">Núvols</option><option value="llamps">Llamps</option><option value="cap">— cap —</option>
         </select>
         <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" id="focHarArrows" checked> Fletxes</label>
         <button class="tb-btn" id="focHarPrev" title="Hora anterior" style="padding:1px 6px">◀</button>
-        <input type="range" id="focHarHour" min="0" max="47" value="0" style="width:90px;accent-color:#38bdf8">
+        <input type="range" id="focHarHour" min="0" max="47" value="0" style="flex:1;min-width:80px;accent-color:#38bdf8">
         <button class="tb-btn" id="focHarNext" title="Hora següent" style="padding:1px 6px">▶</button>
-        <span id="focHarMapLbl" style="font-size:11px;color:#38bdf8">—</span>
-        <span id="focRunInfo" style="font-size:11px;color:#94a3b8;margin-left:auto"></span>
+        <span id="focHarMapLbl" style="font-size:11px;color:#38bdf8;min-width:118px;text-align:right">—</span>
       </div>
-      <div id="focMap" style="flex:1;min-height:0;position:relative"></div>
-      <div id="focVentLeg" style="display:none;position:absolute;left:12px;bottom:64px;z-index:1200;width:190px;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:9px;padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)"></div>
-      <div style="display:flex;align-items:center;gap:9px;padding:8px 12px;background:#0f172a;border-top:1px solid #334155">
+      <!-- BARRA DE TEMPS REAL (observació / màquina del temps) -->
+      <div style="display:flex;align-items:center;gap:9px;padding:6px 12px;background:#0f172a;border-top:1px solid #334155">
+        <b style="font-size:12px;color:#22c55e">🕐 Real</b>
         <button class="tb-btn" id="focTPrev" title="Hora anterior">◀</button>
         <div style="flex:1">
           <div id="focTMarks" style="position:relative;height:15px;margin-bottom:1px"></div>
           <input type="range" id="focTRange" min="0" max="100" value="100" step="1" style="width:100%">
         </div>
         <button class="tb-btn" id="focTNext" title="Hora següent">▶</button>
-        <span id="focTLabel" style="font-size:12px;min-width:132px;text-align:right;color:#e5e7eb">—</span>
+        <span id="focTLabel" style="font-size:12px;min-width:126px;text-align:right;color:#e5e7eb">—</span>
       </div>
     </div>
-    <div id="focRight" style="flex:1;min-width:330px;max-width:560px;display:flex;flex-direction:column;background:#0b1220;overflow:auto">
-      <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
-        <b style="font-size:13px">🔮 Previsió (WindNinja)</b>
-        <span style="font-size:11px;color:#94a3b8"> · dibuixa una caixa i posa punts amb el vent que preveus a cada lloc</span>
-        <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">
-          <button class="btn small" id="focPrevBoxBtn" title="Dibuixar la caixa de previsió: clica dues cantonades oposades al mapa">▭ Caixa</button>
-          <button class="btn small" id="focPrevAddBtn" title="Afegir un punt amb el vent previst (dins la caixa)">➕ Punt</button>
-          <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px">Hora
-            <input type="datetime-local" id="focPrevHora" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 5px;font-size:11px"></label>
-          <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px" title="Afig vents tèrmics de vessant/vall (usa la temperatura i nuvolositat dels punts)"><input type="checkbox" id="focPrevDiurn"> Tèrmica</label>
+    <div id="focRight" style="flex:1;min-width:340px;max-width:560px;display:flex;flex-direction:column;background:#0b1220;overflow:auto">
+      <!-- 1) HARMONIE (oberta per defecte) -->
+      <div class="acc" id="accHar">
+        <div class="acc-h">🛰️ Previsió HARMONIE-AROME <span style="font-weight:400;font-size:11px;color:#94a3b8">· AEMET, en aquest punt</span>
+          <select id="focHarRun" onclick="event.stopPropagation()" title="Passada del model" style="margin-left:auto;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 5px;font-size:11px"></select>
+          <span class="chev">▾</span></div>
+        <div class="acc-b">
+          <div id="focHarInfo" style="font-size:11px;color:#94a3b8">Carregant…</div>
+          <div id="focHarChartWrap" style="height:180px;margin-top:6px;display:none;position:relative"><canvas id="focHarChart"></canvas></div>
+          <div id="focHarTableWrap" style="max-height:240px;overflow:auto;margin-top:6px"></div>
         </div>
-        <div id="focPrevList" style="margin-top:6px;max-height:160px;overflow:auto"></div>
-        <div class="row" style="gap:8px;margin-top:6px;align-items:center">
-          <button class="btn small" id="focPrevCalc" disabled title="Calcular el camp de vent previst amb WindNinja">🌬️ Calcular previsió</button>
-          <span id="focPrevInfo" style="font-size:11px;color:#94a3b8;flex:1"></span>
+      </div>
+      <!-- 2) WindNinja previsió (punts) -->
+      <div class="acc collapsed" id="accWN">
+        <div class="acc-h">🌬️ Previsió WindNinja <span style="font-weight:400;font-size:11px;color:#94a3b8">· caixa + punts</span><span class="chev">▾</span></div>
+        <div class="acc-b">
+          <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center">
+            <button class="btn small" id="focPrevBoxBtn" title="Dibuixar la caixa de previsió: clica dues cantonades oposades al mapa">▭ Caixa</button>
+            <button class="btn small" id="focPrevAddBtn" title="Afegir un punt amb el vent previst (dins la caixa)">➕ Punt</button>
+            <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px">Hora
+              <input type="datetime-local" id="focPrevHora" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 5px;font-size:11px"></label>
+            <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px" title="Afig vents tèrmics de vessant/vall (usa la temperatura i nuvolositat dels punts)"><input type="checkbox" id="focPrevDiurn"> Tèrmica</label>
+          </div>
+          <div id="focPrevList" style="margin-top:6px;max-height:160px;overflow:auto"></div>
+          <div class="row" style="gap:8px;margin-top:6px;align-items:center">
+            <button class="btn small" id="focPrevCalc" disabled title="Calcular el camp de vent previst amb WindNinja">🌬️ Calcular previsió</button>
+            <span id="focPrevInfo" style="font-size:11px;color:#94a3b8;flex:1"></span>
+          </div>
+          <div id="focPrevSaved" style="margin-top:4px"></div>
+          <div id="focPrevActiveInfo" style="margin-top:4px"></div>
         </div>
-        <div id="focPrevSaved" style="margin-top:4px"></div>
-        <div id="focPrevActiveInfo" style="margin-top:4px"></div>
       </div>
-      <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
-        <b style="font-size:13px">Perímetres desats</b>
-        <div id="focPerimList" style="margin-top:5px"></div>
-      </div>
-      <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
-        <b style="font-size:13px">Estacions més properes</b>
-        <span style="font-size:11px;color:#94a3b8"> · clica'n fins a 3 per als meteogrames</span>
-        <div id="focEstList" style="margin-top:6px;max-height:150px;overflow:auto"></div>
-      </div>
-      <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
-        <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
-          <b style="font-size:13px">🛰️ Previsió HARMONIE-AROME</b>
-          <span style="font-size:11px;color:#94a3b8">· AEMET, en aquest punt</span>
-          <span style="flex:1"></span>
-          <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px">Passada
-            <select id="focHarRun" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 5px;font-size:11px"></select></label>
+      <!-- 3) Estacions + meteogrames -->
+      <div class="acc collapsed" id="accEst">
+        <div class="acc-h">📡 Estacions & meteogrames <span style="font-weight:400;font-size:11px;color:#94a3b8">· clica'n fins a 3</span><span class="chev">▾</span></div>
+        <div class="acc-b">
+          <div id="focEstList" style="max-height:150px;overflow:auto"></div>
+          <div id="focCharts" style="overflow:auto;margin-top:6px"></div>
         </div>
-        <div id="focHarInfo" style="font-size:11px;color:#94a3b8;margin-top:5px">Carregant…</div>
-        <div id="focHarChartWrap" style="height:180px;margin-top:6px;display:none;position:relative"><canvas id="focHarChart"></canvas></div>
-        <div id="focHarTableWrap" style="max-height:220px;overflow:auto;margin-top:6px"></div>
       </div>
-      <div id="focCharts" style="flex:1;overflow:auto;padding:6px 12px"></div>
+      <!-- 4) Perímetres -->
+      <div class="acc collapsed" id="accPerim">
+        <div class="acc-h">🗺️ Perímetres desats<span class="chev">▾</span></div>
+        <div class="acc-b"><div id="focPerimList"></div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -4204,6 +4224,7 @@ function focArrowToggle(){
 // ---- llista de perímetres desats (amb esborrat) ----
 function focRenderPerims(){
   const box=$('focPerimList'); if(!box)return; const ps=focPerimsList(), cols=focPerimColors(ps.length);
+  const ap=$('accPerim'); if(ap) ap.style.display=ps.length?'':'none';    // amaga la secció si no hi ha perímetres
   if(!ps.length){ box.innerHTML='<div style="font-size:11px;color:#94a3b8">Cap perímetre desat.</div>'; return; }
   box.innerHTML=ps.map((p,k)=>'<div style="display:flex;align-items:center;gap:7px;padding:2px 0;font-size:12px">'
     +'<span style="width:13px;height:13px;border-radius:3px;background:'+cols[k].s+';border:1px solid #0b1220"></span>'
@@ -4331,17 +4352,19 @@ async function focHarmonieRender(runId){
   const labels=s.hores.map(ms=>{ const d=new Date(ms); return d.toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'}); });
   $('focHarChartWrap').style.display='block';
   try{ const old=(window.Chart&&Chart.getChart)?Chart.getChart(cv):null; if(old) old.destroy(); }catch(e){}
-  FD.harChart=new Chart(cv,{data:{labels:labels,datasets:[
+  FD.harChart=new Chart(cv,{plugins:[harChartArrows],data:{labels:labels,datasets:[
     {type:'line',label:'Tª (°C)',data:s.temp,yAxisID:'yT',borderColor:'#f87171',backgroundColor:'#f87171',borderWidth:2,pointRadius:0,tension:.3,order:1},
     {type:'line',label:'Vent (km/h)',data:s.vent,yAxisID:'yT',borderColor:'#34d399',borderWidth:1.3,pointRadius:0,borderDash:[4,3],tension:.3,order:2},
     {type:'bar',label:'Pluja (mm)',data:s.precip,yAxisID:'yP',backgroundColor:'#38bdf8',order:3}
   ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    layout:{padding:{top:15}},
     plugins:{legend:{labels:{color:'#cbd5e1',boxWidth:10,font:{size:10}}},tooltip:{callbacks:{title:it=>{const d=new Date(s.hores[it[0].dataIndex]);return d.toLocaleString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',hour:'2-digit'});}}}},
     scales:{
       x:{ticks:{color:'#94a3b8',maxRotation:0,autoSkip:true,maxTicksLimit:8,font:{size:9}},grid:{color:'#1e293b'}},
       yT:{position:'left',ticks:{color:'#cbd5e1',font:{size:9}},grid:{color:'#1e293b'},title:{display:true,text:'°C / km/h',color:'#94a3b8',font:{size:9}}},
       yP:{position:'right',beginAtZero:true,ticks:{color:'#38bdf8',font:{size:9}},grid:{drawOnChartArea:false},title:{display:true,text:'mm',color:'#38bdf8',font:{size:9}}}
     }}});
+  FD.harChart.$harSeries=s;          // per a les fletxes de direcció del gràfic
   // --- taula horària ---
   const now=Date.now();
   let h='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="color:#94a3b8;text-align:right">'
@@ -4498,6 +4521,20 @@ function harWire(){
   }
 }
 harWire();
+// fletxes de direcció del vent sobre el gràfic HARMONIE (com als meteogrames d'estacions)
+const harChartArrows={id:'harchdir',afterDatasetsDraw(chart){
+  const s=chart.$harSeries; if(!s||!s.dir)return;
+  const ctx=chart.ctx,area=chart.chartArea,x=chart.scales.x,n=s.dir.length,step=Math.max(1,Math.round(n/26)),y=area.top+7;
+  for(let i=0;i<n;i+=step){ const d=s.dir[i]; if(d==null)continue; drawArrow(ctx,x.getPixelForValue(i),y,d+180,'#7dd3fc'); }
+}};
+// acordió de la columna dreta del tauler (una secció oberta a la vegada)
+function focAccOpen(id){ document.querySelectorAll('#focRight .acc').forEach(a=>a.classList.toggle('collapsed',a.id!==id));
+  if(id==='accHar'&&FD&&FD.harChart){ setTimeout(()=>{try{FD.harChart.resize();}catch(e){}},60); }
+  if(id==='accEst'&&typeof focRenderCharts==='function'){ setTimeout(()=>{try{focRenderCharts();}catch(e){}},40); } }
+function initFocAccordion(){ document.querySelectorAll('#focRight .acc-h').forEach(h=>{ if(h.dataset.w==='1')return; h.dataset.w='1';
+  h.onclick=(e)=>{ if(e.target.closest('select'))return; const a=h.parentElement;
+    if(a.classList.contains('collapsed')) focAccOpen(a.id); else a.classList.add('collapsed'); }; }); }
+initFocAccordion();
 // rang de la línia de temps: de (inici-2h) fins a min(fi, última observació meteo)
 function focRecalculaTimeline(alFinal){
   const f=FD.foc, ultimObs=focUltimaObs();
