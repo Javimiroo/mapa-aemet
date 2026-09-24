@@ -1,0 +1,67 @@
+name: Previsió HARMONIE-AROME (AEMET) per incendis
+
+# Baixa l'última passada del model HARMONIE-AROME d'AEMET, descodifica els mapes de
+# color a valors físics (temp/vent/ratxa/precip/núvols/llamps + direcció), retalla
+# Catalunya, xifra i publica a la branca 'harmonie'. Manté un buffer de les últimes
+# passades perquè el frontend en faça una banda min/mitjana/màx ("lagged ensemble").
+#
+# HARMONIE surt 4 vegades al dia (00/06/12/18 UTC) i AEMET el publica ~4-5 h després,
+# per això els horaris de baix. El cron de GitHub sol endarrerir-se, però la finestra
+# de disponibilitat és ampla i el workflow es pot disparar a mà (workflow_dispatch).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "5 5,11,17,23 * * *"      # ~poc després de publicar-se cada passada
+    - cron: "35 6,12,18,0 * * *"      # reintent per si encara no estava
+
+permissions:
+  contents: write
+
+concurrency:
+  group: harmonie
+  cancel-in-progress: false
+
+jobs:
+  harmonie:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5           # scripts (main)
+
+      - name: Recupera el buffer (branca 'harmonie')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git clone --branch harmonie --depth 1 \
+               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" harmonie_store 2>/dev/null; then
+            echo "buffer recuperat ($(ls harmonie_store/harmonie_*.enc 2>/dev/null | wc -l) passades)"
+          else
+            echo "encara no hi ha branca 'harmonie'; començo de zero"
+            mkdir -p harmonie_store
+          fi
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Dependències
+        run: pip install numpy pillow cryptography
+
+      - name: Genera la previsió HARMONIE
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: python harmonie_prep.py --store harmonie_store
+
+      - name: Publica a la branca 'harmonie'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd harmonie_store
+          rm -rf .git
+          git init -q -b harmonie
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "HARMONIE $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" harmonie
+          echo "publicat a la branca 'harmonie'"
