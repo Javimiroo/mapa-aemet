@@ -382,6 +382,38 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>🛰️ Model HARMONIE-AROME (previsió)</h2>
+      <div class="cardbody">
+        <label class="switch"><input type="checkbox" id="harOn"> Mostra la previsió al mapa</label>
+        <div id="harBar" style="display:none;margin-top:8px">
+          <label style="font-size:12px;display:block;margin-bottom:4px">Variable</label>
+          <select id="harVar" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px">
+            <option value="temp">Temperatura (°C)</option>
+            <option value="vent">Vent (km/h)</option>
+            <option value="ratxa">Ratxa màx. (km/h)</option>
+            <option value="precip">Pluja (mm/h)</option>
+            <option value="nuvol">Nuvolositat (%)</option>
+            <option value="llamps">Llamps</option>
+            <option value="cap">— Cap superfície (només fletxes) —</option>
+          </select>
+          <label class="switch" style="margin-top:8px;font-size:12px"><input type="checkbox" id="harArrows" checked> Fletxes de direcció del vent</label>
+          <div class="row" style="gap:6px;align-items:center;margin-top:8px">
+            <button class="btn small" id="harPrev" title="Hora anterior">◀</button>
+            <input type="range" id="harHour" min="0" max="47" value="0" style="flex:1;accent-color:var(--accent)">
+            <button class="btn small" id="harNext" title="Hora següent">▶</button>
+          </div>
+          <div id="harHourLbl" class="muted" style="font-size:12px;text-align:center;margin-top:4px">—</div>
+          <div class="row" style="gap:6px;align-items:center;margin-top:6px">
+            <span class="muted" style="font-size:11px">Opacitat</span>
+            <input type="range" id="harOpac" min="20" max="100" value="70" style="flex:1;accent-color:var(--accent)">
+          </div>
+          <div id="harInfo" class="muted" style="font-size:11px;margin-top:6px">—</div>
+        </div>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">Previsió del model d'AEMET (descodificada de la graella). Tria variable i hora; les <b>fletxes</b> mostren la direcció i força del vent previst. Es baixa una vegada per sessió.</p>
+      </div>
+    </div>
+
     <div class="card coll collapsed">
       <h2>📅 Dia històric (arxiu)</h2>
       <div class="cardbody">
@@ -684,6 +716,17 @@
         <span id="focDataTime" style="font-size:11px;color:#94a3b8"></span>
         <button class="btn small" id="focArrowBtn" title="Dibuixar fletxes de propagació (arrossega sobre el mapa)">✏️ Fletxes</button>
         <button class="btn small" id="focArrowClear" title="Esborrar les fletxes dibuixades">🗑</button>
+        <span style="width:1px;height:18px;background:#334155;margin:0 2px"></span>
+        <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:4px;cursor:pointer" title="Superposar la previsió del model HARMONIE sobre el mapa"><input type="checkbox" id="focHarOn"> 🛰️ Model</label>
+        <select id="focHarVar" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px" title="Variable de la previsió">
+          <option value="temp">Tª</option><option value="vent">Vent</option><option value="ratxa">Ratxa</option>
+          <option value="precip">Pluja</option><option value="nuvol">Núvols</option><option value="llamps">Llamps</option><option value="cap">— cap —</option>
+        </select>
+        <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" id="focHarArrows" checked> Fletxes</label>
+        <button class="tb-btn" id="focHarPrev" title="Hora anterior" style="padding:1px 6px">◀</button>
+        <input type="range" id="focHarHour" min="0" max="47" value="0" style="width:90px;accent-color:#38bdf8">
+        <button class="tb-btn" id="focHarNext" title="Hora següent" style="padding:1px 6px">▶</button>
+        <span id="focHarMapLbl" style="font-size:11px;color:#38bdf8">—</span>
         <span id="focRunInfo" style="font-size:11px;color:#94a3b8;margin-left:auto"></span>
       </div>
       <div id="focMap" style="flex:1;min-height:0;position:relative"></div>
@@ -4217,6 +4260,7 @@ async function obreFocTauler(id){
   await focScrub();
   focRenderCharts();
   focHarmonie();                                   // previsió del model HARMONIE en aquest punt
+  if($('focHarOn')&&$('focHarOn').checked) focHarMapToggle(true); else harSyncControls();   // capa HARMONIE al mapa del tauler
   focVentLegShow();
   focMostraDataTime(); focMostraUltimRun();
   setTimeout(()=>{ if(FD&&FD.map){ FD.map.invalidateSize(); FD.map.setView(centre,12); } },90);
@@ -4322,6 +4366,138 @@ async function focHarmonieRender(runId){
   h+='</tbody></table>';
   tw.innerHTML=h;
 }
+// ====== HARMONIE sobre el MAPA: superfície de color + fletxes de vent (mapa general i tauler) ======
+const HARM={payload:null, varK:'temp', hour:0, arrowsOn:true, opac:0.7};
+const HARV={
+  temp:{lab:'Tª',unit:'°C',alwaysDraw:true,stops:[[-10,[70,40,120]],[0,[26,54,148]],[6,[31,143,255]],[12,[0,237,237]],[16,[33,178,171]],[19,[102,255,102]],[23,[255,255,0]],[25,[255,222,0]],[27,[255,191,0]],[29,[255,158,0]],[31,[255,128,0]],[33,[255,0,0]],[37,[232,51,145]],[43,[161,54,46]]]},
+  vent:{lab:'Vent',unit:'km/h',wind:true,alwaysDraw:true},
+  ratxa:{lab:'Ratxa',unit:'km/h',wind:true,alwaysDraw:true},
+  precip:{lab:'Pluja',unit:'mm',pacum:true,thr:0.1},
+  nuvol:{lab:'Núvols',unit:'%',thr:3,stops:[[0,[255,255,255]],[20,[229,235,250]],[40,[196,214,229]],[60,[114,169,195]],[80,[33,115,184]],[100,[12,41,74]]]},
+  llamps:{lab:'Llamps',unit:'',thr:0.01,stops:[[0,[120,220,150]],[0.05,[233,235,19]],[0.1,[232,144,14]],[0.2,[191,0,61]]]},
+};
+const HARWIND=[[0,[220,250,248]],[10,[175,249,246]],[20,[102,246,236]],[30,[80,248,183]],[40,[168,244,1]],[50,[217,242,0]],[60,[255,201,11]],[70,[255,138,23]],[80,[255,105,31]],[90,[255,89,89]],[105,[153,102,255]],[120,[153,51,204]]];
+function harLerp(stops,v){ const n=stops.length; if(v<=stops[0][0])return stops[0][1]; if(v>=stops[n-1][0])return stops[n-1][1];
+  for(let i=0;i<n-1;i++){const a=stops[i],b=stops[i+1]; if(v>=a[0]&&v<=b[0]){const t=(v-a[0])/(b[0]-a[0]||1); return [0,1,2].map(k=>Math.round(a[1][k]+(b[1][k]-a[1][k])*t));}} return stops[n-1][1]; }
+function harColor(varK,v){ const m=HARV[varK]; if(!m)return[120,120,120]; if(m.pacum)return colorRGB('pacum',v); if(m.wind)return harLerp(HARWIND,v); return harLerp(m.stops,v); }
+function harDrawArrow(ctx,x,y,degFrom,spd){
+  const ang=((degFrom+180)%360)*Math.PI/180, L=8+Math.min(15,spd*0.26), col='rgb('+harColor('vent',spd).join(',')+')';
+  const dx=Math.sin(ang),dy=-Math.cos(ang), x2=x+dx*L,y2=y+dy*L, x1=x-dx*L*0.55,y1=y-dy*L*0.55;
+  ctx.save();
+  ctx.strokeStyle='rgba(15,23,42,.85)';ctx.lineWidth=3.4;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.strokeStyle=col;ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  const ha=0.5,hs=6; ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-(dx*Math.cos(ha)-dy*Math.sin(ha))*hs, y2-(dy*Math.cos(ha)+dx*Math.sin(ha))*hs);
+  ctx.lineTo(x2-(dx*Math.cos(-ha)-dy*Math.sin(-ha))*hs, y2-(dy*Math.cos(-ha)+dx*Math.sin(-ha))*hs);
+  ctx.closePath();ctx.fill();ctx.restore();
+}
+const HarMapSurface=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    const p=HARM.payload; if(!p||HARM.varK==='cap')return; const f=p.fields[HARM.varK]; if(!f||!f.arr)return;
+    try{
+      const nx=p.nx,ny=p.ny,B=p.bbox,h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+      const meta=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(meta.thr!=null?meta.thr:-1e9);
+      const off=document.createElement('canvas');off.width=nx;off.height=ny;
+      const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
+      for(let j=0;j<ny;j++){ for(let i=0;i<nx;i++){ const v=base+f.arr[((h*ny)+j)*nx+i]*sc; const q=(j*nx+i)*4;
+        if(!meta.alwaysDraw && v<thr){ d[q+3]=0; continue; }
+        const c=harColor(HARM.varK,v); d[q]=c[0];d[q+1]=c[1];d[q+2]=c[2];d[q+3]=255; } }
+      oc.putImageData(im,0,0);
+      const pNW=m.latLngToContainerPoint([B[3],B[0]]),pSE=m.latLngToContainerPoint([B[2],B[1]]);
+      ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.globalAlpha=HARM.opac;
+      ctx.drawImage(off,pNW.x,pNW.y,pSE.x-pNW.x,pSE.y-pNW.y);ctx.globalAlpha=1;
+    }catch(e){ ctx.globalAlpha=1; }
+  }
+});
+const HarMapArrows=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    if(!HARM.arrowsOn)return; const p=HARM.payload; if(!p)return; const fd=p.fields.dir,fv=p.fields.vent; if(!fd||!fd.arr)return;
+    const nx=p.nx,ny=p.ny,B=p.bbox,h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+    const dlon=(B[1]-B[0])/nx,dlat=(B[3]-B[2])/ny, nod=(fd.nodata!=null?fd.nodata:255);
+    const q0=m.latLngToContainerPoint([B[3],B[0]]),q1=m.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]);
+    const cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y)), step=Math.max(1,Math.round(40/cellpx));
+    for(let j=(step>>1);j<ny;j+=step){ for(let i=(step>>1);i<nx;i+=step){
+      const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue;
+      const deg=bd*fd.scale, spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;
+      const lat=B[3]-(j+0.5)*dlat, lon=B[0]+(i+0.5)*dlon, pt=m.latLngToContainerPoint([lat,lon]);
+      if(pt.x<-12||pt.y<-12||pt.x>s.x+12||pt.y>s.y+12)continue;
+      harDrawArrow(ctx,pt.x,pt.y,deg,spd);
+    }}
+  }
+});
+async function harEnsure(){
+  if(HARM.payload) return true;
+  try{
+    if(!harIndex) harIndex=await fetch(HAR_URL+'harmonie.json?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null);
+    if(!harIndex||!harIndex.runs||!harIndex.runs.length) return false;
+    const p=await harCarregaRun(harIndex.darrera||harIndex.runs[harIndex.runs.length-1]); if(!p) return false;
+    HARM.payload=p; const now=Date.now(); let bi=0,bd=1e15;
+    p.hores.forEach((s,i)=>{const dd=Math.abs(Date.parse(s)-now); if(dd<bd){bd=dd;bi=i;}}); HARM.hour=bi;
+    return true;
+  }catch(e){ return false; }
+}
+function harHourLabel(){ const p=HARM.payload; if(!p)return'—'; const d=new Date(Date.parse(p.hores[HARM.hour]));
+  return d.toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'})+' ('+HARM.hour+' h)'; }
+function harSyncControls(){ const mx=HARM.payload?HARM.payload.hores.length-1:47;
+  if($('harVar'))$('harVar').value=HARM.varK; if($('harHour')){$('harHour').max=mx;$('harHour').value=HARM.hour;}
+  if($('harArrows'))$('harArrows').checked=HARM.arrowsOn; if($('harOpac'))$('harOpac').value=Math.round(HARM.opac*100);
+  if($('focHarVar'))$('focHarVar').value=HARM.varK; if($('focHarHour')){$('focHarHour').max=mx;$('focHarHour').value=HARM.hour;}
+  if($('focHarArrows'))$('focHarArrows').checked=HARM.arrowsOn;
+  const l1=$('harHourLbl'); if(l1)l1.textContent=harHourLabel(); const l2=$('focHarMapLbl'); if(l2)l2.textContent=harHourLabel(); }
+function harRedraw(){ if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(harArr&&map.hasLayer(harArr))harArr.redraw();
+  if(FD&&FD.harSurf&&FD.map&&FD.map.hasLayer(FD.harSurf))FD.harSurf.redraw(); if(FD&&FD.harArr&&FD.map&&FD.map.hasLayer(FD.harArr))FD.harArr.redraw();
+  harSyncControls(); }
+let harSurf=null, harArr=null;
+async function harMapToggle(on){
+  const bar=$('harBar'); if(bar)bar.style.display=on?'block':'none';
+  if(on){ $('harInfo').textContent='Carregant la previsió…'; const ok=await harEnsure();
+    if(!ok){ $('harInfo').textContent='Encara no hi ha cap passada publicada (branca «harmonie»). Executa el workflow.'; $('harOn').checked=false; if(bar)bar.style.display='none'; return; }
+    if(!harSurf)harSurf=new HarMapSurface(); if(!map.hasLayer(harSurf))harSurf.addTo(map);
+    if(!harArr)harArr=new HarMapArrows(); if(!map.hasLayer(harArr))harArr.addTo(map);
+    if(baseLayer)baseLayer.bringToBack();
+    const p=HARM.payload; $('harInfo').innerHTML='Passada <b>'+p.run.slice(8,10)+'Z</b> del '+p.run.slice(6,8)+'/'+p.run.slice(4,6)+' · '+p.hores.length+' h';
+    harSyncControls(); harRedraw();
+  } else { if(harSurf&&map.hasLayer(harSurf))map.removeLayer(harSurf); if(harArr&&map.hasLayer(harArr))map.removeLayer(harArr); }
+}
+async function focHarMapToggle(on){
+  if(!FD||!FD.map)return;
+  if(on){ const ok=await harEnsure(); if(!ok){ $('focHarOn').checked=false; return; }
+    if(!FD.harSurf)FD.harSurf=new HarMapSurface(); if(!FD.map.hasLayer(FD.harSurf))FD.harSurf.addTo(FD.map);
+    if(!FD.harArr)FD.harArr=new HarMapArrows(); if(!FD.map.hasLayer(FD.harArr))FD.harArr.addTo(FD.map);
+    harSyncControls(); harRedraw();
+  } else { if(FD.harSurf&&FD.map.hasLayer(FD.harSurf))FD.map.removeLayer(FD.harSurf); if(FD.harArr&&FD.map.hasLayer(FD.harArr))FD.map.removeLayer(FD.harArr); }
+}
+function harWire(){
+  const on=$('harOn'); if(!on||on.dataset.w==='1')return; on.dataset.w='1';
+  on.onchange=()=>harMapToggle(on.checked);
+  $('harVar').onchange=()=>{HARM.varK=$('harVar').value; harRedraw();};
+  $('harArrows').onchange=()=>{HARM.arrowsOn=$('harArrows').checked; harRedraw();};
+  $('harOpac').oninput=()=>{HARM.opac=(+$('harOpac').value)/100; if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(FD&&FD.harSurf&&FD.map&&FD.map.hasLayer(FD.harSurf))FD.harSurf.redraw();};
+  $('harHour').oninput=()=>{HARM.hour=+$('harHour').value; harRedraw();};
+  $('harPrev').onclick=()=>{HARM.hour=Math.max(0,HARM.hour-1); harRedraw();};
+  $('harNext').onclick=()=>{HARM.hour=Math.min((HARM.payload?HARM.payload.hores.length-1:47),HARM.hour+1); harRedraw();};
+  // controls del mapa del tauler
+  if($('focHarOn')){ $('focHarOn').onchange=()=>focHarMapToggle($('focHarOn').checked);
+    $('focHarVar').onchange=()=>{HARM.varK=$('focHarVar').value; harRedraw();};
+    $('focHarArrows').onchange=()=>{HARM.arrowsOn=$('focHarArrows').checked; harRedraw();};
+    $('focHarHour').oninput=()=>{HARM.hour=+$('focHarHour').value; harRedraw();};
+    $('focHarPrev').onclick=()=>{HARM.hour=Math.max(0,HARM.hour-1); harRedraw();};
+    $('focHarNext').onclick=()=>{HARM.hour=Math.min((HARM.payload?HARM.payload.hores.length-1:47),HARM.hour+1); harRedraw();};
+  }
+}
+harWire();
 // rang de la línia de temps: de (inici-2h) fins a min(fi, última observació meteo)
 function focRecalculaTimeline(alFinal){
   const f=FD.foc, ultimObs=focUltimaObs();
