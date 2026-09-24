@@ -729,8 +729,9 @@
             <option value="streets">Carrers (OSM)</option>
           </select>
         </div>
+        <!-- llegenda del WindNinja: DINS del mapa, sota el selector de fons -->
+        <div id="focVentLeg" style="display:none;position:absolute;left:8px;top:44px;z-index:1200;width:186px;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:9px;padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)"></div>
       </div>
-      <div id="focVentLeg" style="display:none;position:absolute;left:12px;bottom:104px;z-index:1200;width:190px;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:9px;padding:7px 10px 5px;box-shadow:0 4px 14px rgba(0,0,0,.5)"></div>
       <!-- BARRA DE PREVISIÓ (model HARMONIE sobre el mapa) -->
       <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;background:#0b1a2b;border-top:1px solid #1e3a52;flex-wrap:wrap">
         <b style="font-size:12px;color:#38bdf8">🔮 Previsió</b>
@@ -776,6 +777,7 @@
           <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center">
             <button class="btn small" id="focPrevBoxBtn" title="Dibuixar la caixa de previsió: clica dues cantonades oposades al mapa">▭ Caixa</button>
             <button class="btn small" id="focPrevAddBtn" title="Afegir un punt amb el vent previst (dins la caixa)">➕ Punt</button>
+            <button class="btn small" id="focPrevModelBtn" title="Omplir la caixa amb punts del model HARMONIE (vent, direcció, Tª i núvols) a l'hora indicada">🛰️ Omplir amb el model</button>
             <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px">Hora
               <input type="datetime-local" id="focPrevHora" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 5px;font-size:11px"></label>
             <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px" title="Afig vents tèrmics de vessant/vall (usa la temperatura i nuvolositat dels punts)"><input type="checkbox" id="focPrevDiurn"> Tèrmica</label>
@@ -4482,6 +4484,24 @@ function harSyncControls(){ const mx=HARM.payload?HARM.payload.hores.length-1:47
 function harRedraw(){ if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(harArr&&map.hasLayer(harArr))harArr.redraw();
   if(FD&&FD.harSurf&&FD.map&&FD.map.hasLayer(FD.harSurf))FD.harSurf.redraw(); if(FD&&FD.harArr&&FD.map&&FD.map.hasLayer(FD.harArr))FD.harArr.redraw();
   harSyncControls(); }
+// popup amb el valor previst en clicar QUALSEVOL punt del mapa (quan el model és actiu)
+function harPointPopup(m,e){
+  const p=HARM.payload; if(!p)return;
+  if(FD&&m===FD.map&&(FD.prevBoxDraw||FD.prevAddMode||focArrowMode))return;   // no molestar mentre es dibuixa
+  const s=harPuntSerie(p,e.latlng.lat,e.latlng.lng), h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+  const dd=(s.dir&&s.dir[h]!=null)?('<span style="display:inline-block;transform:rotate('+((s.dir[h]+180)%360)+'deg)">↑</span> '+harDeg2Nom(s.dir[h])+' ('+Math.round(s.dir[h])+'°)'):'—';
+  const t=new Date(Date.parse(p.hores[h])).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'});
+  const sel=HARV[HARM.varK];
+  const valSel=HARM.varK==='cap'?'':(HARM.varK==='temp'?s.temp[h].toFixed(1):HARM.varK==='precip'?s.precip[h].toFixed(1):HARM.varK==='nuvol'?Math.round(s.nuvol[h]):HARM.varK==='llamps'?(s.llamps?s.llamps[h].toFixed(2):'0'):Math.round((s[HARM.varK]||[])[h]));
+  const html='<div style="font:12px system-ui;min-width:158px;color:#0f172a">'
+    +'<b>🛰️ HARMONIE · '+t+'</b><br>'
+    +((sel&&HARM.varK!=='cap')?('<div style="color:#0369a1;font-weight:700;font-size:13px;margin:2px 0">'+sel.lab+': '+valSel+' '+sel.unit+'</div>'):'')
+    +'Tª '+s.temp[h].toFixed(1)+'°C · Vent '+Math.round(s.vent[h])+' km/h '+dd+'<br>'
+    +'Ratxa '+Math.round(s.ratxa[h])+' km/h · Pluja '+s.precip[h].toFixed(1)+' mm · Núv '+Math.round(s.nuvol[h])+'%'
+    +'</div>';
+  L.popup({maxWidth:250}).setLatLng(e.latlng).setContent(html).openOn(m);
+}
+let harGenClick=null; harGenClick=e=>harPointPopup(map,e);
 let harSurf=null, harArr=null;
 async function harMapToggle(on){
   const bar=$('harBar'); if(bar)bar.style.display=on?'block':'none';
@@ -4490,17 +4510,20 @@ async function harMapToggle(on){
     if(!harSurf)harSurf=new HarMapSurface(); if(!map.hasLayer(harSurf))harSurf.addTo(map);
     if(!harArr)harArr=new HarMapArrows(); if(!map.hasLayer(harArr))harArr.addTo(map);
     if(baseLayer)baseLayer.bringToBack();
-    const p=HARM.payload; $('harInfo').innerHTML='Passada <b>'+p.run.slice(8,10)+'Z</b> del '+p.run.slice(6,8)+'/'+p.run.slice(4,6)+' · '+p.hores.length+' h';
+    const p=HARM.payload; $('harInfo').innerHTML='Passada <b>'+p.run.slice(8,10)+'Z</b> del '+p.run.slice(6,8)+'/'+p.run.slice(4,6)+' · '+p.hores.length+' h · clica el mapa per veure el valor en un punt';
+    map.on('click',harGenClick);
     harSyncControls(); harRedraw();
-  } else { if(harSurf&&map.hasLayer(harSurf))map.removeLayer(harSurf); if(harArr&&map.hasLayer(harArr))map.removeLayer(harArr); }
+  } else { if(harSurf&&map.hasLayer(harSurf))map.removeLayer(harSurf); if(harArr&&map.hasLayer(harArr))map.removeLayer(harArr); map.off('click',harGenClick); }
 }
 async function focHarMapToggle(on){
   if(!FD||!FD.map)return;
   if(on){ const ok=await harEnsure(); if(!ok){ $('focHarOn').checked=false; return; }
     if(!FD.harSurf)FD.harSurf=new HarMapSurface(); if(!FD.map.hasLayer(FD.harSurf))FD.harSurf.addTo(FD.map);
     if(!FD.harArr)FD.harArr=new HarMapArrows(); if(!FD.map.hasLayer(FD.harArr))FD.harArr.addTo(FD.map);
+    if(!FD._harClick){ FD._harClick=e=>harPointPopup(FD.map,e); FD.map.on('click',FD._harClick); }
     harSyncControls(); harRedraw();
-  } else { if(FD.harSurf&&FD.map.hasLayer(FD.harSurf))FD.map.removeLayer(FD.harSurf); if(FD.harArr&&FD.map.hasLayer(FD.harArr))FD.map.removeLayer(FD.harArr); }
+  } else { if(FD.harSurf&&FD.map.hasLayer(FD.harSurf))FD.map.removeLayer(FD.harSurf); if(FD.harArr&&FD.map.hasLayer(FD.harArr))FD.map.removeLayer(FD.harArr);
+    if(FD._harClick){ FD.map.off('click',FD._harClick); FD._harClick=null; } }
 }
 function harWire(){
   const on=$('harOn'); if(!on||on.dataset.w==='1')return; on.dataset.w='1';
@@ -4880,6 +4903,36 @@ function focPrevAddPunt(lat,lng,vals){
   focPrevRenumera(); focPrevRender();
 }
 function focPrevRenumera(){ FD.prevPts.forEach((o,i)=>{ if(o.marker) o.marker.setIcon(focPrevPuntIcon(i+1)); }); }
+// omple la caixa amb punts del model HARMONIE (vent/dir/Tª/núvols) a l'hora indicada
+async function focPrevOmpliModel(){
+  if(!FD)return;
+  if(!FD.prevBox){ alert('Dibuixa primer la caixa de previsió (▭ Caixa).'); return; }
+  const inf=$('focPrevInfo'); inf.textContent='Carregant el model HARMONIE…';
+  const ok=await harEnsure(); if(!ok){ inf.textContent='Encara no hi ha cap passada del model publicada.'; return; }
+  const p=HARM.payload;
+  // hora: la del camp «Hora» si n'hi ha, mapada a la passada del model; si no, l'actual del model
+  let hi=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+  const hv=$('focPrevHora').value;
+  if(hv){ const ms=new Date(hv).getTime(); let bd=1e15; p.hores.forEach((s,i)=>{const d=Math.abs(Date.parse(s)-ms); if(d<bd){bd=d;hi=i;}}); }
+  $('focPrevHora').value=msToLocalDatetime(Date.parse(p.hores[hi]));   // alinea l'hora amb la del model
+  // esborra els punts actuals
+  FD.prevPts.slice().forEach(o=>{ if(o.marker){try{FD.map.removeLayer(o.marker);}catch(e){}} }); FD.prevPts=[];
+  // mostreig regular dins la caixa (3x3, o 4x4 si la caixa és gran)
+  const b=FD.prevBox, ampla=Math.max(b.lat1-b.lat0,(b.lon1-b.lon0)), n=(ampla>0.22?4:3);
+  let added=0;
+  for(let r=0;r<n;r++){ for(let c=0;c<n;c++){
+    const lat=b.lat0+(b.lat1-b.lat0)*(r+0.5)/n, lon=b.lon0+(b.lon1-b.lon0)*(c+0.5)/n;
+    const s=harPuntSerie(p,lat,lon);
+    const vel=s.vent?Math.round(s.vent[hi]):null, dir=(s.dir&&s.dir[hi]!=null)?Math.round(s.dir[hi]):null;
+    const temp=s.temp?+s.temp[hi].toFixed(1):null, nuv=s.nuvol?Math.round(s.nuvol[hi]):null;
+    if(vel==null||dir==null) continue;
+    focPrevAddPunt(lat,lon,{vel:vel,dir:dir,temp:temp,nuv:nuv}); added++;
+  }}
+  $('focPrevDiurn').checked=true;    // amb Tª i núvols del model podem activar la tèrmica
+  const t=new Date(Date.parse(p.hores[hi])).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'});
+  inf.textContent='Omplits '+added+' punts del model per a les '+t+'. Revisa'+(added?' i prem «Calcular previsió».':'.');
+  focPrevRender();
+}
 function focPrevEsborraPunt(id){
   const k=FD.prevPts.findIndex(o=>o.id===id); if(k<0)return;
   if(FD.prevPts[k].marker){ try{FD.map.removeLayer(FD.prevPts[k].marker);}catch(e){} }
@@ -5099,6 +5152,7 @@ $('focVentOn').addEventListener('change',()=>{ if(FD&&FD.ventLayer) FD.ventLayer
 $('focCalcBtn').addEventListener('click',focCalculaVent);
 $('focPrevBoxBtn').addEventListener('click',focPrevBoxToggle);
 $('focPrevAddBtn').addEventListener('click',focPrevAddToggle);
+$('focPrevModelBtn').addEventListener('click',focPrevOmpliModel);
 $('focPrevCalc').addEventListener('click',focCalculaPrevisio);
 $('focPrevList').addEventListener('input',e=>{ const inp=e.target.closest('.fpV'); if(!inp||!FD)return; const row=e.target.closest('.focPrevRow'); const o=FD.prevPts.find(x=>x.id===row.dataset.id); if(o) o[inp.dataset.f]=inp.value; });
 $('focPrevList').addEventListener('click',e=>{ const b=e.target.closest('.focPrevDel'); if(!b||!FD)return; const row=e.target.closest('.focPrevRow'); focPrevEsborraPunt(row.dataset.id); });
