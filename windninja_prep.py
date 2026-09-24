@@ -611,20 +611,20 @@ def main():
         if a.zona:
             if n == 0:                                          # sense Meteocat dins de la caixa:
                 n, dtiso = estacions_aemet_csv(bbox, estdir, pwd)  # fallback AEMET publicat
-            if n >= 2 and dtiso:
-                escriu_zona(a.out, a.mesh, dem, n, dtiso)       # 2+ dins: totes les estacions de dins
+            if n >= 3 and dtiso:
+                escriu_zona(a.out, a.mesh, dem, n, dtiso)       # 3+ dins: totes les estacions de dins
             else:
-                # 0 o 1 estació DINS de la caixa: agafem la MÉS PRÒXIMA de CADA quadrant
+                # menys de 3 dins de la caixa: agafem la MÉS PRÒXIMA de CADA quadrant
                 # (N/E/S/O) fins a un límit que depén del relleu (inclou la de dins, si n'hi
                 # ha, + veïnes de fora de direccions diferents, que no estiguen lluny). El DEM
                 # s'amplia perquè WindNinja exigeix les estacions dins del terreny; el
                 # payload es retalla igualment al bbox demanat (windninja_zona.py).
                 dmax = dmax_pel_relleu(dem)
                 n, dtiso, punts_q = estacions_quadrants(bbox, estdir, pwd, dmax)
-                # ZONA ESCASSA (muntanya): si el radi del relleu no arreplega ALMENYS 2
+                # ZONA ESCASSA (muntanya): si el radi del relleu no arreplega ALMENYS 3
                 # estacions (de direccions diferents), l'eixamplem a poc a poc fins a 28 km,
-                # per no acabar amb una sola estació manant el camp sencer.
-                while n < 2 and dmax < 28.0:
+                # per no acabar amb una o dues estacions manant el camp sencer.
+                while n < 3 and dmax < 28.0:
                     dmax = min(28.0, dmax + 6.0)
                     print("  poques estacions dins del radi; amplio a %d km" % round(dmax))
                     n, dtiso, punts_q = estacions_quadrants(bbox, estdir, pwd, dmax)
