@@ -726,6 +726,18 @@
         <span style="font-size:11px;color:#94a3b8"> · clica'n fins a 3 per als meteogrames</span>
         <div id="focEstList" style="margin-top:6px;max-height:150px;overflow:auto"></div>
       </div>
+      <div style="padding:8px 12px;border-bottom:1px solid #1e293b">
+        <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+          <b style="font-size:13px">🛰️ Previsió HARMONIE-AROME</b>
+          <span style="font-size:11px;color:#94a3b8">· AEMET, en aquest punt</span>
+          <span style="flex:1"></span>
+          <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:4px">Passada
+            <select id="focHarRun" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 5px;font-size:11px"></select></label>
+        </div>
+        <div id="focHarInfo" style="font-size:11px;color:#94a3b8;margin-top:5px">Carregant…</div>
+        <canvas id="focHarChart" height="150" style="width:100%;margin-top:6px;display:none"></canvas>
+        <div id="focHarTableWrap" style="max-height:220px;overflow:auto;margin-top:6px"></div>
+      </div>
       <div id="focCharts" style="flex:1;overflow:auto;padding:6px 12px"></div>
     </div>
   </div>
@@ -2399,6 +2411,13 @@ async function desxifra(blob,pass){
                                           bk,{name:'AES-GCM',length:256},false,['decrypt']);
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(blob.iv)},key,b64(blob.ct));
   return JSON.parse(new TextDecoder().decode(pt));
+}
+// descomprimeix un base64(gzip) -> Uint8Array (per als camps de la graella HARMONIE)
+async function gunzipB64(s){
+  const gz=b64(s);
+  const ds=new DecompressionStream('gzip');
+  const buf=await new Response(new Blob([gz]).stream().pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(buf);
 }
 // Llegim les dades directament de raw (l'últim commit), evitant el desplegament
 // de Pages, que és inestable. Si raw falla, provem el fitxer publicat per Pages.
@@ -4197,9 +4216,110 @@ async function obreFocTauler(id){
   else { FD.runData=null; $('focRunInfo').textContent='Cap camp fi calculat encara. Prem «🌬️ Calcular camp fi».'; if(FD.ventLayer)FD.ventLayer.redraw(); }
   await focScrub();
   focRenderCharts();
+  focHarmonie();                                   // previsió del model HARMONIE en aquest punt
   focVentLegShow();
   focMostraDataTime(); focMostraUltimRun();
   setTimeout(()=>{ if(FD&&FD.map){ FD.map.invalidateSize(); FD.map.setView(centre,12); } },90);
+}
+// ---------------- Previsió HARMONIE-AROME (AEMET) en el punt de l'incendi ----------------
+const HAR_URL='https://raw.githubusercontent.com/Javimiroo/mapa-aemet/harmonie/';
+let harIndex=null;            // harmonie.json (llista de passades)
+const harCache={};            // runId -> payload desxifrat (evita rebaixar)
+function harDeg2Nom(d){ const n=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO']; return n[Math.round(((d%360)+360)%360/22.5)%16]; }
+async function harCarregaRun(runId){
+  if(harCache[runId]) return harCache[runId];
+  const r=await fetch(HAR_URL+'harmonie_'+runId+'.enc?_='+Date.now(),{cache:'no-store'}).then(x=>x.ok?x.json():null).catch(()=>null);
+  if(!r) return null;
+  const p=await desxifra(r,PASS);
+  // descomprimeix cada camp a Uint8Array
+  for(const k in p.fields){ p.fields[k].arr=await gunzipB64(p.fields[k].data); delete p.fields[k].data; }
+  harCache[runId]=p; return p;
+}
+function harPuntSerie(p,lat,lon){
+  const [lo0,lo1,la0,la1]=p.bbox, nx=p.nx, ny=p.ny, nh=p.hores.length;
+  let col=Math.floor((lon-lo0)/(lo1-lo0)*nx), row=Math.floor((la1-lat)/(la1-la0)*ny);
+  col=Math.max(0,Math.min(nx-1,col)); row=Math.max(0,Math.min(ny-1,row));
+  const cell=h=>((h*ny)+row)*nx+col;
+  const out={hores:p.hores.map(s=>Date.parse(s))};
+  for(const k in p.fields){
+    const f=p.fields[k], a=f.arr, s=[];
+    for(let h=0;h<nh;h++){ const b=a[cell(h)];
+      if(k==='dir'){ s.push(b===(f.nodata!=null?f.nodata:255)?null:b*f.scale); }
+      else s.push((f.lo||0)+b*f.scale);
+    }
+    out[k]=s;
+  }
+  return out;
+}
+async function focHarmonie(){
+  const inf=$('focHarInfo'), cv=$('focHarChart'), tw=$('focHarTableWrap'), sel=$('focHarRun');
+  if(!inf) return;
+  cv.style.display='none'; tw.innerHTML=''; inf.textContent='Carregant la previsió del model…';
+  if(FD&&FD.harChart){ try{FD.harChart.destroy();}catch(e){} FD.harChart=null; }
+  if(!PASS){ inf.textContent='Cal la contrasenya per veure la previsió xifrada.'; return; }
+  try{
+    if(!harIndex){ harIndex=await fetch(HAR_URL+'harmonie.json?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null); }
+    if(!harIndex||!harIndex.runs||!harIndex.runs.length){ inf.textContent='Encara no hi ha cap passada del model publicada (branca «harmonie»).'; return; }
+    // omple el selector de passades (més recent a dalt)
+    if(sel && sel.dataset.filled!=='1'){
+      sel.innerHTML=''; harIndex.runs.slice().reverse().forEach(rid=>{
+        const o=document.createElement('option'); o.value=rid;
+        o.textContent=rid.slice(6,8)+'/'+rid.slice(4,6)+' '+rid.slice(8,10)+'Z'; sel.appendChild(o); });
+      sel.value=harIndex.darrera||harIndex.runs[harIndex.runs.length-1]; sel.dataset.filled='1';
+      sel.onchange=()=>focHarmonieRender(sel.value);
+    }
+    await focHarmonieRender(sel?sel.value:(harIndex.darrera));
+  }catch(e){ inf.textContent='No s\'ha pogut carregar la previsió ('+(e&&e.message||e)+').'; }
+}
+async function focHarmonieRender(runId){
+  const inf=$('focHarInfo'), cv=$('focHarChart'), tw=$('focHarTableWrap');
+  const c=FD?FD.centre:null; if(!c){ return; }
+  inf.textContent='Descodificant la passada '+runId+'…';
+  const p=await harCarregaRun(runId);
+  if(!p){ inf.textContent='No s\'ha pogut llegir la passada '+runId+'.'; return; }
+  const s=harPuntSerie(p,c.lat,c.lng);
+  const base=new Date(p.base), gen=p.generat?new Date(p.generat):null;
+  inf.innerHTML='Passada model <b>'+runId.slice(8,10)+'Z</b> del '+runId.slice(6,8)+'/'+runId.slice(4,6)+
+    ' · '+s.hores.length+' h · punt '+c.lat.toFixed(3)+', '+c.lng.toFixed(3)+
+    (gen?(' · baixat '+gen.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})):'');
+  // --- meteograma: Tª (línia) + pluja (barres) ---
+  const labels=s.hores.map(ms=>{ const d=new Date(ms); return d.toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'}); });
+  cv.style.display='block';
+  if(FD.harChart){ try{FD.harChart.destroy();}catch(e){} }
+  FD.harChart=new Chart(cv,{data:{labels:labels,datasets:[
+    {type:'line',label:'Tª (°C)',data:s.temp,yAxisID:'yT',borderColor:'#f87171',backgroundColor:'#f87171',borderWidth:2,pointRadius:0,tension:.3,order:1},
+    {type:'line',label:'Vent (km/h)',data:s.vent,yAxisID:'yT',borderColor:'#34d399',borderWidth:1.3,pointRadius:0,borderDash:[4,3],tension:.3,order:2},
+    {type:'bar',label:'Pluja (mm)',data:s.precip,yAxisID:'yP',backgroundColor:'#38bdf8',order:3}
+  ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{labels:{color:'#cbd5e1',boxWidth:10,font:{size:10}}},tooltip:{callbacks:{title:it=>{const d=new Date(s.hores[it[0].dataIndex]);return d.toLocaleString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',hour:'2-digit'});}}}},
+    scales:{
+      x:{ticks:{color:'#94a3b8',maxRotation:0,autoSkip:true,maxTicksLimit:8,font:{size:9}},grid:{color:'#1e293b'}},
+      yT:{position:'left',ticks:{color:'#cbd5e1',font:{size:9}},grid:{color:'#1e293b'},title:{display:true,text:'°C / km/h',color:'#94a3b8',font:{size:9}}},
+      yP:{position:'right',beginAtZero:true,ticks:{color:'#38bdf8',font:{size:9}},grid:{drawOnChartArea:false},title:{display:true,text:'mm',color:'#38bdf8',font:{size:9}}}
+    }}});
+  // --- taula horària ---
+  const now=Date.now();
+  let h='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="color:#94a3b8;text-align:right">'
+    +'<th style="text-align:left;position:sticky;top:0;background:#0b1220;padding:2px 4px">Hora</th>'
+    +['Tª','Vent','Ratxa','Dir','Pluja','Núv','Llamps'].map(x=>'<th style="position:sticky;top:0;background:#0b1220;padding:2px 4px">'+x+'</th>').join('')
+    +'</tr></thead><tbody>';
+  for(let i=0;i<s.hores.length;i++){
+    const d=new Date(s.hores[i]); const prop=Math.abs(s.hores[i]-now)<1800000;
+    const dir=s.dir&&s.dir[i]!=null;
+    const arrow=dir?('<span style="display:inline-block;transform:rotate('+((s.dir[i]+180)%360)+'deg)">↑</span> '+harDeg2Nom(s.dir[i])):'—';
+    h+='<tr style="text-align:right;border-top:1px solid #16233b'+(prop?';background:#12324a':'')+'">'
+      +'<td style="text-align:left;padding:2px 4px;color:#cbd5e1">'+d.toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'})+'</td>'
+      +'<td style="padding:2px 4px;color:#f87171">'+s.temp[i].toFixed(1)+'</td>'
+      +'<td style="padding:2px 4px;color:#34d399">'+Math.round(s.vent[i])+'</td>'
+      +'<td style="padding:2px 4px;color:#a3e635">'+(s.ratxa?Math.round(s.ratxa[i]):'–')+'</td>'
+      +'<td style="padding:2px 4px;color:#cbd5e1">'+arrow+'</td>'
+      +'<td style="padding:2px 4px;color:#38bdf8">'+(s.precip[i]>=0.05?s.precip[i].toFixed(1):'·')+'</td>'
+      +'<td style="padding:2px 4px;color:#94a3b8">'+(s.nuvol?Math.round(s.nuvol[i]):'–')+'</td>'
+      +'<td style="padding:2px 4px;color:#fbbf24">'+(s.llamps&&s.llamps[i]>=0.01?'⚡':'·')+'</td>'
+      +'</tr>';
+  }
+  h+='</tbody></table>';
+  tw.innerHTML=h;
 }
 // rang de la línia de temps: de (inici-2h) fins a min(fi, última observació meteo)
 function focRecalculaTimeline(alFinal){
