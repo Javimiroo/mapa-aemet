@@ -735,7 +735,7 @@
             <select id="focHarRun" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 5px;font-size:11px"></select></label>
         </div>
         <div id="focHarInfo" style="font-size:11px;color:#94a3b8;margin-top:5px">Carregant…</div>
-        <canvas id="focHarChart" height="150" style="width:100%;margin-top:6px;display:none"></canvas>
+        <div id="focHarChartWrap" style="height:180px;margin-top:6px;display:none;position:relative"><canvas id="focHarChart"></canvas></div>
         <div id="focHarTableWrap" style="max-height:220px;overflow:auto;margin-top:6px"></div>
       </div>
       <div id="focCharts" style="flex:1;overflow:auto;padding:6px 12px"></div>
@@ -4254,8 +4254,9 @@ function harPuntSerie(p,lat,lon){
 async function focHarmonie(){
   const inf=$('focHarInfo'), cv=$('focHarChart'), tw=$('focHarTableWrap'), sel=$('focHarRun');
   if(!inf) return;
-  cv.style.display='none'; tw.innerHTML=''; inf.textContent='Carregant la previsió del model…';
-  if(FD&&FD.harChart){ try{FD.harChart.destroy();}catch(e){} FD.harChart=null; }
+  $('focHarChartWrap').style.display='none'; tw.innerHTML=''; inf.textContent='Carregant la previsió del model…';
+  try{ const old=(window.Chart&&Chart.getChart)?Chart.getChart(cv):null; if(old) old.destroy(); }catch(e){}
+  if(FD) FD.harChart=null;
   if(!PASS){ inf.textContent='Cal la contrasenya per veure la previsió xifrada.'; return; }
   try{
     if(!harIndex){ harIndex=await fetch(HAR_URL+'harmonie.json?_='+Date.now(),{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null); }
@@ -4284,8 +4285,8 @@ async function focHarmonieRender(runId){
     (gen?(' · baixat '+gen.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})):'');
   // --- meteograma: Tª (línia) + pluja (barres) ---
   const labels=s.hores.map(ms=>{ const d=new Date(ms); return d.toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'}); });
-  cv.style.display='block';
-  if(FD.harChart){ try{FD.harChart.destroy();}catch(e){} }
+  $('focHarChartWrap').style.display='block';
+  try{ const old=(window.Chart&&Chart.getChart)?Chart.getChart(cv):null; if(old) old.destroy(); }catch(e){}
   FD.harChart=new Chart(cv,{data:{labels:labels,datasets:[
     {type:'line',label:'Tª (°C)',data:s.temp,yAxisID:'yT',borderColor:'#f87171',backgroundColor:'#f87171',borderWidth:2,pointRadius:0,tension:.3,order:1},
     {type:'line',label:'Vent (km/h)',data:s.vent,yAxisID:'yT',borderColor:'#34d399',borderWidth:1.3,pointRadius:0,borderDash:[4,3],tension:.3,order:2},
