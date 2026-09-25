@@ -4311,7 +4311,8 @@ function harPuntSerie(p,lat,lon){
   for(const k in p.fields){
     const f=p.fields[k], a=f.arr, s=[];
     for(let h=0;h<nh;h++){ const b=a[cell(h)];
-      if(k==='dir'){ s.push(b===(f.nodata!=null?f.nodata:255)?null:b*f.scale); }
+      // ang_viento d'AEMET = sentit cap on bufa; el passem a direcció METEO (d'on ve) amb +180
+      if(k==='dir'){ s.push(b===(f.nodata!=null?f.nodata:255)?null:((b*f.scale)+180)%360); }
       else s.push((f.lo||0)+b*f.scale);
     }
     out[k]=s;
@@ -4455,7 +4456,7 @@ const HarMapArrows=L.Layer.extend({
     const cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y)), step=Math.max(1,Math.round(40/cellpx));
     for(let j=(step>>1);j<ny;j+=step){ for(let i=(step>>1);i<nx;i+=step){
       const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue;
-      const deg=bd*fd.scale, spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;
+      const deg=((bd*fd.scale)+180)%360, spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;   // +180: ang_viento (cap on bufa) -> d'on ve
       const lat=B[3]-(j+0.5)*dlat, lon=B[0]+(i+0.5)*dlon, pt=m.latLngToContainerPoint([lat,lon]);
       if(pt.x<-12||pt.y<-12||pt.x>s.x+12||pt.y>s.y+12)continue;
       harDrawArrow(ctx,pt.x,pt.y,deg,spd);
