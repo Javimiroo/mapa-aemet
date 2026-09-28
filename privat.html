@@ -41,6 +41,11 @@
          border-right:1px solid var(--line);overflow-y:auto;padding:14px 14px 40px;z-index:1000;
          transition:transform .25s ease;box-shadow:2px 0 14px rgba(0,0,0,.4)}
   #app.collapsed #panel{transform:translateX(-106%)}
+  #prevPanel{position:absolute;top:0;right:0;height:100%;width:460px;max-width:94vw;background:var(--panel);
+         border-left:1px solid var(--line);overflow-y:auto;padding:14px 14px 40px;z-index:1000;display:none;
+         box-shadow:-2px 0 14px rgba(0,0,0,.4)}
+  #prevPanel .card{width:100%}
+  @media(max-width:900px){ #prevPanel{width:94vw} }
   #toggle{position:absolute;top:10px;right:10px;z-index:1200;height:38px;padding:0 13px;border-radius:9px;
           border:1px solid var(--line);background:var(--panel);color:var(--txt);font-size:13px;font-weight:600;
           cursor:pointer;box-shadow:0 2px 7px rgba(0,0,0,.45)}
@@ -387,6 +392,7 @@
       <h2>🛰️ Model HARMONIE-AROME (previsió)</h2>
       <div class="cardbody">
         <label class="switch"><input type="checkbox" id="harOn"> Mostra la previsió al mapa</label>
+        <label class="switch"><input type="checkbox" id="harEst" checked> Mostra estacions meteo</label>
         <div id="harBar" style="display:none;margin-top:8px">
           <label style="font-size:12px;display:block;margin-bottom:4px">Variable</label>
           <select id="harVar" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px">
@@ -421,6 +427,7 @@
         <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">
           <button class="btn small" id="pexPick">📍 Clica un punt al mapa</button>
           <button class="btn small" id="pexCenter" title="Usa el centre del mapa">⌖ Centre</button>
+          <button class="btn small" id="pexExport" title="Exportar una imatge de la previsió del mapa (variable + hora + llegenda)">📷 Imatge</button>
           <span style="flex:1"></span>
           <label class="muted" style="font-size:11px">Passada
             <select id="pexRun" style="background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:2px 5px;font-size:11px"></select></label>
@@ -692,6 +699,7 @@
     </div>
   </div>
   <div id="map"></div>
+  <div id="prevPanel"></div>
   <div id="map2"></div>
   <div class="maplab" id="lab1"></div>
   <div class="maplab" id="lab2"></div>
@@ -1736,6 +1744,7 @@ function render(){
   const amagaEstacions=(selVar.value==='pacum' && $('amagaEst') && $('amagaEst').checked);   // només superfície
   DATA.estacions.forEach(st=>{
     if(st.lat==null||st.lon==null||!xarxaActiva(st)||amagaVella(st)||!altitudOk(st))return;
+    if(typeof estacionsMostra!=='undefined' && !estacionsMostra) return;   // amagades (p.ex. amb el model HARMONIE actiu)
     if(amagaEstacions) return;                        // casella "amagar estacions (només superfície)"
     if(barbMode){
       if(st.actual.vv==null) return;               // barbes: només estacions amb vent
@@ -4545,9 +4554,12 @@ async function harMapToggle(on){
     if(baseLayer)baseLayer.bringToBack();
     const p=HARM.payload; $('harInfo').innerHTML='Passada <b>'+p.run.slice(8,10)+'Z</b> del '+p.run.slice(6,8)+'/'+p.run.slice(4,6)+' · '+p.hores.length+' h · clica el mapa per veure el valor en un punt';
     map.on('click',harGenClick);
+    if(estacionsMostra && $('harEst')){ estacionsMostra=false; $('harEst').checked=false; try{render();}catch(e){} }   // amaga estacions en activar el model
     harSyncControls(); harRedraw();
-  } else { if(harSurf&&map.hasLayer(harSurf))map.removeLayer(harSurf); if(harArr&&map.hasLayer(harArr))map.removeLayer(harArr); map.off('click',harGenClick); }
+  } else { if(harSurf&&map.hasLayer(harSurf))map.removeLayer(harSurf); if(harArr&&map.hasLayer(harArr))map.removeLayer(harArr); map.off('click',harGenClick);
+    if(!estacionsMostra && $('harEst')){ estacionsMostra=true; $('harEst').checked=true; try{render();}catch(e){} } }
 }
+let estacionsMostra=true;
 async function focHarMapToggle(on){
   if(!FD||!FD.map)return;
   if(on){ const ok=await harEnsure(); if(!ok){ $('focHarOn').checked=false; return; }
@@ -4561,6 +4573,7 @@ async function focHarMapToggle(on){
 function harWire(){
   const on=$('harOn'); if(!on||on.dataset.w==='1')return; on.dataset.w='1';
   on.onchange=()=>harMapToggle(on.checked);
+  if($('harEst')) $('harEst').onchange=()=>{ estacionsMostra=$('harEst').checked; try{render();}catch(e){} };
   $('harVar').onchange=()=>{HARM.varK=$('harVar').value; harRedraw();};
   $('harArrows').onchange=()=>{HARM.arrowsOn=$('harArrows').checked; harRedraw();};
   $('harOpac').oninput=()=>{HARM.opac=(+$('harOpac').value)/100; if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(FD&&FD.harSurf&&FD.map&&FD.map.hasLayer(FD.harSurf))FD.harSurf.redraw();};
@@ -4662,8 +4675,81 @@ function pexCalcAcc(){ const s=PEX._s; if(!s)return; const a=+$('pexAccA').value
   const hrs=i1-i0+1;
   $('pexAccOut').innerHTML='En <b>'+hrs+' h</b>: <b style="color:#0284c7">'+pl.toFixed(1)+' mm</b> de pluja · ratxa màx <b>'+Math.round(gmax)+'</b> km/h · Tª '+tmin.toFixed(1)+'…'+tmax.toFixed(1)+' °C'+(llmax>=0.01?' · ⚡ llamps previstos':'');
 }
+// llegenda de color de la variable del model per a l'export
+function prevDibuixaLlegenda(c,x,y,w,S){
+  const meta=HARV[HARM.varK]; c.textAlign='left'; c.textBaseline='top';
+  if(!meta||HARM.varK==='cap'){ c.fillStyle='#334155'; c.font=(15*S)+'px Arial'; c.fillText('Només fletxes de vent (sense superfície de variable).',x,y); return; }
+  let lo=0,hi=1,unit=meta.unit||'';
+  if(meta.pacum){lo=0;hi=40;} else if(meta.wind){lo=0;hi=120;} else {const st=meta.stops;lo=st[0][0];hi=st[st.length-1][0];}
+  if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
+  c.font='bold '+(16*S)+'px Arial'; c.fillStyle='#111'; c.fillText((meta.lab||'')+(unit?(' ('+unit+')'):''), x, y);
+  const barW=Math.min(w,600*S), barH=16*S, bx=x, by=y+24*S;
+  const g=c.createLinearGradient(bx,0,bx+barW,0);
+  for(let t=0;t<=1.0001;t+=1/24){ const v=lo+(hi-lo)*t, cc=harColor(HARM.varK,v); g.addColorStop(Math.min(1,t),'rgb('+cc[0]+','+cc[1]+','+cc[2]+')'); }
+  c.fillStyle=g; c.fillRect(bx,by,barW,barH); c.strokeStyle='#cbd5e1'; c.lineWidth=1; c.strokeRect(bx,by,barW,barH);
+  c.fillStyle='#334155'; c.font=(13*S)+'px Arial'; c.textBaseline='top';
+  for(let k=0;k<=5;k++){ const t=k/5,v=lo+(hi-lo)*t,X=bx+barW*t; c.textAlign=(k===0?'left':(k===5?'right':'center')); c.fillText((Math.round(v*100)/100)+'',X,by+barH+5*S); }
+}
+async function prevExporta(){
+  if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
+  await pexInit(); const p=HARM.payload; if(!p){ alert('Primer carrega la previsió (activa el model o prem «⌖ Centre»).'); return; }
+  const btn=$('pexExport'), old=btn?btn.textContent:''; if(btn){btn.disabled=true;btn.textContent='Generant…';}
+  try{
+    const esBlanc=($('basemap')&&$('basemap').value==='blanc');
+    const opts={useCORS:true,backgroundColor:'#e8e8e8',scale:2,logging:false,
+      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane')))};
+    const shot=await html2canvas($('map'),opts);
+    const S=2, pad=22*S, headerH=94*S, legH=74*S, footH=52*S;
+    const mapW=940*S, mapH=Math.round(mapW*shot.height/shot.width);
+    const W=mapW+2*pad, H=headerH+mapH+legH+footH+2*pad;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+    c.fillStyle='#fff'; c.fillRect(0,0,W,H);
+    let logoW=0; try{ logoW=dibuixaLogoBombers(c,pad,pad+6*S,headerH*0.66)||0; }catch(e){}
+    const tx=pad+(logoW?logoW+30*S:0);
+    c.fillStyle='#111'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(30*S)+'px Arial';
+    c.fillText('PREVISIÓ METEOROLÒGICA', tx, pad+headerH*0.34);
+    const meta=HARV[HARM.varK]||{lab:'vent'}, h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+    const hlab=new Date(Date.parse(p.hores[h])).toLocaleString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',hour:'2-digit'})+' h';
+    c.font=(18*S)+'px Arial'; c.fillStyle='#0369a1';
+    c.fillText('Model HARMONIE-AROME (AEMET) · '+(HARM.varK==='cap'?'vent':meta.lab)+' · '+hlab+' · passada '+p.run.slice(8,10)+'Z '+p.run.slice(6,8)+'/'+p.run.slice(4,6), tx, pad+headerH*0.72);
+    const mapY=pad+headerH, x=pad;
+    c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();
+    c.drawImage(shot,0,0,shot.width,shot.height,x,mapY,mapW,mapH);
+    const el=$('map'), sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
+    if(esBlanc && (typeof comarcaGeo!=='undefined') && (comarcaGeo||catGeo)){
+      const drawGeo=(geo,st)=>{ if(!geo||!geo.features)return; c.save(); c.strokeStyle=st.color; c.lineWidth=Math.max(0.6,st.weight)*S; c.globalAlpha=st.opacity==null?1:st.opacity; c.lineJoin='round';
+        geo.features.forEach(f=>{const gg=f.geometry; if(!gg)return; const polys=gg.type==='MultiPolygon'?gg.coordinates:(gg.type==='Polygon'?[gg.coordinates]:[]);
+          polys.forEach(rings=>rings.forEach(ring=>{c.beginPath(); ring.forEach((pt,k)=>{const q=map.latLngToContainerPoint([pt[1],pt[0]]),X=x+q.x*sxp,Y=mapY+q.y*syp; k?c.lineTo(X,Y):c.moveTo(X,Y);}); c.stroke();}));});
+        c.restore(); };
+      drawGeo(comarcaGeo,COMARCA_STYLE); drawGeo(catGeo,CAT_STYLE);
+    }
+    if(HARM.varK!=='cap'){ const f=p.fields[HARM.varK]; if(f&&f.arr){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
+      const off=document.createElement('canvas'); off.width=nx; off.height=ny; const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
+      for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){ const v=base+f.arr[((h*ny)+j)*nx+i]*sc, q=(j*nx+i)*4; if(!mm.alwaysDraw&&v<thr){d[q+3]=0;continue;} const cc=harColor(HARM.varK,v); d[q]=cc[0];d[q+1]=cc[1];d[q+2]=cc[2];d[q+3]=255; }
+      oc.putImageData(im,0,0);
+      const pNW=map.latLngToContainerPoint([B[3],B[0]]),pSE=map.latLngToContainerPoint([B[2],B[1]]);
+      c.save(); c.imageSmoothingEnabled=true; c.imageSmoothingQuality='high'; c.globalAlpha=HARM.opac;
+      c.drawImage(off, x+pNW.x*sxp, mapY+pNW.y*syp, (pSE.x-pNW.x)*sxp, (pSE.y-pNW.y)*syp); c.restore(); } }
+    if(HARM.arrowsOn){ const fd=p.fields.dir,fv=p.fields.vent; if(fd&&fd.arr){ const nx=p.nx,ny=p.ny,B=p.bbox,dlon=(B[1]-B[0])/nx,dlat=(B[3]-B[2])/ny,nod=(fd.nodata!=null?fd.nodata:255);
+      const q0=map.latLngToContainerPoint([B[3],B[0]]),q1=map.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]),cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y))*sxp,step=Math.max(1,Math.round(42/cellpx));
+      for(let j=(step>>1);j<ny;j+=step)for(let i=(step>>1);i<nx;i+=step){ const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue; const deg=((bd*fd.scale)+180)%360,spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;
+        const lat=B[3]-(j+0.5)*dlat,lon=B[0]+(i+0.5)*dlon,pt=map.latLngToContainerPoint([lat,lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X<x||Y<mapY||X>x+mapW||Y>mapY+mapH)continue; harDrawArrow(c,X,Y,deg,spd); } } }
+    if(PEX.lat!=null){ const pt=map.latLngToContainerPoint([PEX.lat,PEX.lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X>=x&&Y>=mapY&&X<=x+mapW&&Y<=mapY+mapH){ c.save(); c.fillStyle='#111'; c.strokeStyle='#fff'; c.lineWidth=2.4*S; c.beginPath(); c.arc(X,Y,6*S,0,7); c.fill(); c.stroke(); c.restore(); } }
+    c.restore();
+    c.strokeStyle='#cbd5e1'; c.lineWidth=1*S; c.strokeRect(x,mapY,mapW,mapH);
+    prevDibuixaLlegenda(c, x, mapY+mapH+14*S, mapW, S);
+    if(PEX._s && PEX.lat!=null){ const s=PEX._s,a=+$('pexAccA').value,b=+$('pexAccB').value,i0=Math.min(a,b),i1=Math.max(a,b); let pl=0,gm=0; for(let k=i0;k<=i1;k++){pl+=s.precip[k]||0; gm=Math.max(gm,s.ratxa?s.ratxa[k]:0);}
+      c.fillStyle='#334155'; c.font=(15*S)+'px Arial'; c.textAlign='left'; c.textBaseline='middle';
+      c.fillText('Punt '+PEX.lat.toFixed(3)+', '+PEX.lon.toFixed(3)+'  ·  pluja acumulada '+(i1-i0+1)+' h: '+pl.toFixed(1)+' mm  ·  ratxa màx '+Math.round(gm)+' km/h', x, H-pad-footH*0.42); }
+    c.fillStyle='#94a3b8'; c.font=(12*S)+'px Arial'; c.textAlign='right'; c.textBaseline='alphabetic';
+    c.fillText('GRAF · Bombers de la Generalitat · font AEMET (HARMONIE-AROME) · generat '+new Date().toLocaleString('ca-ES'), W-pad, H-pad*0.55);
+    const a=document.createElement('a'); a.download='previsio_harmonie_'+HARM.varK+'_'+p.run+'_h'+h+'.png'; a.href=cv.toDataURL('image/png'); a.click();
+  }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
+  finally{ if(btn){btn.disabled=false;btn.textContent=old;} }
+}
 function pexWire(){
   const pk=$('pexPick'); if(!pk||pk.dataset.w==='1')return; pk.dataset.w='1';
+  if($('pexExport')) $('pexExport').onclick=prevExporta;
   pk.onclick=async()=>{ await pexInit(); if(!HARM.payload)return; PEX.pick=!PEX.pick; pk.classList.toggle('on',PEX.pick); pk.textContent=PEX.pick?'📍 Clica ara al mapa…':'📍 Clica un punt al mapa'; };
   $('pexCenter').onclick=async()=>{ await pexInit(); if(!HARM.payload)return; const c=map.getCenter(); pexSetPoint(c.lat,c.lng); };
   $('pexAccA').onchange=pexCalcAcc; $('pexAccB').onchange=pexCalcAcc;
@@ -5351,6 +5437,8 @@ async function desaCorreguda(){
    'Model HARMONIE-AROME','Explorador de previsió',
    'Incendi','Dia històric','Opcions','Cerca un poble','Fons del mapa','Dades']
    .forEach(t=>{ const c=card(t); if(c) panel.appendChild(c); });
+  // L'explorador de previsió viu a la COLUMNA DRETA (ampla), no al menú esquerre
+  const exCard=card('Explorador de previsió'); if(exCard && $('prevPanel')) $('prevPanel').appendChild(exCard);
 
   // 5) PESTANYES (Dades i 'all' es mostren sempre; 'hidden' mai)
   function mostraTab(t){
@@ -5363,6 +5451,7 @@ async function desaCorreguda(){
     }catch(e){}
     panel.querySelectorAll(':scope > .card').forEach(c=>{ const dt=c.dataset.tab;
       c.style.display=(dt===t||dt==='all')?'':'none'; });
+    const pp=$('prevPanel'); if(pp){ pp.style.display=(t==='prev')?'block':'none'; if(t==='prev'&&PEX.chart){ setTimeout(()=>{try{PEX.chart.resize();}catch(e){}},60); } }
     document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('actiu', b.dataset.t===t));
     try{ panel.scrollTop=0; }catch(e){}
   }
