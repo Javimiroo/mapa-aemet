@@ -144,6 +144,9 @@
   .tb-btn:hover{border-color:var(--accent)}
   #tbNow{font-size:11px}
   @media (max-width:640px){ #timebar{bottom:8px;padding:6px 9px;gap:6px} #tbRange{width:42vw} #tbLabel{min-width:0;font-size:11px} }
+  #app.prevtab #timebar{display:none!important}
+  #harLegend{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:1150;display:none;
+             background:rgba(18,20,26,.92);border:1px solid var(--line);border-radius:10px;padding:8px 12px;box-shadow:0 6px 22px rgba(0,0,0,.45)}
   /* llegenda de colors del vent sobre el mapa */
   #windleg{position:absolute;right:10px;top:54px;z-index:1150;display:none;width:186px;
            background:rgba(15,23,42,.92);border:1px solid var(--line);border-radius:9px;
@@ -714,6 +717,7 @@
   </div>
   <div id="windleg"></div>
   <div id="ventleg2"></div>
+  <div id="harLegend"></div>
   <div id="reviewBar"><span>🕐 <b id="reviewTxt"></b></span><button id="reviewExit">↩ Tornar al directe</button></div>
 </div>
 
@@ -4526,7 +4530,24 @@ function harSyncControls(){ const mx=HARM.payload?HARM.payload.hores.length-1:47
   const l1=$('harHourLbl'); if(l1)l1.textContent=harHourLabel(); const l2=$('focHarMapLbl'); if(l2)l2.textContent=harHourLabel(); }
 function harRedraw(){ if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(harArr&&map.hasLayer(harArr))harArr.redraw();
   if(FD&&FD.harSurf&&FD.map&&FD.map.hasLayer(FD.harSurf))FD.harSurf.redraw(); if(FD&&FD.harArr&&FD.map&&FD.map.hasLayer(FD.harArr))FD.harArr.redraw();
-  harSyncControls(); if(typeof pexUpdateNow==='function') pexUpdateNow(); }
+  harSyncControls(); harBottomLegend(); if(typeof pexUpdateNow==='function') pexUpdateNow(); }
+function harBottomLegend(){
+  const el=$('harLegend'); if(!el)return;
+  const isPrev=document.querySelector('#tabs .tab.actiu')?.dataset.t==='prev';
+  if(!isPrev||!HARM.payload){ el.style.display='none'; return; }
+  const meta=HARV[HARM.varK];
+  if(!meta||HARM.varK==='cap'){ el.innerHTML='<span style="font-size:12px;color:#cbd5e1">Model HARMONIE · només fletxes de vent</span>'; el.style.display='block'; return; }
+  let lo=0,hi=1,unit=meta.unit||'';
+  if(meta.pacum){lo=0;hi=40;} else if(meta.wind){lo=0;hi=120;} else {const st=meta.stops;lo=st[0][0];hi=st[st.length-1][0];}
+  if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
+  let g=[]; for(let t=0;t<=1.001;t+=1/16){const v=lo+(hi-lo)*t,cc=harColor(HARM.varK,v); g.push('rgb('+cc[0]+','+cc[1]+','+cc[2]+') '+Math.round(t*100)+'%');}
+  const ticks=[0,.25,.5,.75,1].map(t=>'<span>'+(Math.round((lo+(hi-lo)*t)*100)/100)+'</span>').join('');
+  const hlab=new Date(Date.parse(HARM.payload.hores[Math.max(0,Math.min(HARM.payload.hores.length-1,HARM.hour))])).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'})+' h';
+  el.innerHTML='<div style="font-size:12px;font-weight:700;color:#e5e7eb;margin-bottom:4px;text-align:center">'+meta.lab+(unit?(' ('+unit+')'):'')+' · '+hlab+'</div>'
+    +'<div style="width:min(340px,70vw);height:14px;border-radius:4px;border:1px solid #33415a;background:linear-gradient(to right,'+g.join(',')+')"></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:10px;color:#cbd5e1;margin-top:2px">'+ticks+'</div>';
+  el.style.display='block';
+}
 // popup amb el valor previst en clicar QUALSEVOL punt del mapa (quan el model és actiu)
 function harPointPopup(m,e){
   const p=HARM.payload; if(!p)return;
@@ -5443,7 +5464,7 @@ async function desaCorreguda(){
   const set=(txt,tab)=>{ const c=card(txt); if(c) c.dataset.tab=tab; return c; };
   ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes'].forEach(t=>set(t,'temps'));
   ['Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Dies sense recuperació','Altitud','Mapes combinats'].forEach(t=>set(t,'analisi'));
-  ['Model HARMONIE-AROME','Explorador de previsió'].forEach(t=>set(t,'prev'));
+  ['Model HARMONIE-AROME','Previsió del punt'].forEach(t=>set(t,'prev'));
   set('Incendi','incendi'); set('Dia històric','arxiu');
   set('Opcions','hidden'); set('Dades','all');
   const cc=card('Cerca un poble'); if(cc) cc.dataset.tab='hidden';
@@ -5452,11 +5473,11 @@ async function desaCorreguda(){
   // 4) ORDRE dins del menú (= ordre al DOM). Dades l'últim -> sempre a baix de tot.
   ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes',
    'Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Dies sense recuperació','Altitud','Mapes combinats',
-   'Model HARMONIE-AROME','Explorador de previsió',
+   'Model HARMONIE-AROME','Previsió del punt',
    'Incendi','Dia històric','Opcions','Cerca un poble','Fons del mapa','Dades']
    .forEach(t=>{ const c=card(t); if(c) panel.appendChild(c); });
   // L'explorador de previsió viu a la COLUMNA DRETA (ampla), no al menú esquerre
-  const exCard=card('Explorador de previsió'); if(exCard && $('prevPanel')) $('prevPanel').appendChild(exCard);
+  const exCard=card('Previsió del punt'); if(exCard && $('prevPanel')) $('prevPanel').appendChild(exCard);
 
   // 5) PESTANYES (Dades i 'all' es mostren sempre; 'hidden' mai)
   function mostraTab(t){
@@ -5474,6 +5495,8 @@ async function desaCorreguda(){
     if(t!=='prev'){ const pp=$('prevPanel'); if(pp)pp.style.display='none'; const app=document.getElementById('app'); if(app)app.classList.remove('prevopen'); }
     else if(PEX.chart){ setTimeout(()=>{try{PEX.chart.resize();}catch(e){}},60); }
     document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('actiu', b.dataset.t===t));
+    const app0=document.getElementById('app'); if(app0) app0.classList.toggle('prevtab', t==='prev');   // amaga la línia de temps meteo
+    if(t==='prev'){ if(typeof harBottomLegend==='function') harBottomLegend(); } else { const hl=$('harLegend'); if(hl) hl.style.display='none'; }
     try{ panel.scrollTop=0; }catch(e){}
   }
   document.querySelectorAll('#tabs .tab').forEach(b=> b.addEventListener('click',()=>mostraTab(b.dataset.t)) );
