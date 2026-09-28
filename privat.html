@@ -256,6 +256,7 @@
     <div id="tabs">
       <button class="tab actiu" data-t="temps">Temps real</button>
       <button class="tab" data-t="analisi">Anàlisi</button>
+      <button class="tab" data-t="prev">Previsió</button>
       <button class="tab" data-t="incendi">Incendi</button>
       <button class="tab" data-t="arxiu">Arxiu</button>
     </div>
@@ -411,6 +412,35 @@
           <div id="harInfo" class="muted" style="font-size:11px;margin-top:6px">—</div>
         </div>
         <p class="muted" style="font-size:11px;margin:8px 0 0">Previsió del model d'AEMET (descodificada de la graella). Tria variable i hora; les <b>fletxes</b> mostren la direcció i força del vent previst. Es baixa una vegada per sessió.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🔎 Explorador de previsió (HARMONIE)</h2>
+      <div class="cardbody">
+        <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">
+          <button class="btn small" id="pexPick">📍 Clica un punt al mapa</button>
+          <button class="btn small" id="pexCenter" title="Usa el centre del mapa">⌖ Centre</button>
+          <span style="flex:1"></span>
+          <label class="muted" style="font-size:11px">Passada
+            <select id="pexRun" style="background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:2px 5px;font-size:11px"></select></label>
+        </div>
+        <div id="pexInfo" class="muted" style="font-size:11px;margin-top:6px">Tria un punt al mapa (o «⌖ Centre») per veure la previsió del model en eixe punt.</div>
+        <div id="pexChartWrap" style="height:190px;margin-top:8px;display:none;position:relative"><canvas id="pexChart"></canvas></div>
+        <div id="pexAccBox" style="display:none;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">
+          <b style="font-size:12px">🌧️ Acumulats en un interval</b>
+          <div class="row" style="gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
+            <label class="muted" style="font-size:11px">Des de <select id="pexAccA" style="background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:2px 4px;font-size:11px"></select></label>
+            <label class="muted" style="font-size:11px">fins <select id="pexAccB" style="background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:2px 4px;font-size:11px"></select></label>
+            <button class="btn small pexPreset" data-p="6">+6 h</button>
+            <button class="btn small pexPreset" data-p="12">+12 h</button>
+            <button class="btn small pexPreset" data-p="24">+24 h</button>
+            <button class="btn small pexPreset" data-p="48">Tot</button>
+          </div>
+          <div id="pexAccOut" style="font-size:12px;margin-top:6px">—</div>
+        </div>
+        <div id="pexTableWrap" style="max-height:240px;overflow:auto;margin-top:8px"></div>
+        <p class="muted" style="font-size:11px;margin:8px 0 0">Meteograma i taula de 48 h del model AEMET en el punt triat. Els <b>acumulats</b> sumen la pluja (i donen ratxa màx. i Tª) de l'interval que marques. Combina'l amb la capa del mapa de dalt.</p>
       </div>
     </div>
 
@@ -680,6 +710,7 @@
 <style>
 #focPrevList input{background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:5px;padding:2px 4px;font-size:11px}
 #focPrevBoxBtn.on,#focPrevAddBtn.on{background:#0369a1;border-color:#38bdf8;color:#e0f2fe}
+#pexPick.on{background:#0369a1;border-color:#38bdf8;color:#e0f2fe}
 #focRight .acc{border-bottom:1px solid #1e293b}
 #focRight .acc-h{display:flex;align-items:center;gap:7px;padding:9px 12px;cursor:pointer;font-size:13px;font-weight:600;color:#e5e7eb;background:#0f172a;user-select:none}
 #focRight .acc-h:hover{background:#152238}
@@ -4488,6 +4519,7 @@ function harRedraw(){ if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(har
 // popup amb el valor previst en clicar QUALSEVOL punt del mapa (quan el model és actiu)
 function harPointPopup(m,e){
   const p=HARM.payload; if(!p)return;
+  if(typeof PEX!=='undefined'&&PEX.pick)return;                               // el mode «tria punt» de l'explorador té prioritat
   if(FD&&m===FD.map&&(FD.prevBoxDraw||FD.prevAddMode||focArrowMode))return;   // no molestar mentre es dibuixa
   const s=harPuntSerie(p,e.latlng.lat,e.latlng.lng), h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
   const dd=(s.dir&&s.dir[h]!=null)?('<span style="display:inline-block;transform:rotate('+((s.dir[h]+180)%360)+'deg)">↑</span> '+harDeg2Nom(s.dir[h])+' ('+Math.round(s.dir[h])+'°)'):'—';
@@ -4559,6 +4591,87 @@ function initFocAccordion(){ document.querySelectorAll('#focRight .acc-h').forEa
   h.onclick=(e)=>{ if(e.target.closest('select'))return; const a=h.parentElement;
     if(a.classList.contains('collapsed')) focAccOpen(a.id); else a.classList.add('collapsed'); }; }); }
 initFocAccordion();
+// ====== EXPLORADOR DE PREVISIÓ (pestanya Previsió): clic al mapa -> meteograma + acumulats + taula ======
+const PEX={lat:null,lon:null,chart:null,marker:null,pick:false,_s:null};
+function pexHourOpts(s){ return s.hores.map((ms,i)=>'<option value="'+i+'">'+new Date(ms).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',hour:'2-digit'})+'</option>').join(''); }
+function pexNowIdx(s){ const now=Date.now(); let bi=0,bd=1e15; s.hores.forEach((ms,i)=>{const d=Math.abs(ms-now);if(d<bd){bd=d;bi=i;}}); return bi; }
+function pexFillRuns(){ const sel=$('pexRun'); if(!sel||!harIndex||!harIndex.runs)return;
+  if(sel.dataset.filled==='1')return; sel.innerHTML='';
+  harIndex.runs.slice().reverse().forEach(rid=>{ const o=document.createElement('option'); o.value=rid;
+    o.textContent=rid.slice(6,8)+'/'+rid.slice(4,6)+' '+rid.slice(8,10)+'Z'; sel.appendChild(o); });
+  sel.value=harIndex.darrera||harIndex.runs[harIndex.runs.length-1]; sel.dataset.filled='1';
+  sel.onchange=async()=>{ const p=await harCarregaRun(sel.value); if(p){ HARM.payload=p; try{harRedraw();}catch(e){} if(PEX.lat!=null) pexRender(); } };
+}
+async function pexInit(){
+  const inf=$('pexInfo'); if(!inf)return;
+  if(!PASS){ inf.textContent='Cal haver entrat amb la contrasenya per veure la previsió xifrada.'; return; }
+  const ok=await harEnsure(); if(!ok){ inf.textContent='Encara no hi ha cap passada del model publicada (branca «harmonie»). Executa el workflow.'; return; }
+  pexFillRuns();
+}
+function pexSetPoint(lat,lon){
+  PEX.lat=lat; PEX.lon=lon;
+  if(!PEX.marker){ PEX.marker=L.marker([lat,lon],{draggable:true,zIndexOffset:1500}).addTo(map);
+    PEX.marker.on('dragend',()=>{ const ll=PEX.marker.getLatLng(); PEX.lat=ll.lat; PEX.lon=ll.lng; pexRender(); }); }
+  else PEX.marker.setLatLng([lat,lon]);
+  pexRender();
+}
+function pexRender(){
+  const p=HARM.payload; if(!p||PEX.lat==null)return;
+  const s=harPuntSerie(p,PEX.lat,PEX.lon); PEX._s=s;
+  $('pexChartWrap').style.display='block'; $('pexAccBox').style.display='block';
+  $('pexInfo').innerHTML='📍 '+PEX.lat.toFixed(3)+', '+PEX.lon.toFixed(3)+' · passada <b>'+p.run.slice(8,10)+'Z</b> '+p.run.slice(6,8)+'/'+p.run.slice(4,6)+' · '+p.hores.length+' h';
+  const labels=s.hores.map(ms=>{const d=new Date(ms);return d.toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'});});
+  const cv=$('pexChart'); try{ const old=Chart.getChart(cv); if(old)old.destroy(); }catch(e){}
+  PEX.chart=new Chart(cv,{plugins:[harChartArrows],data:{labels:labels,datasets:[
+    {type:'line',label:'Tª (°C)',data:s.temp,yAxisID:'yT',borderColor:'#dc2626',borderWidth:2,pointRadius:0,tension:.3,order:1},
+    {type:'line',label:'Vent (km/h)',data:s.vent,yAxisID:'yT',borderColor:'#059669',borderWidth:1.3,pointRadius:0,borderDash:[4,3],tension:.3,order:2},
+    {type:'bar',label:'Pluja (mm)',data:s.precip,yAxisID:'yP',backgroundColor:'#0ea5e9',order:3}
+  ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},layout:{padding:{top:15}},
+    plugins:{legend:{labels:{boxWidth:10,font:{size:10}}},tooltip:{callbacks:{title:it=>new Date(s.hores[it[0].dataIndex]).toLocaleString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',hour:'2-digit'})}}},
+    scales:{ x:{ticks:{maxRotation:0,autoSkip:true,maxTicksLimit:8,font:{size:9}}},
+      yT:{position:'left',title:{display:true,text:'°C / km/h',font:{size:9}}},
+      yP:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},title:{display:true,text:'mm',font:{size:9}}}}}});
+  PEX.chart.$harSeries=s;
+  // acumulats
+  const a=$('pexAccA'),b=$('pexAccB');
+  if(a.dataset.n!=s.hores.length){ a.innerHTML=pexHourOpts(s); b.innerHTML=pexHourOpts(s); a.dataset.n=b.dataset.n=s.hores.length;
+    const n0=pexNowIdx(s); a.value=n0; b.value=Math.min(s.hores.length-1,n0+24); }
+  pexCalcAcc();
+  // taula
+  const now=Date.now();
+  let h='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="color:var(--muted,#64748b);text-align:right">'
+    +'<th style="text-align:left;position:sticky;top:0;background:var(--bg);padding:2px 4px">Hora</th>'
+    +['Tª','Vent','Ratxa','Dir','Pluja','Núv','Llamps'].map(x=>'<th style="position:sticky;top:0;background:var(--bg);padding:2px 4px">'+x+'</th>').join('')+'</tr></thead><tbody>';
+  for(let i=0;i<s.hores.length;i++){ const d=new Date(s.hores[i]); const prop=Math.abs(s.hores[i]-now)<1800000;
+    const dir=s.dir&&s.dir[i]!=null, arrow=dir?('<span style="display:inline-block;transform:rotate('+((s.dir[i]+180)%360)+'deg)">↑</span> '+harDeg2Nom(s.dir[i])):'—';
+    h+='<tr style="text-align:right;border-top:1px solid var(--line)'+(prop?';background:rgba(14,165,233,.12)':'')+'">'
+      +'<td style="text-align:left;padding:2px 4px">'+d.toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'})+'</td>'
+      +'<td style="padding:2px 4px;color:#dc2626">'+s.temp[i].toFixed(1)+'</td>'
+      +'<td style="padding:2px 4px;color:#059669">'+Math.round(s.vent[i])+'</td>'
+      +'<td style="padding:2px 4px">'+(s.ratxa?Math.round(s.ratxa[i]):'–')+'</td>'
+      +'<td style="padding:2px 4px">'+arrow+'</td>'
+      +'<td style="padding:2px 4px;color:#0284c7">'+(s.precip[i]>=0.05?s.precip[i].toFixed(1):'·')+'</td>'
+      +'<td style="padding:2px 4px">'+(s.nuvol?Math.round(s.nuvol[i]):'–')+'</td>'
+      +'<td style="padding:2px 4px">'+(s.llamps&&s.llamps[i]>=0.01?'⚡':'·')+'</td></tr>';
+  }
+  $('pexTableWrap').innerHTML=h+'</tbody></table>';
+}
+function pexCalcAcc(){ const s=PEX._s; if(!s)return; const a=+$('pexAccA').value,b=+$('pexAccB').value,i0=Math.min(a,b),i1=Math.max(a,b);
+  let pl=0,gmax=0,tmin=1e9,tmax=-1e9,llmax=0;
+  for(let i=i0;i<=i1;i++){ pl+=s.precip[i]||0; gmax=Math.max(gmax,s.ratxa?s.ratxa[i]:0); tmin=Math.min(tmin,s.temp[i]); tmax=Math.max(tmax,s.temp[i]); if(s.llamps)llmax=Math.max(llmax,s.llamps[i]||0); }
+  const hrs=i1-i0+1;
+  $('pexAccOut').innerHTML='En <b>'+hrs+' h</b>: <b style="color:#0284c7">'+pl.toFixed(1)+' mm</b> de pluja · ratxa màx <b>'+Math.round(gmax)+'</b> km/h · Tª '+tmin.toFixed(1)+'…'+tmax.toFixed(1)+' °C'+(llmax>=0.01?' · ⚡ llamps previstos':'');
+}
+function pexWire(){
+  const pk=$('pexPick'); if(!pk||pk.dataset.w==='1')return; pk.dataset.w='1';
+  pk.onclick=async()=>{ await pexInit(); if(!HARM.payload)return; PEX.pick=!PEX.pick; pk.classList.toggle('on',PEX.pick); pk.textContent=PEX.pick?'📍 Clica ara al mapa…':'📍 Clica un punt al mapa'; };
+  $('pexCenter').onclick=async()=>{ await pexInit(); if(!HARM.payload)return; const c=map.getCenter(); pexSetPoint(c.lat,c.lng); };
+  $('pexAccA').onchange=pexCalcAcc; $('pexAccB').onchange=pexCalcAcc;
+  document.querySelectorAll('.pexPreset').forEach(btn=>btn.onclick=()=>{ const s=PEX._s; if(!s)return; const n0=pexNowIdx(s),p=+btn.dataset.p;
+    $('pexAccA').value=n0; $('pexAccB').value=Math.min(s.hores.length-1,n0+p); pexCalcAcc(); });
+  map.on('click',e=>{ if(!PEX.pick)return; pexSetPoint(e.latlng.lat,e.latlng.lng); PEX.pick=false; pk.classList.remove('on'); pk.textContent='📍 Clica un punt al mapa'; });
+}
+pexWire();
 // rang de la línia de temps: de (inici-2h) fins a min(fi, última observació meteo)
 function focRecalculaTimeline(alFinal){
   const f=FD.foc, ultimObs=focUltimaObs();
@@ -5226,6 +5339,7 @@ async function desaCorreguda(){
   const set=(txt,tab)=>{ const c=card(txt); if(c) c.dataset.tab=tab; return c; };
   ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes'].forEach(t=>set(t,'temps'));
   ['Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Dies sense recuperació','Altitud','Mapes combinats'].forEach(t=>set(t,'analisi'));
+  ['Model HARMONIE-AROME','Explorador de previsió'].forEach(t=>set(t,'prev'));
   set('Incendi','incendi'); set('Dia històric','arxiu');
   set('Opcions','hidden'); set('Dades','all');
   const cc=card('Cerca un poble'); if(cc) cc.dataset.tab='hidden';
@@ -5234,6 +5348,7 @@ async function desaCorreguda(){
   // 4) ORDRE dins del menú (= ordre al DOM). Dades l'últim -> sempre a baix de tot.
   ['Variable al mapa','Radar','Camp de vents','Llamps','Xarxes',
    'Llindar','Filtre combinat','Hores consecutives',"Comptador d'hores",'Dies sense recuperació','Altitud','Mapes combinats',
+   'Model HARMONIE-AROME','Explorador de previsió',
    'Incendi','Dia històric','Opcions','Cerca un poble','Fons del mapa','Dades']
    .forEach(t=>{ const c=card(t); if(c) panel.appendChild(c); });
 
@@ -5244,6 +5359,7 @@ async function desaCorreguda(){
       if(typeof netejaAnalisi==='function') netejaAnalisi();
       if(t==='temps' && typeof reviewMode!=='undefined' && reviewMode && typeof tornaDirecte==='function') tornaDirecte();
       else if(typeof render==='function') render();
+      if(t==='prev' && typeof pexInit==='function') pexInit();
     }catch(e){}
     panel.querySelectorAll(':scope > .card').forEach(c=>{ const dt=c.dataset.tab;
       c.style.display=(dt===t||dt==='all')?'':'none'; });
