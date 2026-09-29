@@ -480,17 +480,39 @@ def accumula_precipitacio(estacions):
 XDDE_HORES = 6            # finestra de llamps que MOSTREM al mapa (últimes N hores)
 XDDE_FETCH_HORES = 1      # profunditat que BAIXEM cada run (hora actual + anterior = 2 crides);
                           # la resta de la finestra es completa fusionant amb els llamps ja publicats
+XDDE_MIN_MIN = 28         # mínim de minuts entre baixades REALS de XDDE (≈ cada 30 min) per no esgotar la quota mensual
+XDDE_MIN_MS = XDDE_MIN_MIN * 60 * 1000
 LLAMPS_PREV_URL = "https://raw.githubusercontent.com/Javimiroo/mapa-aemet/dades/llamps.enc"
 
 
 def carrega_llamps_previ(password):
     """Llamps ja publicats (branca 'dades') per no perdre'ls si aquest run no en baixa (429)."""
+    return carrega_llamps_previ_meta(password)[0]
+
+
+def carrega_llamps_previ_meta(password):
+    """Torna (llamps, generat_ms) del llamps.enc ja publicat. generat_ms=None si no es pot llegir.
+    S'usa per decidir si toca baixar XDDE (mínim XDDE_MIN_MIN min entre baixades reals)."""
     try:
         req = urllib.request.Request(LLAMPS_PREV_URL + "?_=" + str(int(time.time())), headers={"User-Agent": "graf"})
         blob = json.loads(urllib.request.urlopen(req, timeout=20, context=_SSL).read())
-        return desxifrar(blob, password).get("llamps") or []
+        d = desxifrar(blob, password)
+        gms = None
+        g = d.get("generat")
+        if g:
+            try:
+                gms = datetime.fromisoformat(str(g)).timestamp() * 1000
+            except Exception:  # noqa
+                gms = None
+        return (d.get("llamps") or [], gms)
     except Exception:  # noqa
-        return []
+        return ([], None)
+
+
+def _iso_de_ms(ms):
+    if not ms:
+        return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
 def _llamp_ms(t):
@@ -910,10 +932,19 @@ def main():
     # --- llamps (XDDE Meteocat) ---
     _t = time.perf_counter()
     try:
-        nous = descarrega_llamps()                                   # només l'hora nova (2 crides)
-        llamps = fusiona_llamps(nous, carrega_llamps_previ(PASSWORD))  # completa amb els ja publicats
-        payload = {"generat": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-                   "n": len(llamps), "hores": XDDE_HORES, "llamps": llamps}
+        previ_ll, previ_gen = carrega_llamps_previ_meta(PASSWORD)
+        ara_ms = time.time() * 1000
+        cal_baixar = (previ_gen is None) or ((ara_ms - previ_gen) >= XDDE_MIN_MS)   # màx 1 baixada XDDE cada ~30 min
+        if cal_baixar:
+            nous = descarrega_llamps()                               # només l'hora nova (2 crides)
+        else:
+            nous = []
+            print("  (llamps: no toca baixar encara — última fa %d min, mínim %d min per estalviar quota XDDE)"
+                  % (int((ara_ms - previ_gen) / 60000), XDDE_MIN_MIN))
+        llamps = fusiona_llamps(nous, previ_ll)                      # completa amb els ja publicats
+        # el 'generat' només s'avança quan hem baixat de veres (així el comptador de 30 min és fiable)
+        gen_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds") if cal_baixar else _iso_de_ms(previ_gen)
+        payload = {"generat": gen_iso, "n": len(llamps), "hores": XDDE_HORES, "llamps": llamps}
         with open("llamps.enc", "w", encoding="utf-8") as f:
             json.dump(xifrar(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), PASSWORD), f)
         ncg = sum(1 for x in llamps if x.get("cg"))
