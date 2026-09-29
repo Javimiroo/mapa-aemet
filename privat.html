@@ -4648,7 +4648,9 @@ async function pexInit(){
 }
 function pexOpenRight(on){ const pp=$('prevPanel'); if(!pp)return; pp.style.display=on?'block':'none';
   const app=document.getElementById('app'); if(app) app.classList.toggle('prevopen',!!on); }
-function pexCloseRight(){ pexOpenRight(false); }
+function pexCloseRight(){ pexOpenRight(false);
+  if(PEX.marker){ try{map.removeLayer(PEX.marker);}catch(e){} PEX.marker=null; }   // treu el marcador del punt
+  PEX.lat=PEX.lon=null; }
 function pexSetPoint(lat,lon){
   PEX.lat=lat; PEX.lon=lon;
   if(!PEX.marker){ PEX.marker=L.marker([lat,lon],{draggable:true,zIndexOffset:1500}).addTo(map);
