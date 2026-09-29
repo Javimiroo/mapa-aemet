@@ -2223,7 +2223,17 @@ function dibuixaLlegendaExport(c, spec, x, y, w, S){
   c.fillStyle='#555'; c.font=(11*S)+'px Arial';
   const unit=isBarb?'km/h':VARS[vk].unit;
   let extra=isBarb?(unit+' · número al cercle = ratxa última hora'):(spec.k==='streak'?(unit+' · mida = hores consecutives'):(spec.k==='count'?(unit+' · número = hores (de les últimes '+spec.hores+' h)'):unit));
-  if(vk==='pacum') extra='mm · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode)+' · '+(pacumFont==='qpe'?('estimat pel radar (AEMET) + estacions'+(qpeInfo&&qpeInfo.obs?(' · radar de les '+new Date(qpeInfo.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})):'')):'interpolació d\'estacions (IDW)');
+  if(vk==='pacum'){
+    const surfOn=$('pacumSurf')&&$('pacumSurf').checked;   // superfície QPE realment mostrada?
+    extra='mm · acumulat '+(PACUM_LAB[pacumPeriode]||pacumPeriode);
+    if(surfOn) extra+=' · '+(pacumFont==='qpe'?('estimat pel radar (AEMET) + estacions'+(qpeInfo&&qpeInfo.obs?(' · radar de les '+new Date(qpeInfo.obs).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})):'')):'interpolació d\'estacions (IDW)');
+    else extra+=' · estacions';
+  }
+  // capa de radar EN DIRECTE (reflectivitat/echotop) activa: n'indiquem el producte i l'hora
+  if($('radarOn') && $('radarOn').checked && radOverlay && radLast>=0 && radFrames[radLast]){
+    const ps=$('radarProd'), pt=ps?ps.options[ps.selectedIndex].text.replace(/ —.*$/,''):'radar AEMET';
+    extra+=' · '+pt+' de les '+radFmtTs(radFrames[radLast].ts)+' UTC';
+  }
   c.fillText(extra, x+w/2, by+bh+18*S);
   c.restore();
 }
