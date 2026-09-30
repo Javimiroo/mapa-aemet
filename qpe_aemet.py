@@ -49,12 +49,48 @@ ESCALA_RN1 = [
 ]
 
 
-def rgba_a_mm(rgba, tol=70.0):
-    """Imatge RGBA (4,H,W) d'AEMET -> mm segons l'ESCALA (color més proper). Fons/transparent -> NaN."""
+PROD_6H = "RNN.6HR"                          # pluja acumulada de les últimes 6 h (mm) — per a l'auto-reparació
+
+
+def escala_de_ds(ds):
+    """Llig la llegenda ESCALA del propi GeoTIFF (metadada GDAL, dict Python amb cometes simples)
+    -> [((r,g,b), mm_representatiu)]. Valor representatiu = mitjana geomètrica de l'interval
+    (escala log), com a ESCALA_RN1. Torna None si no hi és o no es pot llegir."""
+    import ast, math
+    try:
+        tags = ds.tags() or {}
+        esc = tags.get("ESCALA") or tags.get("escala")
+        if not esc:
+            return None
+        d = ast.literal_eval(esc)
+        out = []
+        for cl in d.get("Lista RGBA", []):
+            v = cl.get("Valores", []); rgba = cl.get("RGBA", [])
+            r, g, b = int(rgba[0]), int(rgba[1]), int(rgba[2])
+            lo = float(v[0]) if len(v) > 0 and v[0] != "" else None
+            hi = float(v[1]) if len(v) > 1 and v[1] != "" else None
+            if lo is not None and hi is not None:
+                rep = math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2.0
+            elif lo is not None:
+                rep = lo * 1.2
+            else:
+                rep = hi
+            if rep is None:
+                continue
+            out.append(((r, g, b), float(rep)))
+        return out or None
+    except Exception:  # noqa
+        return None
+
+
+def rgba_a_mm(rgba, tol=70.0, escala=None):
+    """Imatge RGBA (4,H,W) d'AEMET -> mm segons l'ESCALA (color més proper). Fons/transparent -> NaN.
+    'escala' = [((r,g,b), mm)] (per defecte la de l'RN1)."""
+    escala = escala or ESCALA_RN1
     r, g, b, al = rgba[0], rgba[1], rgba[2], rgba[3]
     H, W = r.shape
-    cols = np.array([c for c, _ in ESCALA_RN1], np.float32)
-    mmt = np.array([m for _, m in ESCALA_RN1], np.float32)
+    cols = np.array([c for c, _ in escala], np.float32)
+    mmt = np.array([m for _, m in escala], np.float32)
     flat = np.stack([r, g, b], axis=-1).reshape(-1, 3).astype(np.float32)
     d = np.linalg.norm(flat[:, None, :] - cols[None, :, :], axis=2)
     idx = d.argmin(axis=1)
@@ -85,9 +121,10 @@ def _parse_nom(nom):
     return radar, dt, prod
 
 
-def extreu_rn1(tar_bytes):
-    """Torna [(radar, datetime, band, bounds)] dels membres RN1.1HR MÉS RECENTS (només
-    nodes vius: descarta els de mostra vells). Llegeix amb rasterio."""
+def extreu_producte(tar_bytes, prod_tag=PROD_TAG, max_age_h=3):
+    """Torna ([(radar, datetime, band_mm, bounds)], tmax) dels membres del producte 'prod_tag'
+    MÉS RECENTS (només nodes vius: descarta els de mostra vells). Llegeix amb rasterio.
+    La llegenda es llig del propi GeoTIFF (ESCALA); per a l'RN1 hi ha ESCALA_RN1 de reserva."""
     import rasterio
     from rasterio.io import MemoryFile
     tf = tarfile.open(fileobj=io.BytesIO(tar_bytes))
@@ -97,12 +134,12 @@ def extreu_rn1(tar_bytes):
         if not info:
             continue
         radar, dt, prod = info
-        if PROD_TAG in prod:
+        if prod_tag in prod:
             cand.append((radar, dt, m))
     if not cand:
-        raise SystemExit("cap membre %s a l'arxiu d'AEMET" % PROD_TAG)
+        raise SystemExit("cap membre %s a l'arxiu d'AEMET" % prod_tag)
     tmax = max(dt for (_, dt, _) in cand)
-    frescos = [(r, dt, m) for (r, dt, m) in cand if (tmax - dt).total_seconds() <= 3 * 3600]
+    frescos = [(r, dt, m) for (r, dt, m) in cand if (tmax - dt).total_seconds() <= max_age_h * 3600]
     out = []
     for radar, dt, m in frescos:
         try:
@@ -113,12 +150,20 @@ def extreu_rn1(tar_bytes):
                 rgba = ds.read()                    # (4,H,W) RGBA
                 if rgba.shape[0] < 4:
                     continue
-                band = rgba_a_mm(rgba)              # imatge de colors -> mm segons l'ESCALA
+                esc = escala_de_ds(ds) or (ESCALA_RN1 if prod_tag == PROD_TAG else None)
+                if esc is None:
+                    print("  avis: node %s sense llegenda ESCALA per a %s (saltat)" % (radar, prod_tag)); continue
+                band = rgba_a_mm(rgba, escala=esc)  # imatge de colors -> mm segons l'ESCALA
                 out.append((radar, dt, band, (b.left, b.bottom, b.right, b.top)))
         except Exception as ex:  # noqa
             print("  avis: node %s no llegit (%s)" % (radar, str(ex)[:60]))
-    print("RN1 més recent: %s UTC · %d nodes vius" % (tmax.strftime("%Y-%m-%d %H:%M"), len(out)))
+    print("%s més recent: %s UTC · %d nodes vius" % (prod_tag, tmax.strftime("%Y-%m-%d %H:%M"), len(out)))
     return out, tmax
+
+
+def extreu_rn1(tar_bytes):
+    """Compatibilitat: RN1.1HR (pluja de l'última hora)."""
+    return extreu_producte(tar_bytes, PROD_TAG)
 
 
 # ----------------------------------------------------------------- mosaic a CAT

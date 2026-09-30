@@ -83,6 +83,57 @@ def suma(tiles, desde, fins):
     return acc
 
 
+GAP_MIN_MM = 0.5           # dèficit màxim (mm) per sota del qual no val la pena reparar
+SLOT_TOL = 30 * 60         # un tile a ±30 min d'una hora en punt "cobreix" eixa hora
+
+
+def repara_amb_6h(tar, tdir, tiles, tmax):
+    """Compara el RNN.6HR (pluja real de les últimes 6 h) amb la suma dels tiles horaris de la
+    mateixa finestra. Si falten hores, crea tiles de reparació (flag gap=1) a les hores buides
+    amb el dèficit repartit a parts iguals. Torna la llista de tiles actualitzada."""
+    nodes6, t6 = A.extreu_producte(tar, A.PROD_6H)
+    if not nodes6:
+        print("  6h: cap node del RNN.6HR"); return tiles
+    if abs((t6 - tmax).total_seconds()) > 90 * 60:
+        print("  6h: RNN (%s) i RN1 (%s) massa separats; no es repara" % (t6.strftime("%H:%M"), tmax.strftime("%H:%M")))
+        return tiles
+    mos6 = A.mosaic_cat(nodes6)
+    mos6 = np.where(np.isnan(mos6), 0.0, mos6).astype(np.float32)
+    fi = max(t6, tmax)                       # final de la finestra (RN1 i RNN solen portar la mateixa hora)
+    ini = fi - timedelta(hours=6)
+    t6 = fi
+    dins = [(t, g) for (t, g) in tiles if ini < t <= fi]
+    S = None
+    for (_, g) in dins:
+        gg = np.where(np.isnan(g), 0.0, g)
+        S = gg.copy() if S is None else S + gg
+    if S is None:
+        S = np.zeros_like(mos6)
+    # hores en punt de la finestra: t6, t6-1h, ..., t6-5h -> cobertes si hi ha un tile a ±30 min
+    slots = [t6 - timedelta(hours=k) for k in range(6)]
+    buides = [s for s in slots if not any(abs((t - s).total_seconds()) <= SLOT_TOL for (t, _) in dins)]
+    deficit = np.clip(mos6 - S, 0.0, None)
+    dmax = float(deficit.max()) if deficit.size else 0.0
+    print("  6h: RNN màx %.1f mm · suma tiles màx %.1f mm · hores cobertes %d/6 · dèficit màx %.1f mm"
+          % (float(mos6.max()), float(S.max()), 6 - len(buides), dmax))
+    if not buides:
+        return tiles
+    if dmax < GAP_MIN_MM:
+        print("  6h: falten %d hores però sense pluja rellevant al dèficit; res a reparar" % len(buides))
+        return tiles
+    part = (deficit / float(len(buides))).astype(np.float32)
+    part_nan = np.where(part >= 0.1, part, np.nan).astype(np.float32)   # mateix conveni que els tiles (NaN = sense pluja)
+    for s in buides:
+        nom = os.path.join(tdir, s.strftime("%Y%m%d%H%M") + ".npz")
+        if os.path.exists(nom):
+            continue
+        np.savez_compressed(nom, g=part_nan.astype(np.float16), gap=np.int8(1))
+        tiles.append((s, part_nan))
+    print("  6h: REPARAT — %d hores buides (%s) omplides amb el dèficit repartit (màx %.1f mm/h)"
+          % (len(buides), ", ".join(s.strftime("%H:%M") for s in sorted(buides)), dmax / len(buides)))
+    return sorted(tiles, key=lambda x: x[0])
+
+
 def biaix_global(grid, ests):
     sg = sr = 0.0; n = 0
     for lat, lon, mm in ests:
@@ -131,8 +182,9 @@ def main():
     tdir = os.path.join(a.store, "tiles")
     os.makedirs(tdir, exist_ok=True)
 
-    print("Baixant l'últim RN1 d'AEMET…")
-    nodes, tmax = A.extreu_rn1(A.baixa_hvd(key))
+    print("Baixant l'últim paquet de radar d'AEMET…")
+    tar = A.baixa_hvd(key)                                     # una sola baixada: RN1 (1 h) + RNN (6 h)
+    nodes, tmax = A.extreu_rn1(tar)
     mos = A.mosaic_cat(nodes)                                  # mm de l'última hora, graella CAT
     ncel = int((~np.isnan(mos)).sum())
     print("RN1 %s UTC · %d cel·les amb pluja · màx %.1f mm"
@@ -148,6 +200,16 @@ def main():
     else:
         print("  (encara no toca tile nou; últim fa %d min)" % int((tmax - darrer).total_seconds() / 60))
     tiles = poda(tdir, tiles, tmax)
+
+    # ---- AUTO-REPARACIÓ amb el producte de 6 h (RNN.6HR) ----
+    # Si alguna hora no ha tingut execució (cron que salta, run que falla), el seu RN1 s'ha
+    # perdut per sempre. El RNN.6HR (pluja de les últimes 6 h) ens diu quanta pluja hi ha hagut
+    # de veres a la finestra: el DÈFICIT respecte de la suma dels tiles es reparteix en tiles de
+    # reparació a les hores que falten. Invariant: suma(tiles 6h) == RNN.6HR. Mai bloqueja el run.
+    try:
+        tiles = repara_amb_6h(tar, tdir, tiles, tmax)
+    except Exception as ex:  # noqa
+        print("  avis: auto-reparació 6h no aplicada (%s)" % str(ex)[:100])
 
     # estacions per al biaix (pacum de dades_privat.enc)
     ests_win = {}
