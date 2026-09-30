@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: write            # per disparar el workflow del QPE en acabar (workflow_dispatch)
 
 concurrency:
   group: privat
@@ -102,3 +103,16 @@ jobs:
               commit -q -m "dades $(date -u +%FT%TZ)"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" dades
           echo "publicat a la branca 'dades' ($(ls | tr '\n' ' '))"
+
+      # 3) ENCADENA EL QPE de forma EXPLÍCITA. El 'workflow_run' de qpe.yml no s'ha disparat
+      #    mai (comprovat: 2 setmanes sense cap run d'eixe tipus, només 'schedule' cada 3-7 h,
+      #    amb hores de pluja perdudes). Un workflow_dispatch fet des d'ací GitHub SEMPRE
+      #    l'executa (és l'excepció documentada a la regla del GITHUB_TOKEN). Si el QPE ja
+      #    està en marxa, la seua 'concurrency' l'encua; no passa res.
+      - name: Dispara el QPE
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run qpe.yml --ref main -R "$GITHUB_REPOSITORY" \
+            && echo "QPE disparat" || echo "avis: no s'ha pogut disparar el QPE (seguirà el cron)"
