@@ -1,0 +1,69 @@
+name: QPE — repara un dia amb els blocs de 6 h del visor AEMET (manual)
+
+# Quan el QPE ha perdut hores (runs saltats), reconstrueix un dia passat a partir dels blocs de
+# 6 h que el visor públic d'AEMET conserva ~3 dies. Omple les hores buides del buffer de tiles,
+# desmarca el dia de l'arxiu diari i torna a executar qpe_prod.py perquè refaça finestres i
+# arxiu (amb biaix d'estacions). Publica a la branca 'qpe' com el workflow normal.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dia:
+        description: "Dia UTC a reparar (AAAA-MM-DD)"
+        required: true
+      radar:
+        description: "Radar regional del visor (GLD = Barcelona-Gelida)"
+        required: false
+        default: "GLD"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qpe               # mateix grup que el QPE normal: no es trepitgen
+  cancel-in-progress: false
+
+jobs:
+  repara:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Recupera el buffer (branca 'qpe')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --branch qpe --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" qpe_store
+          echo "buffer: $(ls qpe_store/tiles | wc -l) tiles"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Dependències
+        run: pip install numpy pillow cryptography rasterio
+
+      - name: Repara el dia amb els blocs de 6 h
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+        run: python qpe_repara_dia.py --dia "${{ github.event.inputs.dia }}" --radar "${{ github.event.inputs.radar }}" --store qpe_store
+
+      - name: Regenera finestres i arxiu diari (qpe_prod)
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: python qpe_prod.py --store qpe_store
+
+      - name: Publica a la branca 'qpe'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd qpe_store
+          rm -rf .git
+          git init -q -b qpe
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "QPE reparat ${{ github.event.inputs.dia }} $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" qpe
+          echo "publicat"
