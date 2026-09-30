@@ -187,6 +187,28 @@ def a_graella(band, bounds, nx=NX, ny=NY, bbox=CAT_BBOX):
     return out
 
 
+def a_graella_mercator(band, bounds, nx=NX, ny=NY, bbox=CAT_BBOX):
+    """Com a_graella, però per a imatges en WEB MERCATOR (EPSG:3857) que cobreixen els mateixos
+    límits lon/lat: les columnes són lineals en longitud, però les FILES segueixen y=ln(tan(π/4+φ/2)).
+    (El visor d'AEMET serveix els PNG en Mercator; el GeoTIFF HVD és EPSG:4326.)"""
+    lon0, lon1, lat0, lat1 = bbox
+    left, bottom, right, top = bounds
+    H, W = band.shape
+    Y = lambda la: np.log(np.tan(np.pi / 4.0 + np.radians(la) / 2.0))
+    lons = np.linspace(lon0, lon1, nx)
+    lats = np.linspace(lat1, lat0, ny)                      # nord primer
+    cols = np.floor((lons - left) / (right - left) * W).astype(int)
+    rows = np.floor((Y(top) - Y(lats)) / (Y(top) - Y(bottom)) * H).astype(int)
+    out = np.full((ny, nx), np.nan, np.float32)
+    okc = (cols >= 0) & (cols < W)
+    okr = (rows >= 0) & (rows < H)
+    if not okc.any() or not okr.any():
+        return out
+    sub = band[np.ix_(rows[okr], cols[okc])]
+    out[np.ix_(okr, okc)] = sub
+    return out
+
+
 def mosaic_cat(nodes):
     mos = np.full((NY, NX), np.nan, np.float32)
     for (_, _, band, bounds) in nodes:
