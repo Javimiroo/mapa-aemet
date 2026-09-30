@@ -98,8 +98,15 @@ def repara_amb_6h(tar, tdir, tiles, tmax):
         print("  6h: RNN (%s) i RN1 (%s) massa separats; no es repara" % (t6.strftime("%H:%M"), tmax.strftime("%H:%M")))
         return tiles
     mos6 = A.mosaic_cat(nodes6)
-    mos6 = np.where(np.isnan(mos6), 0.0, mos6).astype(np.float32)
     fi = max(t6, tmax)                       # final de la finestra (RN1 i RNN solen portar la mateixa hora)
+    return repara_finestra(tdir, tiles, mos6, fi)
+
+
+def repara_finestra(tdir, tiles, mos6, fi, etiqueta="6h"):
+    """Nucli de la reparació: 'mos6' = pluja real (mm) de la finestra (fi-6h, fi] a la graella CAT;
+    crea tiles de reparació a les hores buides amb el dèficit repartit. Reutilitzat per la
+    reparació en directe (RNN del paquet HVD) i per la reparació de dies passats (PNG del visor)."""
+    mos6 = np.where(np.isnan(mos6), 0.0, mos6).astype(np.float32)
     ini = fi - timedelta(hours=6)
     t6 = fi
     dins = [(t, g) for (t, g) in tiles if ini < t <= fi]
@@ -114,12 +121,12 @@ def repara_amb_6h(tar, tdir, tiles, tmax):
     buides = [s for s in slots if not any(abs((t - s).total_seconds()) <= SLOT_TOL for (t, _) in dins)]
     deficit = np.clip(mos6 - S, 0.0, None)
     dmax = float(deficit.max()) if deficit.size else 0.0
-    print("  6h: RNN màx %.1f mm · suma tiles màx %.1f mm · hores cobertes %d/6 · dèficit màx %.1f mm"
+    print("  "+etiqueta+": RNN màx %.1f mm · suma tiles màx %.1f mm · hores cobertes %d/6 · dèficit màx %.1f mm"
           % (float(mos6.max()), float(S.max()), 6 - len(buides), dmax))
     if not buides:
         return tiles
     if dmax < GAP_MIN_MM:
-        print("  6h: falten %d hores però sense pluja rellevant al dèficit; res a reparar" % len(buides))
+        print("  "+etiqueta+": falten %d hores però sense pluja rellevant al dèficit; res a reparar" % len(buides))
         return tiles
     part = (deficit / float(len(buides))).astype(np.float32)
     part_nan = np.where(part >= 0.1, part, np.nan).astype(np.float32)   # mateix conveni que els tiles (NaN = sense pluja)
@@ -129,7 +136,7 @@ def repara_amb_6h(tar, tdir, tiles, tmax):
             continue
         np.savez_compressed(nom, g=part_nan.astype(np.float16), gap=np.int8(1))
         tiles.append((s, part_nan))
-    print("  6h: REPARAT — %d hores buides (%s) omplides amb el dèficit repartit (màx %.1f mm/h)"
+    print("  "+etiqueta+": REPARAT — %d hores buides (%s) omplides amb el dèficit repartit (màx %.1f mm/h)"
           % (len(buides), ", ".join(s.strftime("%H:%M") for s in sorted(buides)), dmax / len(buides)))
     return sorted(tiles, key=lambda x: x[0])
 
