@@ -4937,7 +4937,10 @@ function prevDibuixaLlegenda(c,x,y,w,S){
   if(HARM.varK==='vent') lab='Vent mitjà previst'; if(HARM.varK==='ratxa') lab='Ratxa màxima prevista'; if(HARM.varK==='temp') lab='Temperatura prevista'; if(HARM.varK==='nuvol') lab='Nuvolositat prevista'; if(HARM.varK==='llamps') lab='Descàrregues elèctriques previstes';
   // títol: què representem (+ interval del tram si és pluja acumulada)
   let titol=lab+(unit?(' ('+unit+')'):'');
-  if(meta.pacum && p){ titol+='  ·  '+(harPaccRang(p,h)[0]!==h ? harPaccLabel(p,h) : 'última hora fins a les '+new Date(Date.parse(p.hores[h])).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+' h'); }
+  if(meta.pacum && p){ const [i0,i1]=harPaccRang(p,h);
+    if(i0!==h){ const f=(d)=>d.toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'});
+      titol+='  ·  '+f(new Date(Date.parse(p.hores[i0])-3600000))+' h → '+f(new Date(Date.parse(p.hores[i1])))+' h'; }   // sense Σ ni "(n h)"
+    else titol+='  ·  última hora fins a les '+new Date(Date.parse(p.hores[h])).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+' h'; }
   c.font='bold '+(13.5*S)+'px Arial'; c.fillStyle='#111';
   while(c.measureText(titol).width>w && titol.length>10) titol=titol.slice(0,-2)+'…';
   c.fillText(titol, x, y);
@@ -5007,7 +5010,7 @@ async function prevExporta(){
       const logoW=(logoBombersImg.complete&&logoBombersImg.naturalWidth)?logoH*logoBombersImg.naturalWidth/logoBombersImg.naturalHeight:logoH*2.87;
       const L=[{t:'PREVISIÓ METEOROLÒGICA', f:'bold '+(20*S)+'px Arial', col:'#111', h:24*S},
                {t:hlab.charAt(0).toUpperCase()+hlab.slice(1), f:'bold '+(15*S)+'px Arial', col:'#0369a1', h:19*S}];
-      if(esAcc && harPaccRang(p,h)[0]!==h) L.push({t:harPaccTitol()+' · '+harPaccLabel(p,h), f:(12*S)+'px Arial', col:'#334155', h:16*S});
+      // (el tram de pluja NO va ací: ja ix a la llegenda de baix-dreta; si no, es repeteix)
       let maxw=0; L.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
       const lbw=logoW+20*S, lbh=logoH+16*S, lbx=W-14*S-lbw, lby=top;
       const tbw=maxw+28*S, tbh=L.reduce((acc,l)=>acc+l.h,0)+14*S, tbx=x+14*S, tby=top;
