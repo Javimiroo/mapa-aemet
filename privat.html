@@ -1095,7 +1095,7 @@ let streakMode=null, countMode=null;
 let recMode=null, recData=null;                 // comptador de DIES sense recuperació d'humitat (matinada)
 let timeT=null, tDomain=null;   // màquina del temps (timeT=null → en directe)
 let reviewMode=null;            // dia de l'arxiu que s'està revisant (null → dades en directe)
-const map=L.map('map',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView([41.75,1.75],8);
+const map=L.map('map',{zoomControl:true,zoomSnap:0.1,zoomDelta:0.25,wheelPxPerZoomLevel:260,wheelDebounceTime:30}).setView([41.75,1.75],8);
 const BASEMAPS={
   blanc:{blanc:true,o:{attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
   icgc:{u:'https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=administratiu&STYLE=default&FORMAT=image/png&TILEMATRIXSET=MON3857NW&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',o:{maxZoom:18,attribution:'© ICGC · AEMET · Meteocat (SMC)'}},
@@ -1874,7 +1874,7 @@ function syncMaps(a,b){
 }
 function ensureMap2(){
   if(map2)return;
-  map2=L.map('map2',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView(map.getCenter(),map.getZoom());
+  map2=L.map('map2',{zoomControl:true,zoomSnap:0.1,zoomDelta:0.25,wheelPxPerZoomLevel:260,wheelDebounceTime:30}).setView(map.getCenter(),map.getZoom());
   const b=BASEMAPS[$('basemap').value]||BASEMAPS.dark;
   if(b.blanc){ map2.getContainer().style.background='#ffffff'; }
   else { baseLayer2=L.tileLayer(b.u,Object.assign({crossOrigin:true},b.o)).addTo(map2); baseLayer2.bringToBack(); }
@@ -4442,7 +4442,7 @@ async function obreFocTauler(id){
       runs:(f.runs||[]).slice().sort((a,b)=>a.ts-b.ts),runIdx:-1,runData:null,map:null,ventLayer:null,
       annotLayer:null,arrows:[],arrowPreview:null,baseLayer:null,
       prevBox:null,prevBoxLayer:null,prevBoxDraw:false,prevBoxA:null,prevPts:[],prevAddMode:false,prevActiveRid:null,prevShowMarkers:[]};
-  const mp=FD.map=L.map('focMap',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView(centre,12);
+  const mp=FD.map=L.map('focMap',{zoomControl:true,zoomSnap:0.1,zoomDelta:0.25,wheelPxPerZoomLevel:260,wheelDebounceTime:30}).setView(centre,12);
   focSetBase($('focBase')?$('focBase').value:'satellite');
   FD.ventLayer=new FocVentLayer(); FD.ventLayer.addTo(mp);
   FD.perimLayer=new FocPerimLayer(); FD.perimLayer.addTo(mp);
