@@ -2477,17 +2477,17 @@ async function generarImatge(){
       const logoH=30*S, top=mapY+14*S;
       c.save();
       const logoW=(logoBombersImg.complete&&logoBombersImg.naturalWidth)?logoH*logoBombersImg.naturalWidth/logoBombersImg.naturalHeight:logoH*2.87;
-      // mides de les dues caixes: el LOGO a l'extrem dret i el TÍTOL a la seua esquerra
+      // dues caixes simètriques: el LOGO a l'extrem dret i el TÍTOL a l'extrem esquerre del full
       const L=[{t:'SITUACIÓ METEOROLÒGICA', f:'bold '+(20*S)+'px Arial', col:'#111', h:24*S}];
       if(nom) L.push({t:nom.toUpperCase(), f:'bold '+(15*S)+'px Arial', col:'#b00000', h:19*S});
       if(filtreTxt) L.push({t:'Filtre: '+filtreTxt, f:(12*S)+'px Arial', col:'#b00000', h:16*S});
       let maxw=0; L.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
       const lbw=logoW+20*S, lbh=logoH+16*S, lbx=pad+mapW-14*S-lbw, lby=top;          // LOGO a l'extrem dret
-      const tbw=maxw+28*S, tbh=L.reduce((acc,l)=>acc+l.h,0)+14*S, tbx=lbx-10*S-tbw, tby=top;   // TÍTOL a la seua esquerra
+      const tbw=maxw+28*S, tbh=L.reduce((acc,l)=>acc+l.h,0)+14*S, tbx=pad+14*S, tby=top;     // TÍTOL a l'EXTREM ESQUERRE del full (simètric al logo)
       c.fillStyle='rgba(255,255,255,.94)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
       c.beginPath(); c.roundRect ? c.roundRect(lbx,lby,lbw,lbh,8*S) : c.rect(lbx,lby,lbw,lbh); c.fill(); c.stroke();
       dibuixaLogoBombers(c, lbx+10*S, lby+8*S, logoH);
-      // requadre del títol (a l'esquerra del logo), text centrat
+      // requadre del títol (extrem esquerre), text centrat
       c.fillStyle='rgba(255,255,255,.94)'; c.strokeStyle='rgba(0,0,0,.25)';
       c.beginPath(); c.roundRect ? c.roundRect(tbx,tby,tbw,tbh,8*S) : c.rect(tbx,tby,tbw,tbh); c.fill(); c.stroke();
       c.textAlign='center'; c.textBaseline='middle'; let ty=tby+7*S;
