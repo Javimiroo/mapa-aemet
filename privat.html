@@ -2302,7 +2302,9 @@ function descripcioFiltres(){
   if($('netAemet').checked && !$('netMeteocat').checked) parts.push('només AEMET');
   return parts.join('   ·   ');
 }
-// ---- EXPORT "MAPA PRIMER": reenquadra el mapa al format A4 apaïsat (el mapa omple el full) ----
+// ---- EXPORT "MAPA PRIMER" ----
+// NOTA (07/10/2026): exportReframe() ja NO s'usa a generarImatge: Javi vol que la imatge siga EXACTAMENT el
+// que veu a pantalla (mateix enquadrament); el full s'adapta a la proporció del mapa. Es conserva per si cal.
 // Si la vista actual és més oberta que Catalunya (molt mar/França), s'ajusta a Catalunya perquè no
 // sobre espai buit; si ja estàs fet zoom a una zona, es respecta la teua vista. El contenidor del
 // mapa es redimensiona TEMPORALMENT a l'aspecte del full i es restaura en acabar.
@@ -2363,8 +2365,10 @@ async function generarImatge(){
     const esBlanc = limitsVisibles();
     const esPluja = (selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
     const discsApart = (esBlanc || esPluja);   // capturem els discos a part per posar-los SEMPRE a dalt
-    const mapaPrimer = true;                   // disseny "mapa primer" per a mapa únic I combinats: el(s) mapa(es) omplen el full A4; capçalera i llegendes DINS
-    if(mapaPrimer){ try{ restaura=await exportReframe(); }catch(e){ restaura=null; } }
+    const mapaPrimer = true;                   // disseny "mapa primer" per a mapa únic I combinats: el(s) mapa(es) omplen el full; capçalera i llegendes DINS
+    // WYSIWYG: la imatge mostra EXACTAMENT el que es veu a pantalla (mateix enquadrament i proporció).
+    // NO es reenquadra ni es redimensiona el mapa: l'alçada del full s'adapta a la proporció del mapa en pantalla.
+    restaura=null;
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
       ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||(mapaPrimer&&el.classList.contains('leaflet-control-attribution'))||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane'))||(discsApart&&el.classList.contains('leaflet-marker-pane')))};
     for(const p of panes){
