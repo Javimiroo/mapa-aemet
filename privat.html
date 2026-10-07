@@ -145,6 +145,7 @@
   #tbNow{font-size:11px}
   @media (max-width:640px){ #timebar{bottom:8px;padding:6px 9px;gap:6px} #tbRange{width:42vw} #tbLabel{min-width:0;font-size:11px} }
   #app.prevtab #timebar{display:none!important}
+  #app.prevtab #exportar{display:none!important}   /* a Previsió, la imatge es trau des de la targeta del model (el botó flotant generava el mapa d'observació, en blanc) */
   #harLegend{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:1150;display:none;
              background:rgba(18,20,26,.92);border:1px solid var(--line);border-radius:10px;padding:8px 12px;box-shadow:0 6px 22px rgba(0,0,0,.45)}
   /* llegenda de colors del vent sobre el mapa */
@@ -5008,9 +5009,10 @@ async function prevExporta(){
     { const logoH=30*S, top=mapY+14*S;
       c.save();
       const logoW=(logoBombersImg.complete&&logoBombersImg.naturalWidth)?logoH*logoBombersImg.naturalWidth/logoBombersImg.naturalHeight:logoH*2.87;
-      const L=[{t:'PREVISIÓ METEOROLÒGICA', f:'bold '+(20*S)+'px Arial', col:'#111', h:24*S},
-               {t:hlab.charAt(0).toUpperCase()+hlab.slice(1), f:'bold '+(15*S)+'px Arial', col:'#0369a1', h:19*S}];
-      // (el tram de pluja NO va ací: ja ix a la llegenda de baix-dreta; si no, es repeteix)
+      const L=[{t:'PREVISIÓ METEOROLÒGICA', f:'bold '+(20*S)+'px Arial', col:'#111', h:24*S}];
+      // Dia i hora NOMÉS si el mapa és d'un instant; en pluja acumulada en interval no té sentit una hora
+      // al titular (l'interval ja ix a la llegenda de baix-dreta).
+      if(!(esAcc && harPaccRang(p,h)[0]!==h)) L.push({t:hlab.charAt(0).toUpperCase()+hlab.slice(1), f:'bold '+(15*S)+'px Arial', col:'#0369a1', h:19*S});
       let maxw=0; L.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
       const lbw=logoW+20*S, lbh=logoH+16*S, lbx=W-14*S-lbw, lby=top;
       const tbw=maxw+28*S, tbh=L.reduce((acc,l)=>acc+l.h,0)+14*S, tbx=x+14*S, tby=top;
