@@ -2253,10 +2253,36 @@ function descripcioFiltres(){
   if($('netAemet').checked && !$('netMeteocat').checked) parts.push('només AEMET');
   return parts.join('   ·   ');
 }
+// ---- EXPORT "MAPA PRIMER": reenquadra el mapa al format A4 apaïsat (el mapa omple el full) ----
+// Si la vista actual és més oberta que Catalunya (molt mar/França), s'ajusta a Catalunya perquè no
+// sobre espai buit; si ja estàs fet zoom a una zona, es respecta la teua vista. El contenidor del
+// mapa es redimensiona TEMPORALMENT a l'aspecte del full i es restaura en acabar.
+const EXPORT_ASPECTE = 1240/(877-46);          // A4 apaïsat (1240x877 @1x) menys la franja del peu (46)
+async function exportReframe(){
+  const el=$('map'); if(!el||!map) return null;
+  const c0=map.getCenter(), z0=map.getZoom();
+  const st0={w:el.style.width,h:el.style.height,r:el.style.right,b:el.style.bottom};
+  const cw=el.clientWidth, ch=el.clientHeight;
+  const tW=Math.min(cw, Math.round(ch*EXPORT_ASPECTE)), tH=Math.round(tW/EXPORT_ASPECTE);
+  el.style.right='auto'; el.style.bottom='auto'; el.style.width=tW+'px'; el.style.height=tH+'px';
+  map.invalidateSize({animate:false});
+  let catB=null;
+  try{ if(typeof catGeo!=='undefined' && catGeo) catB=L.geoJSON(catGeo).getBounds(); }catch(e){}
+  if(!catB) catB=L.latLngBounds([40.50,0.15],[42.90,3.35]);
+  if(map.getBounds().contains(catB)) map.fitBounds(catB,{padding:[6,6],animate:false});
+  else map.setView(c0,z0,{animate:false});
+  // espera que carreguen les tessel·les del fons (o 1,4 s com a màxim)
+  await new Promise(res=>{ let done=false; const fi=()=>{ if(!done){done=true;res();} };
+    try{ if(baseLayer) baseLayer.once('load',fi); }catch(e){} setTimeout(fi,1400); });
+  await new Promise(r=>setTimeout(r,200));
+  return ()=>{ el.style.width=st0.w; el.style.height=st0.h; el.style.right=st0.r; el.style.bottom=st0.b;
+    map.invalidateSize({animate:false}); map.setView(c0,z0,{animate:false}); };
+}
 async function generarImatge(){
   if(!DATA){ alert('Espera que carreguen les dades.'); return; }
   if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
   const btn=$('exportar'), old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
+  let restaura=null;                           // funció per tornar el mapa a la vista/mida d'abans de l'export
   try{
     if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked){   // assegura la superfície carregada
       if(pacumFont==='qpe'){ if(!precGrid) await carregaQPE(pacumPeriode); }
@@ -2272,6 +2298,8 @@ async function generarImatge(){
     const esBlanc = ($('basemap') && $('basemap').value==='blanc');
     const esPluja = (selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
     const discsApart = (esBlanc || esPluja);   // capturem els discos a part per posar-los SEMPRE a dalt
+    const mapaPrimer = !comboActive;           // mapa únic: el mapa omple el full A4; capçalera i llegenda DINS
+    if(mapaPrimer){ try{ restaura=await exportReframe(); }catch(e){ restaura=null; } }
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
       ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane'))||(discsApart&&el.classList.contains('leaflet-marker-pane')))};
     for(const p of panes){
@@ -2282,23 +2310,27 @@ async function generarImatge(){
           onclone:docClone=>{ docClone.querySelectorAll('.leaflet-container,.leaflet-pane,.leaflet-tile-container').forEach(el=>{el.style.background='transparent';}); }}));
       }
     }
-    const S=2, pad=22*S, gap=18*S, headerH=88*S, legH=66*S, footH=64*S;
+    const S=2;
     const filtreTxt=descripcioFiltres();
-    const filtreH=filtreTxt?30*S:0;
-    const mapW=(panes.length>1?680:940)*S;
+    // Disseny: "mapa primer" (A4 apaïsat, mapa a tot el full, capçalera/llegenda dins) o clàssic (combinats)
+    const pad=mapaPrimer?0:22*S, gap=18*S, headerH=mapaPrimer?0:88*S, legH=mapaPrimer?0:66*S, footH=mapaPrimer?46*S:64*S;
+    const filtreH=(filtreTxt&&!mapaPrimer)?30*S:0;
+    const mapW=mapaPrimer?1240*S:(panes.length>1?680:940)*S;
     const mapH=Math.round(mapW*panes[0].canvas.height/panes[0].canvas.width);
     const W=panes.length*mapW+(panes.length-1)*gap+2*pad;
     const H=headerH+filtreH+mapH+legH+footH+2*pad;
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
     const c=cv.getContext('2d');
     c.fillStyle='#fff'; c.fillRect(0,0,W,H);
-    const logoW=dibuixaLogoBombers(c, pad, pad+6*S, headerH*0.66);
-    c.fillStyle='#111'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(30*S)+'px Arial';
-    const tx=pad+logoW+30*S;
-    c.fillText('SITUACIÓ METEOROLÒGICA', tx, pad+headerH*0.36);
-    if(nom){ c.font=(21*S)+'px Arial'; c.fillStyle='#b00000'; c.fillText('Incendi de '+nom, tx, pad+headerH*0.72); }
-    if(filtreTxt){ c.fillStyle='#b00000'; c.font='bold '+(15*S)+'px Arial'; c.textAlign='left'; c.textBaseline='middle';
-      c.fillText('Filtre aplicat:  '+filtreTxt, pad, pad+headerH+filtreH*0.5); }
+    if(!mapaPrimer){
+      const logoW=dibuixaLogoBombers(c, pad, pad+6*S, headerH*0.66);
+      c.fillStyle='#111'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(30*S)+'px Arial';
+      const tx=pad+logoW+30*S;
+      c.fillText('SITUACIÓ METEOROLÒGICA', tx, pad+headerH*0.36);
+      if(nom){ c.font=(21*S)+'px Arial'; c.fillStyle='#b00000'; c.fillText('Incendi de '+nom, tx, pad+headerH*0.72); }
+      if(filtreTxt){ c.fillStyle='#b00000'; c.font='bold '+(15*S)+'px Arial'; c.textAlign='left'; c.textBaseline='middle';
+        c.fillText('Filtre aplicat:  '+filtreTxt, pad, pad+headerH+filtreH*0.5); }
+    }
     let x=pad; const mapY=pad+headerH+filtreH;
     for(const p of panes){
       c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();   // RES es pot pintar fora del requadre del mapa
@@ -2409,24 +2441,58 @@ async function generarImatge(){
       const zOn=$('zonaOn')&&$('zonaOn').checked&&zonaData;
       if(ventClickOn||zOn)                            // escala del vent damunt del mapa
         dibuixaLlegendaVentBox(c, x+mapW-178*S, mapY+10*S, S, (zOn&&!ventClickOn)?'Vent WindNinja (km/h)':'Velocitat vent (km/h)');
-      dibuixaLlegendaExport(c, p.spec, x, mapY+mapH+9*S, mapW, S);
+      if(mapaPrimer){                                   // LLEGENDA DINS del mapa (caixa translúcida, baix-esquerra)
+        const bw=640*S, bh=80*S, bx=x+14*S, by=mapY+mapH-14*S-bh;
+        c.save(); c.fillStyle='rgba(255,255,255,.92)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
+        c.beginPath(); c.roundRect ? c.roundRect(bx,by,bw,bh,8*S) : c.rect(bx,by,bw,bh); c.fill(); c.stroke(); c.restore();
+        dibuixaLlegendaExport(c, p.spec, bx+8*S, by+7*S, bw-16*S, S);
+      } else {
+        dibuixaLlegendaExport(c, p.spec, x, mapY+mapH+9*S, mapW, S);
+      }
       x+=mapW+gap;
     }
     const ultimaObs=(font)=>{ const arr=DATA.estacions.filter(e=>e.font===font); let mx=null; arr.forEach(e=>{const d=toDate(e.actual&&e.actual.fint); if(d&&(!mx||d>mx))mx=d;}); return mx; };
     const fmtD=(d)=> d ? d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
-    const y1=H-pad-34*S, y2=H-pad-10*S;
-    c.textBaseline='middle'; c.textAlign='left'; c.fillStyle='#222'; c.font=(15*S)+'px Arial';
-    c.fillText('Dades actualitzades — AEMET: '+fmtD(ultimaObs('AEMET'))+'   ·   Meteocat: '+fmtD(ultimaObs('Meteocat'))+'   (hora local)', pad, y1);
-    c.fillStyle='#444'; c.font=(14*S)+'px Arial';
-    c.fillText('Informe generat: '+fmtD(new Date())+' (hora local)', pad, y2);
-    c.textAlign='right'; c.fillStyle='#888'; c.font=(12*S)+'px Arial';
-    c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC', W-pad, y2);
+    if(mapaPrimer){
+      // CAPÇALERA DINS del mapa (dalt-esquerra, caixa translúcida): logo + títol + context
+      const linies=[]; if(nom) linies.push({t:'Incendi de '+nom, col:'#b00000', f:'bold '+(15*S)+'px Arial'});
+      if(filtreTxt) linies.push({t:'Filtre: '+filtreTxt, col:'#b00000', f:(12.5*S)+'px Arial'});
+      const hx=14*S, hy=mapY+14*S, logoH=30*S;
+      c.save(); c.font='bold '+(20*S)+'px Arial'; const tw=c.measureText('SITUACIÓ METEOROLÒGICA').width;
+      let maxw=tw; linies.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
+      const logoW=Math.round(logoH*0.66*4.3);   // amplada aprox. de "bombers" a eixa alçada
+      const hw=logoW+22*S+maxw+24*S, hh=(linies.length?20*S:0)+linies.length*17*S+40*S;
+      c.fillStyle='rgba(255,255,255,.92)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
+      c.beginPath(); c.roundRect ? c.roundRect(hx,hy,hw,hh,8*S) : c.rect(hx,hy,hw,hh); c.fill(); c.stroke();
+      const lw=dibuixaLogoBombers(c, hx+12*S, hy+8*S, logoH);
+      const tx=hx+12*S+lw+22*S; let ty=hy+8*S;
+      c.fillStyle='#111'; c.textAlign='left'; c.textBaseline='top'; c.font='bold '+(20*S)+'px Arial'; c.fillText('SITUACIÓ METEOROLÒGICA', tx, ty); ty+=26*S;
+      linies.forEach(l=>{ c.fillStyle=l.col; c.font=l.f; c.fillText(l.t, tx, ty); ty+=17*S; });
+      c.restore();
+      // PEU fi (fora del mapa): hores de dades · generat · fonts · autoria
+      const fy=mapY+mapH+footH/2;
+      c.textBaseline='middle'; c.textAlign='left'; c.fillStyle='#222'; c.font=(13*S)+'px Arial';
+      c.fillText('Dades actualitzades — AEMET: '+fmtD(ultimaObs('AEMET'))+'  ·  Meteocat: '+fmtD(ultimaObs('Meteocat'))+'  (hora local)   ·   Informe generat: '+fmtD(new Date()), 14*S, fy);
+      c.textAlign='right'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial';
+      c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC   ·   Eina desenvolupada per Javi Miró', W-14*S, fy);
+    } else {
+      const y1=H-pad-34*S, y2=H-pad-10*S;
+      c.textBaseline='middle'; c.textAlign='left'; c.fillStyle='#222'; c.font=(15*S)+'px Arial';
+      c.fillText('Dades actualitzades — AEMET: '+fmtD(ultimaObs('AEMET'))+'   ·   Meteocat: '+fmtD(ultimaObs('Meteocat'))+'   (hora local)', pad, y1);
+      c.fillStyle='#444'; c.font=(14*S)+'px Arial';
+      c.fillText('Informe generat: '+fmtD(new Date())+' (hora local)', pad, y2);
+      c.textAlign='right'; c.fillStyle='#888'; c.font=(12*S)+'px Arial';
+      c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC  ·  Eina desenvolupada per Javi Miró', W-pad, y2);
+    }
+    if(restaura){ try{restaura();}catch(e){} restaura=null; }   // torna el mapa a com estava
     cv.toBlob(bl=>{
       const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
       a.download='situacio_meteo_'+(nom||'incendi').replace(/[^\w]+/g,'_')+'.png'; a.click();
       setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     },'image/png');
   }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
+  if(restaura){ try{restaura();}catch(e){} }           // si ha petat a mig camí, torna la vista igualment
+  try{ const el=$('map'); if(el && el.style.width){ el.style.width=''; el.style.height=''; el.style.right=''; el.style.bottom=''; map.invalidateSize({animate:false}); } }catch(e){}   // seguretat: mai deixar el mapa redimensionat
   btn.disabled=false; btn.textContent=old;
 }
 $('exportar').addEventListener('click',generarImatge);
