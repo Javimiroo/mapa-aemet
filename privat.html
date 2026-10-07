@@ -2145,12 +2145,14 @@ function especMapaUnic(){
   return {k:'var',v:selVar.value};
 }
 function dibuixaLogoBombers(c,x,y,h){
+  // Proporcions del logo oficial: la paraula fa ~7,25 quadrats d'amplada; 4 quadrats grans
+  // (costat ≈ amplada/7,25) alineats a baix, separats ~1,1 costats; gap text-quadrats ≈ 0,1 h.
   c.save(); c.fillStyle='#c00000'; c.textAlign='left'; c.textBaseline='top';
-  const fs=Math.round(h*0.66); c.font='900 '+fs+'px Arial, sans-serif';
+  const fs=Math.round(h*0.68); c.font='900 '+fs+'px Arial, sans-serif';
   c.fillText('bombers', x, y);
   const w=c.measureText('bombers').width;
-  const sq=h*0.2, gap=(w-4*sq)/3;
-  for(let i=0;i<4;i++) c.fillRect(x+i*(sq+gap), y+h*0.80, sq, sq);
+  const sq=w/7.25, gap=(w-4*sq)/3, sy=y+h-sq;
+  for(let i=0;i<4;i++) c.fillRect(x+i*(sq+gap), sy, sq, sq);
   c.restore(); return w;
 }
 // caixa compacta amb l'escala de vent (km/h) dibuixada damunt del mapa exportat
@@ -2257,7 +2259,8 @@ function descripcioFiltres(){
 // Si la vista actual és més oberta que Catalunya (molt mar/França), s'ajusta a Catalunya perquè no
 // sobre espai buit; si ja estàs fet zoom a una zona, es respecta la teua vista. El contenidor del
 // mapa es redimensiona TEMPORALMENT a l'aspecte del full i es restaura en acabar.
-const EXPORT_ASPECTE = 1240/(877-46);          // A4 apaïsat (1240x877 @1x) menys la franja del peu (46)
+const EXPORT_PEU = 30;                          // alçada @1x de la franja del peu (una línia menuda)
+const EXPORT_ASPECTE = 1240/(877-EXPORT_PEU);   // A4 apaïsat (1240x877 @1x) menys la franja del peu
 async function exportReframe(){
   const el=$('map'); if(!el||!map) return null;
   const c0=map.getCenter(), z0=map.getZoom();
@@ -2313,7 +2316,7 @@ async function generarImatge(){
     const S=2;
     const filtreTxt=descripcioFiltres();
     // Disseny: "mapa primer" (A4 apaïsat, mapa a tot el full, capçalera/llegenda dins) o clàssic (combinats)
-    const pad=mapaPrimer?0:22*S, gap=18*S, headerH=mapaPrimer?0:88*S, legH=mapaPrimer?0:66*S, footH=mapaPrimer?46*S:64*S;
+    const pad=mapaPrimer?0:22*S, gap=18*S, headerH=mapaPrimer?0:88*S, legH=mapaPrimer?0:66*S, footH=mapaPrimer?EXPORT_PEU*S:64*S;
     const filtreH=(filtreTxt&&!mapaPrimer)?30*S:0;
     const mapW=mapaPrimer?1240*S:(panes.length>1?680:940)*S;
     const mapH=Math.round(mapW*panes[0].canvas.height/panes[0].canvas.width);
@@ -2439,7 +2442,7 @@ async function generarImatge(){
       c.restore();                                     // fi del retall al requadre del mapa
       c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,mapY,mapW,mapH);
       const zOn=$('zonaOn')&&$('zonaOn').checked&&zonaData;
-      if(ventClickOn||zOn)                            // escala del vent damunt del mapa
+      if((ventClickOn||zOn) && !mapaPrimer)             // escala del vent damunt del mapa (en 'mapa primer' va sota la capçalera)
         dibuixaLlegendaVentBox(c, x+mapW-178*S, mapY+10*S, S, (zOn&&!ventClickOn)?'Vent WindNinja (km/h)':'Velocitat vent (km/h)');
       if(mapaPrimer){                                   // LLEGENDA DINS del mapa (caixa translúcida, baix-esquerra)
         const bw=640*S, bh=80*S, bx=x+14*S, by=mapY+mapH-14*S-bh;
@@ -2457,11 +2460,13 @@ async function generarImatge(){
       // CAPÇALERA DINS del mapa (dalt-esquerra, caixa translúcida): logo + títol + context
       const linies=[]; if(nom) linies.push({t:'Incendi de '+nom, col:'#b00000', f:'bold '+(15*S)+'px Arial'});
       if(filtreTxt) linies.push({t:'Filtre: '+filtreTxt, col:'#b00000', f:(12.5*S)+'px Arial'});
-      const hx=14*S, hy=mapY+14*S, logoH=30*S;
-      c.save(); c.font='bold '+(20*S)+'px Arial'; const tw=c.measureText('SITUACIÓ METEOROLÒGICA').width;
+      // la caixa va a la DRETA (sol ser mar) per no tapar terra
+      const logoH=30*S;
+      c.save(); c.font='900 '+Math.round(logoH*0.68)+'px Arial, sans-serif'; const logoW=c.measureText('bombers').width;
+      c.font='bold '+(20*S)+'px Arial'; const tw=c.measureText('SITUACIÓ METEOROLÒGICA').width;
       let maxw=tw; linies.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
-      const logoW=Math.round(logoH*0.66*4.3);   // amplada aprox. de "bombers" a eixa alçada
       const hw=logoW+22*S+maxw+24*S, hh=(linies.length?20*S:0)+linies.length*17*S+40*S;
+      const hx=pad+mapW-14*S-hw, hy=mapY+14*S;
       c.fillStyle='rgba(255,255,255,.92)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
       c.beginPath(); c.roundRect ? c.roundRect(hx,hy,hw,hh,8*S) : c.rect(hx,hy,hw,hh); c.fill(); c.stroke();
       const lw=dibuixaLogoBombers(c, hx+12*S, hy+8*S, logoH);
@@ -2469,11 +2474,15 @@ async function generarImatge(){
       c.fillStyle='#111'; c.textAlign='left'; c.textBaseline='top'; c.font='bold '+(20*S)+'px Arial'; c.fillText('SITUACIÓ METEOROLÒGICA', tx, ty); ty+=26*S;
       linies.forEach(l=>{ c.fillStyle=l.col; c.font=l.f; c.fillText(l.t, tx, ty); ty+=17*S; });
       c.restore();
-      // PEU fi (fora del mapa): hores de dades · generat · fonts · autoria
+      const zOn2=$('zonaOn')&&$('zonaOn').checked&&zonaData;
+      if(ventClickOn||zOn2)                              // escala del vent just sota la capçalera
+        dibuixaLlegendaVentBox(c, pad+mapW-14*S-170*S, hy+hh+10*S, S, (zOn2&&!ventClickOn)?'Vent WindNinja (km/h)':'Velocitat vent (km/h)');
+      // PEU fi (fora del mapa), tot en una línia menuda i grisa: hores de dades · generat · fonts · autoria
       const fy=mapY+mapH+footH/2;
-      c.textBaseline='middle'; c.textAlign='left'; c.fillStyle='#222'; c.font=(13*S)+'px Arial';
+      c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial';
+      c.textAlign='left';
       c.fillText('Dades actualitzades — AEMET: '+fmtD(ultimaObs('AEMET'))+'  ·  Meteocat: '+fmtD(ultimaObs('Meteocat'))+'  (hora local)   ·   Informe generat: '+fmtD(new Date()), 14*S, fy);
-      c.textAlign='right'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial';
+      c.textAlign='right';
       c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC   ·   Eina desenvolupada per Javi Miró', W-14*S, fy);
     } else {
       const y1=H-pad-34*S, y2=H-pad-10*S;
