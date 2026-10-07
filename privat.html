@@ -1117,10 +1117,11 @@ let perimLL=[], perim=null, perim2=null, dibuixantPerim=false;
 // Al fons "Blanc" són obligatoris; a la resta es poden desactivar amb la casella "Límits".
 let comarcaGeo=null, catGeo=null, comarcaLoad=null, comarcaLayer=null, comarcaLayer2=null;
 let limitsOn=true;                                                                          // casella "Límits" (fons no blanc)
-const COMARCA_STYLE={color:'#9aa3b2',weight:0.7,opacity:0.8,fill:false,interactive:false};   // línies de comarca fines
+// Comarques: MATEIX gris fosc que el perfil de Catalunya però més fines (0,5); el perfil es manté a 1,6.
+const COMARCA_STYLE={color:'#374151',weight:0.5,opacity:0.9,fill:false,interactive:false};   // línies de comarca fines
 const CAT_STYLE={color:'#374151',weight:1.6,opacity:0.95,fill:false,interactive:false};      // perfil de Catalunya
 // Mateix GRUIX a tots els fons; només canvia el color perquè es vegen sobre fons foscos / satèl·lit.
-const COMARCA_STYLE_FOSC={color:'rgba(255,255,255,.80)',weight:0.7,opacity:0.8,fill:false,interactive:false};
+const COMARCA_STYLE_FOSC={color:'rgba(255,255,255,.85)',weight:0.5,opacity:0.9,fill:false,interactive:false};
 const CAT_STYLE_FOSC={color:'rgba(255,255,255,.98)',weight:1.6,opacity:0.95,fill:false,interactive:false};
 let fonsKey='icgc';                                                                         // fons actiu (el fixa setBase)
 function fonsActual(){ return fonsKey; }
@@ -1131,7 +1132,7 @@ function limitsVisibles(){ return fonsActual()==='blanc' || limitsOn; }         
 // (x0,y0) = cantonada del mapa al canvas; sx,sy = escala píxels-canvas / píxels-pantalla; S = factor d'escala.
 function dibuixaLimitsCanvas(c, m, x0, y0, sx, sy, S, key){
   const [stC,stP]=estilsLimits(key);
-  const drawGeo=(geo,st)=>{ if(!geo||!geo.features) return; c.save(); c.strokeStyle=st.color; c.lineWidth=Math.max(0.6,st.weight)*S; c.globalAlpha=st.opacity==null?1:st.opacity; c.lineJoin='round'; c.lineCap='round';
+  const drawGeo=(geo,st)=>{ if(!geo||!geo.features) return; c.save(); c.strokeStyle=st.color; c.lineWidth=Math.max(0.4,st.weight)*S; c.globalAlpha=st.opacity==null?1:st.opacity; c.lineJoin='round'; c.lineCap='round';
     geo.features.forEach(f=>{ const gg=f.geometry; if(!gg) return; const polys=gg.type==='MultiPolygon'?gg.coordinates:(gg.type==='Polygon'?[gg.coordinates]:[]);
       polys.forEach(rings=>rings.forEach(ring=>{ c.beginPath(); ring.forEach((pt,k)=>{ const q=m.latLngToContainerPoint([pt[1],pt[0]]); const X=x0+q.x*sx, Y=y0+q.y*sy; k?c.lineTo(X,Y):c.moveTo(X,Y); }); c.stroke(); })); });
     c.restore(); };
