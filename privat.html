@@ -2308,25 +2308,36 @@ function descripcioFiltres(){
 // mapa es redimensiona TEMPORALMENT a l'aspecte del full i es restaura en acabar.
 const EXPORT_PEU = 30;                          // alçada @1x de la franja del peu (una línia menuda)
 const EXPORT_ASPECTE = 1240/(877-EXPORT_PEU);   // A4 apaïsat (1240x877 @1x) menys la franja del peu
+// Mapes COMBINATS: els dos mapes es redimensionen a la MEITAT del full cadascun (mateix aspecte), un al
+// costat de l'altre, i es reenquadren igual (estan sincronitzats).
+const EXPORT_GAP_COMBO = 6;                     // separació @1x entre els dos mapes al full
 async function exportReframe(){
   const el=$('map'); if(!el||!map) return null;
+  const combo=!!(comboActive && map2 && $('map2'));
+  const el2=combo?$('map2'):null;
   const c0=map.getCenter(), z0=map.getZoom();
   const st0={w:el.style.width,h:el.style.height,r:el.style.right,b:el.style.bottom};
+  const st2=el2?{w:el2.style.width,h:el2.style.height,l:el2.style.left,r:el2.style.right,t:el2.style.top,b:el2.style.bottom}:null;
   const cw=el.clientWidth, ch=el.clientHeight;
-  const tW=Math.min(cw, Math.round(ch*EXPORT_ASPECTE)), tH=Math.round(tW/EXPORT_ASPECTE);
+  const asp=combo?((1240-EXPORT_GAP_COMBO)/2)/(877-EXPORT_PEU):EXPORT_ASPECTE;   // mig full (vertical) o full sencer
+  const tW=Math.min(cw, Math.round(ch*asp)), tH=Math.round(tW/asp);
   el.style.right='auto'; el.style.bottom='auto'; el.style.width=tW+'px'; el.style.height=tH+'px';
-  map.invalidateSize({animate:false});
+  if(el2){ el2.style.right='auto'; el2.style.bottom='auto'; el2.style.top='0'; el2.style.left=(tW+2)+'px'; el2.style.width=tW+'px'; el2.style.height=tH+'px'; }
+  map.invalidateSize({animate:false}); if(el2) map2.invalidateSize({animate:false});
   let catB=null;
   try{ if(typeof catGeo!=='undefined' && catGeo) catB=L.geoJSON(catGeo).getBounds(); }catch(e){}
   if(!catB) catB=L.latLngBounds([40.50,0.15],[42.90,3.35]);
   if(map.getBounds().contains(catB)) map.fitBounds(catB,{padding:[6,6],animate:false});
   else map.setView(c0,z0,{animate:false});
+  if(el2) map2.setView(map.getCenter(),map.getZoom(),{animate:false});
   // espera que carreguen les tessel·les del fons (o 1,4 s com a màxim)
   await new Promise(res=>{ let done=false; const fi=()=>{ if(!done){done=true;res();} };
     try{ if(baseLayer) baseLayer.once('load',fi); }catch(e){} setTimeout(fi,1400); });
   await new Promise(r=>setTimeout(r,200));
   return ()=>{ el.style.width=st0.w; el.style.height=st0.h; el.style.right=st0.r; el.style.bottom=st0.b;
-    map.invalidateSize({animate:false}); map.setView(c0,z0,{animate:false}); };
+    if(el2){ el2.style.width=st2.w; el2.style.height=st2.h; el2.style.left=st2.l; el2.style.right=st2.r; el2.style.top=st2.t; el2.style.bottom=st2.b; }
+    map.invalidateSize({animate:false}); map.setView(c0,z0,{animate:false});
+    if(el2){ map2.invalidateSize({animate:false}); map2.setView(c0,z0,{animate:false}); } };
 }
 async function generarImatge(){
   if(!DATA){ alert('Espera que carreguen les dades.'); return; }
@@ -2352,7 +2363,7 @@ async function generarImatge(){
     const esBlanc = limitsVisibles();
     const esPluja = (selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
     const discsApart = (esBlanc || esPluja);   // capturem els discos a part per posar-los SEMPRE a dalt
-    const mapaPrimer = !comboActive;           // mapa únic: el mapa omple el full A4; capçalera i llegenda DINS
+    const mapaPrimer = true;                   // disseny "mapa primer" per a mapa únic I combinats: el(s) mapa(es) omplen el full A4; capçalera i llegendes DINS
     if(mapaPrimer){ try{ restaura=await exportReframe(); }catch(e){ restaura=null; } }
     const opts={useCORS:true, backgroundColor:'#e8e8e8', scale:2, logging:false,
       ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||(mapaPrimer&&el.classList.contains('leaflet-control-attribution'))||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane'))||(discsApart&&el.classList.contains('leaflet-marker-pane')))};
@@ -2367,9 +2378,10 @@ async function generarImatge(){
     const S=2;
     const filtreTxt=descripcioFiltres();
     // Disseny: "mapa primer" (A4 apaïsat, mapa a tot el full, capçalera/llegenda dins) o clàssic (combinats)
-    const pad=mapaPrimer?0:22*S, gap=18*S, headerH=mapaPrimer?0:88*S, legH=mapaPrimer?0:66*S, footH=mapaPrimer?EXPORT_PEU*S:64*S;
+    const pad=mapaPrimer?0:22*S, gap=mapaPrimer?EXPORT_GAP_COMBO*S:18*S, headerH=mapaPrimer?0:88*S, legH=mapaPrimer?0:66*S, footH=mapaPrimer?EXPORT_PEU*S:64*S;
     const filtreH=(filtreTxt&&!mapaPrimer)?30*S:0;
-    const mapW=mapaPrimer?1240*S:(panes.length>1?680:940)*S;
+    // mapa únic: tot l'ample del full; combinats: mig full cadascun (separats per 'gap')
+    const mapW=mapaPrimer?(panes.length>1?Math.floor((1240*S-gap)/2):1240*S):(panes.length>1?680:940)*S;
     const mapH=Math.round(mapW*panes[0].canvas.height/panes[0].canvas.width);
     const W=panes.length*mapW+(panes.length-1)*gap+2*pad;
     const H=headerH+filtreH+mapH+legH+footH+2*pad;
@@ -2492,7 +2504,7 @@ async function generarImatge(){
       if((ventClickOn||zOn) && !mapaPrimer)             // escala del vent damunt del mapa (en 'mapa primer' va sota la capçalera)
         dibuixaLlegendaVentBox(c, x+mapW-178*S, mapY+10*S, S, (zOn&&!ventClickOn)?'Vent WindNinja (km/h)':'Velocitat vent (km/h)');
       if(mapaPrimer){                                   // LLEGENDA DINS del mapa (caixa translúcida, baix-DRETA, requadre just)
-        const bw=500*S, bh=76*S, bx=x+mapW-14*S-bw, by=mapY+mapH-14*S-bh;
+        const bw=Math.min(500*S, mapW-28*S), bh=76*S, bx=x+mapW-14*S-bw, by=mapY+mapH-14*S-bh;   // als combinats s'ajusta a mig full
         c.save(); c.fillStyle='rgba(255,255,255,.92)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
         c.beginPath(); c.roundRect ? c.roundRect(bx,by,bw,bh,8*S) : c.rect(bx,by,bw,bh); c.fill(); c.stroke(); c.restore();
         dibuixaLlegendaExport(c, p.spec, bx+6*S, by+6*S, bw-12*S, S, 0.94);
@@ -2517,7 +2529,7 @@ async function generarImatge(){
       if(nom) L.push({t:nom.toUpperCase(), f:'bold '+(15*S)+'px Arial', col:'#b00000', h:19*S});
       if(filtreTxt) L.push({t:'Filtre: '+filtreTxt, f:(12*S)+'px Arial', col:'#b00000', h:16*S});
       let maxw=0; L.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
-      const lbw=logoW+20*S, lbh=logoH+16*S, lbx=pad+mapW-14*S-lbw, lby=top;          // LOGO a l'extrem dret
+      const lbw=logoW+20*S, lbh=logoH+16*S, lbx=W-14*S-lbw, lby=top;                 // LOGO a l'extrem dret del FULL (al 2n mapa si són combinats)
       const tbw=maxw+28*S, tbh=L.reduce((acc,l)=>acc+l.h,0)+14*S, tbx=pad+14*S, tby=top;     // TÍTOL a l'EXTREM ESQUERRE del full (simètric al logo)
       c.fillStyle='rgba(255,255,255,.94)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
       c.beginPath(); c.roundRect ? c.roundRect(lbx,lby,lbw,lbh,8*S) : c.rect(lbx,lby,lbw,lbh); c.fill(); c.stroke();
@@ -2530,7 +2542,7 @@ async function generarImatge(){
       c.restore();
       const zOn2=$('zonaOn')&&$('zonaOn').checked&&zonaData;
       if(ventClickOn||zOn2)                              // escala del vent just sota les caixes de dalt
-        dibuixaLlegendaVentBox(c, pad+mapW-14*S-170*S, top+Math.max(lbh,tbh)+10*S, S, (zOn2&&!ventClickOn)?'Vent WindNinja (km/h)':'Velocitat vent (km/h)');
+        dibuixaLlegendaVentBox(c, W-14*S-170*S, top+Math.max(lbh,tbh)+10*S, S, (zOn2&&!ventClickOn)?'Vent WindNinja (km/h)':'Velocitat vent (km/h)');
       // PEU fi (fora del mapa), tot en una línia menuda i grisa: hores de dades · generat · fonts · autoria
       const fy=mapY+mapH+footH/2;
       c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial';
@@ -2556,6 +2568,7 @@ async function generarImatge(){
   }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
   if(restaura){ try{restaura();}catch(e){} }           // si ha petat a mig camí, torna la vista igualment
   try{ const el=$('map'); if(el && el.style.width){ el.style.width=''; el.style.height=''; el.style.right=''; el.style.bottom=''; map.invalidateSize({animate:false}); } }catch(e){}   // seguretat: mai deixar el mapa redimensionat
+  try{ const el2=$('map2'); if(el2 && map2 && el2.style.width){ el2.style.width=''; el2.style.height=''; el2.style.left=''; el2.style.right=''; el2.style.top=''; el2.style.bottom=''; map2.invalidateSize({animate:false}); } }catch(e){}
   btn.disabled=false; btn.textContent=old;
 }
 $('exportar').addEventListener('click',generarImatge);
