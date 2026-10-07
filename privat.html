@@ -772,6 +772,7 @@
             <option value="dark">Fosc</option>
             <option value="light">Clar</option>
             <option value="streets">Carrers (OSM)</option>
+            <option value="blanc">Blanc + comarques</option>
           </select>
         </div>
         <!-- llegenda del WindNinja: DINS del mapa, sota el selector de fons -->
@@ -1110,10 +1111,32 @@ let flame=null, flame2=null, flameLL=null;
 let focActualId=null, focActualPerims=[], focActualRuns=[];   // incendi carregat/en edició
 function tempsEfectiu(){ return (typeof timeT!=='undefined'&&timeT!=null)?timeT:Date.now(); }
 let perimLL=[], perim=null, perim2=null, dibuixantPerim=false;
-// ---- Fons "Blanc + comarques" (estil Meteocat): límits comarcals sobre blanc ----
+// ---- LÍMITS (comarques + perfil de Catalunya) sobre QUALSEVOL fons ----
+// Ordre vertical (de dalt a baix): etiquetes/discos (markerPane 600) > LÍMITS (comarquesPane 450)
+// > pluja/radar/vent/HARMONIE (overlayPane 400) > tessel·les del fons (tilePane 200).
+// Al fons "Blanc" són obligatoris; a la resta es poden desactivar amb la casella "Límits".
 let comarcaGeo=null, catGeo=null, comarcaLoad=null, comarcaLayer=null, comarcaLayer2=null;
+let limitsOn=true;                                                                          // casella "Límits" (fons no blanc)
 const COMARCA_STYLE={color:'#9aa3b2',weight:0.7,opacity:0.8,fill:false,interactive:false};   // línies de comarca fines
 const CAT_STYLE={color:'#374151',weight:1.6,opacity:0.95,fill:false,interactive:false};      // perfil de Catalunya
+// Mateix GRUIX a tots els fons; només canvia el color perquè es vegen sobre fons foscos / satèl·lit.
+const COMARCA_STYLE_FOSC={color:'rgba(255,255,255,.80)',weight:0.7,opacity:0.8,fill:false,interactive:false};
+const CAT_STYLE_FOSC={color:'rgba(255,255,255,.98)',weight:1.6,opacity:0.95,fill:false,interactive:false};
+let fonsKey='icgc';                                                                         // fons actiu (el fixa setBase)
+function fonsActual(){ return fonsKey; }
+function fonsEsFosc(key){ return key==='dark'||key==='satellite'; }
+function estilsLimits(key){ return fonsEsFosc(key)?[COMARCA_STYLE_FOSC,CAT_STYLE_FOSC]:[COMARCA_STYLE,CAT_STYLE]; }
+function limitsVisibles(){ return fonsActual()==='blanc' || limitsOn; }                   // al blanc sempre
+// Dibuixa comarques + perfil en un canvas d'EXPORTACIÓ per projecció del mapa 'm' (alineat amb dades i discos).
+// (x0,y0) = cantonada del mapa al canvas; sx,sy = escala píxels-canvas / píxels-pantalla; S = factor d'escala.
+function dibuixaLimitsCanvas(c, m, x0, y0, sx, sy, S, key){
+  const [stC,stP]=estilsLimits(key);
+  const drawGeo=(geo,st)=>{ if(!geo||!geo.features) return; c.save(); c.strokeStyle=st.color; c.lineWidth=Math.max(0.6,st.weight)*S; c.globalAlpha=st.opacity==null?1:st.opacity; c.lineJoin='round'; c.lineCap='round';
+    geo.features.forEach(f=>{ const gg=f.geometry; if(!gg) return; const polys=gg.type==='MultiPolygon'?gg.coordinates:(gg.type==='Polygon'?[gg.coordinates]:[]);
+      polys.forEach(rings=>rings.forEach(ring=>{ c.beginPath(); ring.forEach((pt,k)=>{ const q=m.latLngToContainerPoint([pt[1],pt[0]]); const X=x0+q.x*sx, Y=y0+q.y*sy; k?c.lineTo(X,Y):c.moveTo(X,Y); }); c.stroke(); })); });
+    c.restore(); };
+  drawGeo(comarcaGeo, stC); drawGeo(catGeo, stP);
+}
 function carregaComarques(){
   if(comarcaGeo && catGeo) return Promise.resolve(true);
   if(!comarcaLoad) comarcaLoad=Promise.all([
@@ -1122,33 +1145,46 @@ function carregaComarques(){
   ]).then(()=>true);
   return comarcaLoad;
 }
-function mostraComarques(m,which){
-  if(!m.getPane('comarquesPane')){ m.createPane('comarquesPane'); m.getPane('comarquesPane').style.zIndex=250; }
-  carregaComarques().then(()=>{
+// Crea (si cal) el panell dels límits en un mapa qualsevol i hi afegeix comarques + perfil amb l'estil del fons.
+// Torna una promesa amb el layerGroup. S'usa al mapa general, al combinat (map2) i al mapa del tauler d'incendi.
+function creaCapaLimits(m,key){
+  if(!m.getPane('comarquesPane')){ m.createPane('comarquesPane'); m.getPane('comarquesPane').style.zIndex=450; m.getPane('comarquesPane').style.pointerEvents='none'; }
+  return carregaComarques().then(()=>{
+    const [stC,stP]=estilsLimits(key);
     const grp=L.layerGroup([],{pane:'comarquesPane'});
-    if(comarcaGeo) L.geoJSON(comarcaGeo,{pane:'comarquesPane',style:()=>COMARCA_STYLE}).addTo(grp);
-    if(catGeo)     L.geoJSON(catGeo,{pane:'comarquesPane',style:()=>CAT_STYLE}).addTo(grp);   // perfil per damunt
-    if(which===2){ if(comarcaLayer2)m.removeLayer(comarcaLayer2); comarcaLayer2=grp; } else { if(comarcaLayer)m.removeLayer(comarcaLayer); comarcaLayer=grp; }
+    if(comarcaGeo) L.geoJSON(comarcaGeo,{pane:'comarquesPane',style:()=>stC}).addTo(grp);
+    if(catGeo)     L.geoJSON(catGeo,{pane:'comarquesPane',style:()=>stP}).addTo(grp);   // perfil per damunt
     grp.addTo(m);
+    return grp;
+  });
+}
+function mostraComarques(m,which){
+  const key=fonsActual();
+  creaCapaLimits(m,key).then(grp=>{
+    if(which===2){ if(comarcaLayer2)m.removeLayer(comarcaLayer2); comarcaLayer2=grp; } else { if(comarcaLayer)m.removeLayer(comarcaLayer); comarcaLayer=grp; }
   });
 }
 function llevaComarques(){ if(comarcaLayer){map.removeLayer(comarcaLayer);comarcaLayer=null;} if(map2&&comarcaLayer2){map2.removeLayer(comarcaLayer2);comarcaLayer2=null;} }
+// Aplica l'estat dels límits (casella + fons) als mapes general/combinat.
+function aplicaLimits(){
+  if(limitsVisibles()){ mostraComarques(map,1); if(map2) mostraComarques(map2,2); } else llevaComarques();
+  const chk=document.getElementById('limitsChk'); if(chk){ chk.checked=limitsVisibles(); chk.disabled=(fonsActual()==='blanc'); chk.title=chk.disabled?'Al fons blanc els límits són sempre visibles':'Comarques i perfil de Catalunya'; }
+}
 function setBase(key){
-  const b=BASEMAPS[key]||BASEMAPS.dark;
+  const b=BASEMAPS[key]||BASEMAPS.dark; fonsKey=BASEMAPS[key]?key:'dark';
   const opt=Object.assign({crossOrigin:true}, b.o);
   if(baseLayer){map.removeLayer(baseLayer);baseLayer=null;}
   if(map2&&baseLayer2){map2.removeLayer(baseLayer2);baseLayer2=null;}
   if(b.blanc){
     map.getContainer().style.background='#ffffff';
     if(map2) map2.getContainer().style.background='#ffffff';
-    mostraComarques(map,1); if(map2) mostraComarques(map2,2);
   }else{
     map.getContainer().style.background='';
     if(map2) map2.getContainer().style.background='';
-    llevaComarques();
     baseLayer=L.tileLayer(b.u,opt).addTo(map); baseLayer.bringToBack();
     if(map2){ baseLayer2=L.tileLayer(b.u,opt).addTo(map2); baseLayer2.bringToBack(); }
   }
+  aplicaLimits();                                   // límits sobre qualsevol fons (sempre al blanc)
 }
 setBase('icgc');
 
@@ -1839,8 +1875,9 @@ function ensureMap2(){
   if(map2)return;
   map2=L.map('map2',{zoomControl:true,zoomSnap:0.25,zoomDelta:0.5,wheelPxPerZoomLevel:140}).setView(map.getCenter(),map.getZoom());
   const b=BASEMAPS[$('basemap').value]||BASEMAPS.dark;
-  if(b.blanc){ map2.getContainer().style.background='#ffffff'; mostraComarques(map2,2); }
+  if(b.blanc){ map2.getContainer().style.background='#ffffff'; }
   else { baseLayer2=L.tileLayer(b.u,Object.assign({crossOrigin:true},b.o)).addTo(map2); baseLayer2.bringToBack(); }
+  if(limitsVisibles()) mostraComarques(map2,2);                  // límits també al segon mapa
   syncMaps(map,map2); syncMaps(map2,map);
 }
 function renderCombinat(){
@@ -2308,9 +2345,10 @@ async function generarImatge(){
     const panes = comboActive
       ? [{el:$('map'),mapObj:map,spec:specWithThr(comboActive.a)},{el:$('map2'),mapObj:map2,spec:specWithThr(comboActive.b)}]
       : [{el:$('map'),mapObj:map,spec:especMapaUnic()}];
-    // Fons "Blanc + comarques": html2canvas desplaça el SVG de comarques a zoom fraccionari,
-    // així que l'IGNOREM a la captura i el dibuixem per PROJECCIÓ (alineat amb dades i discos).
-    const esBlanc = ($('basemap') && $('basemap').value==='blanc');
+    // LÍMITS (comarques + perfil): html2canvas desplaça el SVG a zoom fraccionari, així que
+    // l'IGNOREM a la captura i el dibuixem per PROJECCIÓ, amb este ordre: discos/etiquetes >
+    // límits > pluja/radar/vent > fons (igual que a pantalla), siga quin siga el fons.
+    const esBlanc = limitsVisibles();
     const esPluja = (selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked);
     const discsApart = (esBlanc || esPluja);   // capturem els discos a part per posar-los SEMPRE a dalt
     const mapaPrimer = !comboActive;           // mapa únic: el mapa omple el full A4; capçalera i llegenda DINS
@@ -2350,16 +2388,6 @@ async function generarImatge(){
     for(const p of panes){
       c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();   // RES es pot pintar fora del requadre del mapa
       c.drawImage(p.canvas,0,0,p.canvas.width,p.canvas.height, x,mapY,mapW,mapH);
-      // COMARQUES + perfil de Catalunya per PROJECCIÓ (per a TOTES les variables quan el fons és
-      // Blanc+comarques): queden alineades amb dades i discos (el SVG l'hem ignorat a la captura).
-      if(esBlanc && (comarcaGeo||catGeo) && p.mapObj){
-        const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
-        const drawGeo=(geo,st)=>{ if(!geo||!geo.features) return; c.save(); c.strokeStyle=st.color; c.lineWidth=Math.max(0.6,st.weight)*S; c.globalAlpha=st.opacity==null?1:st.opacity; c.lineJoin='round'; c.lineCap='round';
-          geo.features.forEach(f=>{ const gg=f.geometry; if(!gg) return; const polys=gg.type==='MultiPolygon'?gg.coordinates:(gg.type==='Polygon'?[gg.coordinates]:[]);
-            polys.forEach(rings=>rings.forEach(ring=>{ c.beginPath(); ring.forEach((pt,k)=>{ const q=p.mapObj.latLngToContainerPoint([pt[1],pt[0]]); const X=x+q.x*sxp, Y=mapY+q.y*syp; k?c.lineTo(X,Y):c.moveTo(X,Y); }); c.stroke(); })); });
-          c.restore(); };
-        drawGeo(comarcaGeo, COMARCA_STYLE); drawGeo(catGeo, CAT_STYLE);
-      }
       // SUPERFÍCIE QPE dibuixada a mà per projecció (render suau), mateixa que a pantalla.
       // Cantonades amb mitja cel·la perquè els centres de cel·la caiguen al seu punt exacte.
       if(selVar.value==='pacum' && $('pacumSurf') && $('pacumSurf').checked && p.mapObj){
@@ -2441,6 +2469,12 @@ async function generarImatge(){
           c.closePath();c.fill();
         }
         c.shadowColor='transparent';c.shadowBlur=0;c.shadowOffsetX=0;c.shadowOffsetY=0;
+      }
+      // LÍMITS (comarques + perfil de Catalunya) per PROJECCIÓ: per DAMUNT de pluja/radar/vent i per
+      // DAVALL del perímetre i dels discos (el SVG l'hem ignorat a la captura). Mateix gruix que a pantalla.
+      if(esBlanc && (comarcaGeo||catGeo) && p.mapObj){
+        const el=p.el, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
+        dibuixaLimitsCanvas(c, p.mapObj, x, mapY, sxp, syp, S, fonsActual());
       }
       if(perimLL.length>=2 && p.mapObj){
         const el=p.el, sx=mapW/el.clientWidth, sy=mapH/el.clientHeight;
@@ -4839,7 +4873,7 @@ async function prevExporta(){
   await pexInit(); const p=HARM.payload; if(!p){ alert('Primer carrega la previsió (activa el model o prem «⌖ Centre»).'); return; }
   const btn=$('pexExport'), old=btn?btn.textContent:''; if(btn){btn.disabled=true;btn.textContent='Generant…';}
   try{
-    const esBlanc=($('basemap')&&$('basemap').value==='blanc');
+    const esBlanc=limitsVisibles();          // límits (comarques + perfil) per projecció, sobre qualsevol fons
     const opts={useCORS:true,backgroundColor:'#e8e8e8',scale:2,logging:false,
       ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane')))};
     const shot=await html2canvas($('map'),opts);
@@ -4860,13 +4894,6 @@ async function prevExporta(){
     c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();
     c.drawImage(shot,0,0,shot.width,shot.height,x,mapY,mapW,mapH);
     const el=$('map'), sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
-    if(esBlanc && (typeof comarcaGeo!=='undefined') && (comarcaGeo||catGeo)){
-      const drawGeo=(geo,st)=>{ if(!geo||!geo.features)return; c.save(); c.strokeStyle=st.color; c.lineWidth=Math.max(0.6,st.weight)*S; c.globalAlpha=st.opacity==null?1:st.opacity; c.lineJoin='round';
-        geo.features.forEach(f=>{const gg=f.geometry; if(!gg)return; const polys=gg.type==='MultiPolygon'?gg.coordinates:(gg.type==='Polygon'?[gg.coordinates]:[]);
-          polys.forEach(rings=>rings.forEach(ring=>{c.beginPath(); ring.forEach((pt,k)=>{const q=map.latLngToContainerPoint([pt[1],pt[0]]),X=x+q.x*sxp,Y=mapY+q.y*syp; k?c.lineTo(X,Y):c.moveTo(X,Y);}); c.stroke();}));});
-        c.restore(); };
-      drawGeo(comarcaGeo,COMARCA_STYLE); drawGeo(catGeo,CAT_STYLE);
-    }
     if(HARM.varK!=='cap'){ const f=p.fields[HARM.varK]; if(f&&f.arr){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
       const off=document.createElement('canvas'); off.width=nx; off.height=ny; const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
       for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){ const v=base+f.arr[((h*ny)+j)*nx+i]*sc, q=(j*nx+i)*4; if(!mm.alwaysDraw&&v<thr){d[q+3]=0;continue;} const cc=harColor(HARM.varK,v); d[q]=cc[0];d[q+1]=cc[1];d[q+2]=cc[2];d[q+3]=255; }
@@ -4878,6 +4905,8 @@ async function prevExporta(){
       const q0=map.latLngToContainerPoint([B[3],B[0]]),q1=map.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]),cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y))*sxp,step=Math.max(1,Math.round(42/cellpx));
       for(let j=(step>>1);j<ny;j+=step)for(let i=(step>>1);i<nx;i+=step){ const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue; const deg=((bd*fd.scale)+180)%360,spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;
         const lat=B[3]-(j+0.5)*dlat,lon=B[0]+(i+0.5)*dlon,pt=map.latLngToContainerPoint([lat,lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X<x||Y<mapY||X>x+mapW||Y>mapY+mapH)continue; harDrawArrow(c,X,Y,deg,spd); } } }
+    // límits per DAMUNT de la superfície/fletxes del model i per DAVALL del punt marcat
+    if(esBlanc && (comarcaGeo||catGeo)) dibuixaLimitsCanvas(c, map, x, mapY, sxp, syp, S, fonsActual());
     if(PEX.lat!=null){ const pt=map.latLngToContainerPoint([PEX.lat,PEX.lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X>=x&&Y>=mapY&&X<=x+mapW&&Y<=mapY+mapH){ c.save(); c.fillStyle='#111'; c.strokeStyle='#fff'; c.lineWidth=2.4*S; c.beginPath(); c.arc(X,Y,6*S,0,7); c.fill(); c.stroke(); c.restore(); } }
     c.restore();
     c.strokeStyle='#cbd5e1'; c.lineWidth=1*S; c.strokeRect(x,mapY,mapW,mapH);
@@ -5069,9 +5098,22 @@ async function focComposaMapa(S){
   if(FD.perimLayer) FD.perimLayer.redraw();
   if(FD.annotLayer) FD.annotLayer.redraw();
   await new Promise(r=>setTimeout(r,220));                 // deixa assentar tessel·les i capes
-  const base=await html2canvas(el,{useCORS:true, backgroundColor:'#0b1220', scale:S, logging:false,
-    ignoreElements:x=>x.classList&&x.classList.contains('leaflet-control-container')});
+  // Límits (comarques + perfil): el SVG es desplaça a zoom fraccionari amb html2canvas, així que
+  // s'ignoren a la captura i es dibuixen per PROJECCIÓ; els discos/etiquetes (markerPane) es
+  // capturen a part i es posen els ÚLTIMS. Ordre final: etiquetes > límits > capes > fons.
+  const ambLimits=!!(FD.limitsLayer && (comarcaGeo||catGeo));
+  const base=await html2canvas(el,{useCORS:true, backgroundColor:(FD.fonsKey==='blanc'?'#ffffff':'#0b1220'), scale:S, logging:false,
+    ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-control-container')||x.classList.contains('leaflet-comarques-pane')||(ambLimits&&x.classList.contains('leaflet-marker-pane')))});
   const c=base.getContext('2d');
+  if(ambLimits){
+    dibuixaLimitsCanvas(c, FD.map, 0, 0, base.width/el.clientWidth, base.height/el.clientHeight, S, FD.fonsKey||'satellite');
+    try{
+      const mk=await html2canvas(el,{useCORS:true, backgroundColor:null, scale:S, logging:false,
+        ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-control-container')||x.classList.contains('leaflet-overlay-pane')||x.classList.contains('leaflet-tile-pane')||x.classList.contains('leaflet-comarques-pane')),
+        onclone:dc=>{ dc.querySelectorAll('.leaflet-container,.leaflet-pane,.leaflet-tile-container').forEach(e=>{e.style.background='transparent';}); }});
+      c.drawImage(mk,0,0);
+    }catch(e){}
+  }
   if(FD.runData && $('focVentOn').checked) dibuixaLlegendaVentBox(c, 12*S, base.height-58*S, S, 'Vent WindNinja (km/h)');
   return base;
 }
@@ -5473,7 +5515,12 @@ function focSetBase(key){
   if(!FD||!FD.map)return;
   const b=BASEMAPS[key]||BASEMAPS.satellite, opt=Object.assign({crossOrigin:true},b.o);
   if(FD.baseLayer){ try{FD.map.removeLayer(FD.baseLayer);}catch(e){} }
-  FD.baseLayer=L.tileLayer(b.u,opt).addTo(FD.map); FD.baseLayer.bringToBack();
+  if(b.blanc){ FD.map.getContainer().style.background='#ffffff'; FD.baseLayer=null; }
+  else { FD.map.getContainer().style.background=''; FD.baseLayer=L.tileLayer(b.u,opt).addTo(FD.map); FD.baseLayer.bringToBack(); }
+  // límits (comarques + perfil) també al mapa de l'incendi, amb el color adaptat al fons
+  FD.fonsKey=BASEMAPS[key]?key:'satellite';
+  const m=FD.map; if(FD.limitsLayer){ try{m.removeLayer(FD.limitsLayer);}catch(e){} FD.limitsLayer=null; }
+  creaCapaLimits(m,FD.fonsKey).then(grp=>{ if(FD&&FD.map===m){ if(FD.limitsLayer){ try{m.removeLayer(FD.limitsLayer);}catch(e){} } FD.limitsLayer=grp; } else { try{m.removeLayer(grp);}catch(e){} } });
 }
 let focFullOn=false;
 function focFullAplica(on){
@@ -5560,6 +5607,11 @@ async function desaCorreguda(){
   if(expWrap) expWrap.style.display='none';                 // amaga el bloc buit (només queda el text d'ajuda)
   const basemap=document.getElementById('basemap');
   if(basemap){ const l=document.createElement('span'); l.className='muted'; l.textContent='Fons'; l.style.cssText='font-size:11px;margin-right:6px'; fFons.appendChild(l); fFons.appendChild(basemap); }
+  // casella "Límits" (comarques + perfil de Catalunya) sobre qualsevol fons; al blanc va fixa
+  { const lab=document.createElement('label'); lab.style.cssText='display:flex;align-items:center;gap:4px;font-size:11px;margin-left:8px;cursor:pointer;white-space:nowrap';
+    const chk=document.createElement('input'); chk.type='checkbox'; chk.id='limitsChk'; chk.checked=true;
+    chk.addEventListener('change',()=>{ limitsOn=chk.checked; aplicaLimits(); });
+    lab.appendChild(chk); lab.appendChild(document.createTextNode('Límits')); fFons.appendChild(lab); aplicaLimits(); }
 
   // 2) COMPRIMEIX Radar / Camp de vents / Llamps (afegint el plegat als que no en tenien)
   ['Camp de vents','Llamps'].forEach(t=>{ const c=card(t); if(c){ c.classList.add('coll','collapsed'); const h=c.querySelector('h2'); if(h) h.addEventListener('click',()=>c.classList.toggle('collapsed')); } });
