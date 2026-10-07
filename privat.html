@@ -4929,17 +4929,24 @@ function pexCalcAcc(){ const s=PEX._s; if(!s)return; const a=+$('pexAccA').value
 // llegenda de color de la variable del model per a l'export
 function prevDibuixaLlegenda(c,x,y,w,S){
   const meta=HARV[HARM.varK]; c.textAlign='left'; c.textBaseline='top';
-  if(!meta||HARM.varK==='cap'){ c.fillStyle='#334155'; c.font=(15*S)+'px Arial'; c.fillText('Només fletxes de vent (sense superfície de variable).',x,y); return; }
+  const p=HARM.payload, h=p?Math.max(0,Math.min(p.hores.length-1,HARM.hour)):0;
+  if(!meta||HARM.varK==='cap'){ c.fillStyle='#111'; c.font='bold '+(14*S)+'px Arial'; c.fillText('Vent previst (fletxes de direcció i velocitat)',x,y+6*S); return; }
   let lo=0,hi=1,unit=meta.unit||'',lab=meta.lab||'';
   if(meta.pacum){lo=0;hi=harPaccHi();lab=harPaccTitol();} else if(meta.wind){lo=0;hi=120;} else {const st=meta.stops;lo=st[0][0];hi=st[st.length-1][0];}
   if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
-  c.font='bold '+(16*S)+'px Arial'; c.fillStyle='#111'; c.fillText(lab+(unit?(' ('+unit+')'):''), x, y);
-  const barW=Math.min(w,600*S), barH=16*S, bx=x, by=y+24*S;
+  if(HARM.varK==='vent') lab='Vent mitjà previst'; if(HARM.varK==='ratxa') lab='Ratxa màxima prevista'; if(HARM.varK==='temp') lab='Temperatura prevista'; if(HARM.varK==='nuvol') lab='Nuvolositat prevista'; if(HARM.varK==='llamps') lab='Descàrregues elèctriques previstes';
+  // títol: què representem (+ interval del tram si és pluja acumulada)
+  let titol=lab+(unit?(' ('+unit+')'):'');
+  if(meta.pacum && p){ titol+='  ·  '+(harPaccRang(p,h)[0]!==h ? harPaccLabel(p,h) : 'última hora fins a les '+new Date(Date.parse(p.hores[h])).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+' h'); }
+  c.font='bold '+(13.5*S)+'px Arial'; c.fillStyle='#111';
+  while(c.measureText(titol).width>w && titol.length>10) titol=titol.slice(0,-2)+'…';
+  c.fillText(titol, x, y);
+  const barW=w, barH=13*S, bx=x, by=y+22*S;
   const g=c.createLinearGradient(bx,0,bx+barW,0);
   for(let t=0;t<=1.0001;t+=1/24){ const v=lo+(hi-lo)*t, cc=harColor(HARM.varK,v); g.addColorStop(Math.min(1,t),'rgb('+cc[0]+','+cc[1]+','+cc[2]+')'); }
-  c.fillStyle=g; c.fillRect(bx,by,barW,barH); c.strokeStyle='#cbd5e1'; c.lineWidth=1; c.strokeRect(bx,by,barW,barH);
-  c.fillStyle='#334155'; c.font=(13*S)+'px Arial'; c.textBaseline='top';
-  for(let k=0;k<=5;k++){ const t=k/5,v=lo+(hi-lo)*t,X=bx+barW*t; c.textAlign=(k===0?'left':(k===5?'right':'center')); c.fillText((Math.round(v*100)/100)+'',X,by+barH+5*S); }
+  c.fillStyle=g; c.fillRect(bx,by,barW,barH); c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=1; c.strokeRect(bx,by,barW,barH);
+  c.fillStyle='#334155'; c.font=(11*S)+'px Arial'; c.textBaseline='top';
+  for(let k=0;k<=5;k++){ const t=k/5,v=lo+(hi-lo)*t,X=bx+barW*t; c.textAlign=(k===0?'left':(k===5?'right':'center')); c.fillText((Math.round(v*100)/100)+'',X,by+barH+4*S); }
 }
 async function prevExporta(){
   if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
@@ -4948,23 +4955,20 @@ async function prevExporta(){
   try{
     const esBlanc=limitsVisibles();          // límits (comarques + perfil) per projecció, sobre qualsevol fons
     const opts={useCORS:true,backgroundColor:'#e8e8e8',scale:2,logging:false,
-      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane')))};
+      ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-control-attribution')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane')))};
     const shot=await html2canvas($('map'),opts);
-    const S=2, pad=22*S, headerH=94*S, legH=74*S, footH=52*S;
-    const mapW=940*S, mapH=Math.round(mapW*shot.height/shot.width);
-    const W=mapW+2*pad, H=headerH+mapH+legH+footH+2*pad;
+    // MATEIX disseny "mapa primer" que la imatge de dades en directe (WYSIWYG): el mapa omple el full,
+    // capçalera (títol a l'extrem esquerre, logo a l'extrem dret) i llegenda DINS del mapa, peu d'una línia.
+    const S=2, pad=0, footH=EXPORT_PEU*S;
+    const mapW=1240*S, mapH=Math.round(mapW*shot.height/shot.width);
+    const W=mapW, H=mapH+footH;
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
     c.fillStyle='#fff'; c.fillRect(0,0,W,H);
-    let logoW=0; try{ logoW=dibuixaLogoBombers(c,pad,pad+6*S,headerH*0.66)||0; }catch(e){}
-    const tx=pad+(logoW?logoW+30*S:0);
-    c.fillStyle='#111'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(30*S)+'px Arial';
-    c.fillText('PREVISIÓ METEOROLÒGICA', tx, pad+headerH*0.34);
     const meta=HARV[HARM.varK]||{lab:'vent'}, h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
     const esAcc=(HARM.varK==='precip');
-    const hlab=esAcc?harPaccLabel(p,h):(new Date(Date.parse(p.hores[h])).toLocaleString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',hour:'2-digit'})+' h');
-    c.font=(18*S)+'px Arial'; c.fillStyle='#0369a1';
-    c.fillText('Model HARMONIE-AROME (AEMET) · '+(HARM.varK==='cap'?'vent':(esAcc?harPaccTitol():meta.lab))+' · '+hlab+' · passada '+p.run.slice(8,10)+'Z '+p.run.slice(6,8)+'/'+p.run.slice(4,6), tx, pad+headerH*0.72);
-    const mapY=pad+headerH, x=pad;
+    const dH=new Date(Date.parse(p.hores[h]));
+    const hlab=dH.toLocaleString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})+' · '+dH.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+' h';
+    const mapY=0, x=0;
     c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();
     c.drawImage(shot,0,0,shot.width,shot.height,x,mapY,mapW,mapH);
     const el=$('map'), sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
@@ -4983,14 +4987,45 @@ async function prevExporta(){
     // límits per DAMUNT de la superfície/fletxes del model i per DAVALL del punt marcat
     if(esBlanc && (comarcaGeo||catGeo)) dibuixaLimitsCanvas(c, map, x, mapY, sxp, syp, S, fonsActual());
     if(PEX.lat!=null){ const pt=map.latLngToContainerPoint([PEX.lat,PEX.lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X>=x&&Y>=mapY&&X<=x+mapW&&Y<=mapY+mapH){ c.save(); c.fillStyle='#111'; c.strokeStyle='#fff'; c.lineWidth=2.4*S; c.beginPath(); c.arc(X,Y,6*S,0,7); c.fill(); c.stroke(); c.restore(); } }
-    c.restore();
-    c.strokeStyle='#cbd5e1'; c.lineWidth=1*S; c.strokeRect(x,mapY,mapW,mapH);
-    prevDibuixaLlegenda(c, x, mapY+mapH+14*S, mapW, S);
-    if(PEX._s && PEX.lat!=null){ const s=PEX._s,a=+$('pexAccA').value,b=+$('pexAccB').value,i0=Math.min(a,b),i1=Math.max(a,b); let pl=0,gm=0; for(let k=i0;k<=i1;k++){pl+=s.precip[k]||0; gm=Math.max(gm,s.ratxa?s.ratxa[k]:0);}
-      c.fillStyle='#334155'; c.font=(15*S)+'px Arial'; c.textAlign='left'; c.textBaseline='middle';
-      c.fillText('Punt '+PEX.lat.toFixed(3)+', '+PEX.lon.toFixed(3)+'  ·  pluja acumulada '+(i1-i0+1)+' h: '+pl.toFixed(1)+' mm  ·  ratxa màx '+Math.round(gm)+' km/h', x, H-pad-footH*0.42); }
-    c.fillStyle='#94a3b8'; c.font=(12*S)+'px Arial'; c.textAlign='right'; c.textBaseline='alphabetic';
-    c.fillText('GRAF · Bombers de la Generalitat · font AEMET (HARMONIE-AROME) · generat '+new Date().toLocaleString('ca-ES'), W-pad, H-pad*0.55);
+    // ---- LLEGENDA DINS del mapa (baix-dreta, caixa translúcida): què representem i, si és pluja, el tram ----
+    { const bw=Math.min(500*S, mapW-28*S), bh=(HARM.varK==='cap')?40*S:76*S, bx=x+mapW-14*S-bw, by=mapY+mapH-14*S-bh;
+      c.save(); c.fillStyle='rgba(255,255,255,.92)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
+      c.beginPath(); c.roundRect ? c.roundRect(bx,by,bw,bh,8*S) : c.rect(bx,by,bw,bh); c.fill(); c.stroke(); c.restore();
+      prevDibuixaLlegenda(c, bx+8*S, by+6*S, bw-16*S, S); }
+    if(PEX._s && PEX.lat!=null){   // punt triat: resum de l'interval de l'explorador (caixa menuda baix-esquerra)
+      const s=PEX._s,a=+$('pexAccA').value,b=+$('pexAccB').value,i0=Math.min(a,b),i1=Math.max(a,b); let pl=0,gm=0; for(let k=i0;k<=i1;k++){pl+=s.precip[k]||0; gm=Math.max(gm,s.ratxa?s.ratxa[k]:0);}
+      const txt='Punt '+PEX.lat.toFixed(3)+', '+PEX.lon.toFixed(3)+'  ·  pluja '+(i1-i0+1)+' h: '+pl.toFixed(1)+' mm  ·  ratxa màx '+Math.round(gm)+' km/h';
+      c.font=(12*S)+'px Arial'; const tw=c.measureText(txt).width, bw2=tw+20*S, bh2=24*S, bx2=x+14*S, by2=mapY+mapH-14*S-bh2;
+      c.save(); c.fillStyle='rgba(255,255,255,.92)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
+      c.beginPath(); c.roundRect ? c.roundRect(bx2,by2,bw2,bh2,6*S) : c.rect(bx2,by2,bw2,bh2); c.fill(); c.stroke();
+      c.fillStyle='#334155'; c.textAlign='left'; c.textBaseline='middle'; c.fillText(txt, bx2+10*S, by2+bh2/2); c.restore(); }
+    c.restore();                                       // fi del retall
+    c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,mapY,mapW,mapH);
+    // ---- CAPÇALERA DINS del mapa: TÍTOL (extrem esquerre) + LOGO (extrem dret), simètrics, com a les dades en directe ----
+    { const logoH=30*S, top=mapY+14*S;
+      c.save();
+      const logoW=(logoBombersImg.complete&&logoBombersImg.naturalWidth)?logoH*logoBombersImg.naturalWidth/logoBombersImg.naturalHeight:logoH*2.87;
+      const L=[{t:'PREVISIÓ METEOROLÒGICA', f:'bold '+(20*S)+'px Arial', col:'#111', h:24*S},
+               {t:hlab.charAt(0).toUpperCase()+hlab.slice(1), f:'bold '+(15*S)+'px Arial', col:'#0369a1', h:19*S}];
+      if(esAcc && harPaccRang(p,h)[0]!==h) L.push({t:harPaccTitol()+' · '+harPaccLabel(p,h), f:(12*S)+'px Arial', col:'#334155', h:16*S});
+      let maxw=0; L.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
+      const lbw=logoW+20*S, lbh=logoH+16*S, lbx=W-14*S-lbw, lby=top;
+      const tbw=maxw+28*S, tbh=L.reduce((acc,l)=>acc+l.h,0)+14*S, tbx=x+14*S, tby=top;
+      c.fillStyle='rgba(255,255,255,.94)'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S;
+      c.beginPath(); c.roundRect ? c.roundRect(lbx,lby,lbw,lbh,8*S) : c.rect(lbx,lby,lbw,lbh); c.fill(); c.stroke();
+      dibuixaLogoBombers(c, lbx+10*S, lby+8*S, logoH);
+      c.fillStyle='rgba(255,255,255,.94)'; c.strokeStyle='rgba(0,0,0,.25)';
+      c.beginPath(); c.roundRect ? c.roundRect(tbx,tby,tbw,tbh,8*S) : c.rect(tbx,tby,tbw,tbh); c.fill(); c.stroke();
+      c.textAlign='center'; c.textBaseline='middle'; let ty=tby+7*S;
+      L.forEach(l=>{ c.font=l.f; c.fillStyle=l.col; c.fillText(l.t, tbx+tbw/2, ty+l.h/2); ty+=l.h; });
+      c.restore(); }
+    // ---- PEU d'una línia menuda i grisa: model + passada + generat (esquerra) · fonts + autoria (dreta) ----
+    { const fy=mapY+mapH+footH/2;
+      c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial';
+      c.textAlign='left';
+      c.fillText('Model HARMONIE-AROME (AEMET) · passada '+p.run.slice(8,10)+'Z del '+p.run.slice(6,8)+'/'+p.run.slice(4,6)+'/'+p.run.slice(0,4)+' · hores en hora local   ·   Informe generat: '+new Date().toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), 14*S, fy);
+      c.textAlign='right';
+      c.fillText('Dades: AEMET (HARMONIE-AROME) · Base: ICGC   ·   Eina desenvolupada per Javi Miró', W-14*S, fy); }
     const a=document.createElement('a'); a.download='previsio_harmonie_'+HARM.varK+'_'+p.run+'_h'+h+'.png'; a.href=cv.toDataURL('image/png'); a.click();
   }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
   finally{ btns.forEach((b,i)=>{b.disabled=false;b.textContent=olds[i];}); }
