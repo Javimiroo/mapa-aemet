@@ -149,26 +149,37 @@ def icon_decodifica(run_id, hmax, ja_tenim):
     """Baixa i descodifica una passada ICON-EU. Torna (hores[iso], camps{nom:(ny,nx,nh)}, dirgrid, bbox, nx, ny)."""
     hh = int(run_id[8:10]); base = datetime.strptime(run_id, "%Y%m%d%H").replace(tzinfo=timezone.utc)
     passos = list(range(0, hmax + 1))             # el pas 0 només cal per a tot_prec (base de l'acumulat)
-    raw = {}                                       # var -> {pas: (sub, bbox)}
+    raw = {}                                       # var -> {pas: sub}
     geo = None
+    # Descàrrega EN PARAL·LEL (8 fils): són ~550 fitxers de 0,4-1 MB (tota Europa) per passada; en sèrie
+    # trigava >10 min al runner de GitHub. La descodificació (eccodes) es fa al fil principal.
+    from concurrent.futures import ThreadPoolExecutor
+    feines = [(var, p) for var in ICON_VARS for p in passos if not (p == 0 and var != "tot_prec")]
+    print("  %d fitxers a baixar (%d variables x %d passos)…" % (len(feines), len(ICON_VARS), hmax), flush=True)
+
+    def baixa(f):
+        var, p = f
+        return f, _get(ICON_BASE % (hh, var) + ICON_FILE % (run_id, p, var.upper()))
+
+    t0 = time.time(); n_ok = 0
     for var in ICON_VARS:
         raw[var] = {}
-        for p in passos:
-            if p == 0 and var != "tot_prec":
-                continue
-            url = ICON_BASE % (hh, var) + ICON_FILE % (run_id, p, var.upper())
-            b = _get(url)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for k, ((var, p), b) in enumerate(ex.map(baixa, feines), 1):
             if b is None:
-                print("  avis: falta %s pas %03d" % (var, p)); continue
+                print("  avis: falta %s pas %03d" % (var, p), flush=True); continue
             try:
                 v, la, lo, dla, dlo = grib_a_matriu(bz2.decompress(b))
-            except Exception as ex:  # noqa
-                print("  avis: no es pot descodificar %s pas %03d (%s)" % (var, p, str(ex)[:60])); continue
+            except Exception as e:  # noqa
+                print("  avis: no es pot descodificar %s pas %03d (%s)" % (var, p, str(e)[:60]), flush=True); continue
             sub, bbox = retalla_cat(v, la, lo, dla, dlo)
             if geo is None:
                 geo = bbox
-            raw[var][p] = sub
-        print("  %-9s %d passos" % (var, len(raw[var])))
+            raw[var][p] = sub; n_ok += 1
+            if k % 50 == 0 or k == len(feines):
+                print("  … %d/%d fitxers (%.0f s)" % (k, len(feines), time.time() - t0), flush=True)
+    for var in ICON_VARS:
+        print("  %-9s %d passos" % (var, len(raw[var])), flush=True)
     if not raw["t_2m"]:
         raise SystemExit("ICON: cap pas de t_2m")
     ny, nx = next(iter(raw["t_2m"].values())).shape
