@@ -1,0 +1,88 @@
+name: Models de previsió addicionals (ICON-EU + AROME)
+
+# Baixa l'última passada completa de cada model, la retalla a Catalunya i la publica XIFRADA a la
+# branca 'models' en el MATEIX format que HARMONIE (el frontend només canvia de model).
+#
+#  - ICON-EU (DWD open data): sense clau. Passades 00/06/12/18 UTC, publicades ~2,5-3 h després.
+#  - AROME (Météo-France): cal subscripció gratuïta a l'API AROME i els secrets
+#    METEOFRANCE_CLIENT_ID + METEOFRANCE_CLIENT_SECRET (OAuth2). Si no hi són, el pas d'AROME es SALTA
+#    (continue-on-error) i ICON es publica igualment.
+#
+# Es pot disparar a mà (workflow_dispatch) triant el model.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model a processar (icon, arome o tots)"
+        required: false
+        default: "tots"
+  schedule:
+    - cron: "20 3,9,15,21 * * *"      # ICON-EU acabat de publicar (+ AROME si hi ha credencials)
+    - cron: "50 4,10,16,22 * * *"     # reintent / AROME (Météo-France publica més tard)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: models
+  cancel-in-progress: false
+
+jobs:
+  models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5           # scripts (main)
+
+      - name: Recupera el buffer (branca 'models')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git clone --branch models --depth 1 \
+               "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" models_store 2>/dev/null; then
+            echo "buffer recuperat ($(ls models_store/*.enc 2>/dev/null | wc -l) passades)"
+          else
+            echo "encara no hi ha branca 'models'; començo de zero"
+            mkdir -p models_store
+          fi
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Dependències
+        run: pip install numpy cryptography eccodes requests
+
+      - name: ICON-EU (DWD)
+        if: ${{ github.event.inputs.model == '' || github.event.inputs.model == 'tots' || github.event.inputs.model == 'icon' }}
+        env:
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+        run: python models_prep.py --model icon --store models_store
+
+      - name: AROME (Météo-France)
+        if: ${{ github.event.inputs.model == '' || github.event.inputs.model == 'tots' || github.event.inputs.model == 'arome' }}
+        continue-on-error: true           # sense credencials (o API caiguda) no ha de tombar ICON
+        env:
+          MAPA_PASS: ${{ secrets.MAPA_PASS }}
+          METEOFRANCE_CLIENT_ID: ${{ secrets.METEOFRANCE_CLIENT_ID }}
+          METEOFRANCE_CLIENT_SECRET: ${{ secrets.METEOFRANCE_CLIENT_SECRET }}
+          METEOFRANCE_API_KEY: ${{ secrets.METEOFRANCE_API_KEY }}
+        run: |
+          if [ -z "$METEOFRANCE_CLIENT_ID" ] && [ -z "$METEOFRANCE_API_KEY" ]; then
+            echo "AROME: sense credencials de Météo-France (secrets METEOFRANCE_*); es salta"; exit 0
+          fi
+          python models_prep.py --model arome --store models_store
+
+      - name: Publica a la branca 'models'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd models_store
+          if [ ! -f models.json ]; then echo "res a publicar"; exit 0; fi
+          rm -rf .git
+          git init -q -b models
+          git add -A
+          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "models $(date -u +%FT%TZ)"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" models
+          echo "publicat a la branca 'models'"
