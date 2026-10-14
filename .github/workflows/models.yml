@@ -14,9 +14,11 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Model a processar (icon, arome o tots)"
+        description: "Model a processar"
         required: false
         default: "tots"
+        type: choice
+        options: [tots, icon, arome]
   schedule:
     - cron: "20 3,9,15,21 * * *"      # ICON-EU acabat de publicar (+ AROME si hi ha credencials)
     - cron: "50 4,10,16,22 * * *"     # reintent / AROME (Météo-France publica més tard)
@@ -53,21 +55,28 @@ jobs:
       - name: Dependències
         run: pip install numpy cryptography eccodes requests
 
+      # (la tria del model es fa en bash i no amb 'if:' perquè en una execució anterior el 'if' va saltar
+      #  els dos passos; en bash és transparent i surt al log)
       - name: ICON-EU (DWD)
-        if: ${{ github.event.inputs.model == '' || github.event.inputs.model == 'tots' || github.event.inputs.model == 'icon' }}
         env:
           MAPA_PASS: ${{ secrets.MAPA_PASS }}
-        run: python models_prep.py --model icon --store models_store
+          MODEL_IN: ${{ inputs.model }}
+        run: |
+          M=$(echo "${MODEL_IN:-tots}" | tr 'A-Z' 'a-z')
+          echo "model demanat: $M"
+          case "$M" in tots|icon|"") python models_prep.py --model icon --store models_store ;; *) echo "ICON no demanat; es salta" ;; esac
 
       - name: AROME (Météo-France)
-        if: ${{ github.event.inputs.model == '' || github.event.inputs.model == 'tots' || github.event.inputs.model == 'arome' }}
         continue-on-error: true           # sense credencials (o API caiguda) no ha de tombar ICON
         env:
           MAPA_PASS: ${{ secrets.MAPA_PASS }}
           METEOFRANCE_CLIENT_ID: ${{ secrets.METEOFRANCE_CLIENT_ID }}
           METEOFRANCE_CLIENT_SECRET: ${{ secrets.METEOFRANCE_CLIENT_SECRET }}
           METEOFRANCE_API_KEY: ${{ secrets.METEOFRANCE_API_KEY }}
+          MODEL_IN: ${{ inputs.model }}
         run: |
+          M=$(echo "${MODEL_IN:-tots}" | tr 'A-Z' 'a-z')
+          case "$M" in tots|arome|"") ;; *) echo "AROME no demanat; es salta"; exit 0 ;; esac
           if [ -z "$METEOFRANCE_CLIENT_ID" ] && [ -z "$METEOFRANCE_API_KEY" ]; then
             echo "AROME: sense credencials de Météo-France (secrets METEOFRANCE_*); es salta"; exit 0
           fi
