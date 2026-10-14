@@ -23,6 +23,9 @@ on:
     - cron: "20 3,9,15,21 * * *"      # ICON-EU acabat de publicar (+ AROME si hi ha credencials)
     - cron: "50 4,10,16,22 * * *"     # reintent / AROME (Météo-France publica més tard)
 
+env:
+  PYTHONUNBUFFERED: "1"          # que el progrés isca al log en temps real
+
 permissions:
   contents: write
 
