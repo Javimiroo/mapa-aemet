@@ -128,6 +128,8 @@
   .gatebox input{width:100%;margin-bottom:12px;text-align:center;font-size:15px;padding:10px;
                  background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px}
   .gatebox .btn{width:100%}
+  .gatebox input::placeholder{color:var(--muted);opacity:.9;transition:opacity .15s}
+  .gatebox input:hover::placeholder,.gatebox input:focus::placeholder{opacity:0}   /* el text d'ajuda desapareix en passar-hi el cursor o escriure */
   .gerr{font-size:12px;color:var(--warn);margin-top:12px;min-height:16px}
   /* cercador de pobles */
   #cercaWrap{position:relative}
@@ -244,9 +246,8 @@
 <div id="gate">
   <div class="gatebox">
     <div class="pyromet-logo v" style="font-size:40px;margin:4px auto 14px" aria-label="Pyromet"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></div>
-    <h1 style="font-weight:600">Meteorologia per a incendis forestals</h1>
-    <p>Catalunya · Mapa privat (AEMET + Meteocat) · introdueix la contrasenya</p>
-    <input type="password" id="pass" autocomplete="current-password" autofocus>
+    <h1 style="font-weight:600;margin-bottom:16px">Meteorologia per a incendis forestals</h1>
+    <input type="password" id="pass" autocomplete="current-password" autofocus placeholder="Introdueix la contrasenya" aria-label="Contrasenya">
     <button id="enter" class="btn primary">Entrar</button>
     <div class="gerr" id="gateerr"></div>
   </div>
@@ -5440,23 +5441,49 @@ async function focComposaMapa(S){
   if(FD.runData && $('focVentOn').checked) dibuixaLlegendaVentBox(c, 12*S, base.height-58*S, S, 'Vent WindNinja (km/h)');
   return base;
 }
+// Captura la secció OBERTA de l'acordió del tauler, desplegada del tot. Torna un canvas (amb .$titol) o null.
+async function focCapturaPanell(S){
+  const acc=document.querySelector('#focRight .acc:not(.collapsed)');
+  if(!acc || focFullOn) return null;
+  const body=acc.querySelector('.acc-b'); if(!body) return null;
+  const titol=(acc.querySelector('.acc-h')?.textContent||'').replace(/▾|▸/g,'').replace(/\s+/g,' ').trim();
+  // desplega temporalment tots els contenidors amb scroll (taula 48 h, llista d'estacions, meteogrames…)
+  const tocats=[]; const expand=(el,props)=>{ tocats.push({el:el, st:props.map(k=>[k,el.style[k]])}); props.forEach(k=>{ el.style[k]=(k==='maxHeight'?'none':(k==='height'?'auto':'visible')); }); };
+  expand(body,['maxHeight','height','overflow']);
+  body.querySelectorAll('*').forEach(el=>{ const cs=getComputedStyle(el); if(el.tagName==='CANVAS')return;
+    if(/(auto|scroll)/.test(cs.overflowY) || (cs.maxHeight!=='none' && cs.maxHeight!=='')) expand(el,['maxHeight','height','overflow']); });
+  // el meteograma del model: una mica més alt per a la imatge
+  const chw=$('focHarChartWrap'), chH0=chw?chw.style.height:null;
+  if(chw && chw.offsetParent!==null){ chw.style.height='260px'; try{ if(FD.harChart) FD.harChart.resize(); }catch(e){} }
+  if(typeof focRenderCharts==='function' && acc.id==='accEst'){ try{ focRenderCharts(); }catch(e){} }
+  await new Promise(r=>setTimeout(r,180));
+  let cv=null;
+  try{ cv=await html2canvas(acc,{backgroundColor:'#0b1220',scale:S,logging:false,ignoreElements:el=>el.tagName==='SELECT'||el.classList?.contains('chev')}); }
+  catch(e){ cv=null; }
+  // restaura
+  if(chw){ chw.style.height=chH0; try{ if(FD.harChart) FD.harChart.resize(); }catch(e){} }
+  tocats.reverse().forEach(t=>{ t.st.forEach(([k,v])=>{ t.el.style[k]=v; }); });
+  if(cv && (!cv.width||!cv.height)) cv=null;
+  if(cv) cv.$titol=titol;
+  return cv;
+}
 async function focExportImatge(){
   if(typeof html2canvas!=='function'){ alert('Falta la llibreria de captura.'); return; }
   const btn=$('focExport'),old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
   try{
     const S=2, mapC=await focComposaMapa(S);
-    const chEl=$('focCharts'), svH=chEl.style.height, svO=chEl.style.overflow;   // expandim per capturar tots els meteogrames
-    chEl.style.height='auto'; chEl.style.overflow='visible';
-    const chartsC=await html2canvas(chEl,{backgroundColor:'#0f172a',scale:S});
-    chEl.style.height=svH; chEl.style.overflow=svO;
+    // PANELL DRET: s'exporta la secció de l'acordió que estiga OBERTA (previsió del model, WindNinja previsió,
+    // estacions & meteogrames o perímetres), desplegada del tot (sense barres de desplaçament) perquè isca sencera.
+    // Si no n'hi ha cap d'oberta (o el mapa està en "Mapa gran"), només s'exporta el mapa.
+    const chartsC=await focCapturaPanell(S);
     const pad=18*S, head=66*S, foot=30*S, gap=16*S;
     const q=ms=>new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
     const hm=ms=>new Date(ms).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
     // apaïsat: mapa a l'esquerra, meteogrames a la dreta, alineats a dalt
     const ps=focPerimsList(), cols=focPerimColors(ps.length);
     const legH=ps.length?(20*S+ps.length*17*S):0;                 // llegenda d'hores dels perímetres
-    const bodyH=Math.max(mapC.height+legH, chartsC.height);
-    const W=pad+mapC.width+gap+chartsC.width+pad, H=head+bodyH+foot+2*pad;
+    const bodyH=Math.max(mapC.height+legH, chartsC?chartsC.height:0);
+    const W=pad+mapC.width+(chartsC?(gap+chartsC.width):0)+pad, H=head+bodyH+foot+2*pad;
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
     c.fillStyle='#0b1220'; c.fillRect(0,0,W,H);
     c.fillStyle='#fff'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(23*S)+'px Arial';
@@ -5464,7 +5491,8 @@ async function focExportImatge(){
     const ventMs=(FD.runData&&FD.runData.t&&FD.runData.t[0])||null;
     c.fillStyle='#cbd5e1'; c.font=(13*S)+'px Arial'; c.textAlign='left';
     c.fillText('Dades meteorològiques de les '+q(FD.tSel)+(ventMs?('   ·   Camp de vent WindNinja de les '+q(ventMs)):'')
-      +(FD.foc.inici?('   ·   Inici: '+q(FD.foc.inici)):'')+(FD.foc.fi?('   ·   🏁 '+q(FD.foc.fi)):''), pad, pad+head*0.72);
+      +(FD.foc.inici?('   ·   Inici: '+q(FD.foc.inici)):'')+(FD.foc.fi?('   ·   🏁 '+q(FD.foc.fi)):'')
+      +((chartsC&&chartsC.$titol)?('   ·   Panell: '+chartsC.$titol):''), pad, pad+head*0.72);
     // logo Bombers (dalt a la dreta): "bombers" + 4 quadrats
     const lh=Math.round(head*0.60); c.font='900 '+Math.round(lh*0.66)+'px Arial';
     const lw=c.measureText('bombers').width; dibuixaLogoBombers(c, W-pad-lw, pad+(head-lh)/2, lh);
@@ -5479,7 +5507,7 @@ async function focExportImatge(){
         c.fillStyle='#e5e7eb'; c.font=(12*S)+'px Arial'; c.textAlign='left';
         c.fillText('Perímetre '+(k+1)+' · '+q(p.ts)+(k===0?'  (inicial)':(k===ps.length-1?'  (últim)':'')), pad+22*S, ly); ly+=17*S; });
     }
-    c.drawImage(chartsC, chX, mapY);
+    if(chartsC) c.drawImage(chartsC, chX, mapY);
     c.textAlign='left'; c.fillStyle='#64748b'; c.font=(11*S)+'px Arial';
     c.fillText('Generat '+new Date().toLocaleString('ca-ES')+' · Vent d\'alta resolució WindNinja · Dades AEMET i Meteocat (SMC) · Base: Esri', pad, H-pad-foot*0.4);
     cv.toBlob(bl=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
