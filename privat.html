@@ -9,7 +9,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pyromet · Meteorologia per a incendis forestals</title>
+<title>Pyromet · Meteorologia al servei de les decisions operatives en emergències</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='26' fill='%230b1220'/%3E%3Cg fill='none' stroke-linejoin='round' stroke-linecap='round' stroke-width='7' transform='translate(6,6) scale(.9)'%3E%3Cg transform='translate(0,-6)'%3E%3Cpath d='M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z' stroke='%23e2e8f0'/%3E%3Cpath d='M44 90L40 104M62 90L58 104' stroke='%2338bdf8'/%3E%3C/g%3E%3Cpath transform='translate(0,3)' d='M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z' stroke='%23f97316'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@700&display=swap" rel="stylesheet">
@@ -246,7 +246,7 @@
 <div id="gate">
   <div class="gatebox">
     <div class="pyromet-logo v" style="font-size:40px;margin:4px auto 14px" aria-label="Pyromet"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></div>
-    <h1 style="font-weight:600;margin-bottom:16px">Meteorologia per a incendis forestals</h1>
+    <h1 style="font-weight:600;margin-bottom:16px;font-size:14px;color:var(--muted);letter-spacing:.2px">Meteorologia al servei de les decisions operatives en emergències</h1>
     <input type="password" id="pass" autocomplete="current-password" autofocus placeholder="Introdueix la contrasenya" aria-label="Contrasenya">
     <button id="enter" class="btn primary">Entrar</button>
     <div class="gerr" id="gateerr"></div>
@@ -256,7 +256,7 @@
 <div id="app">
   <button id="toggle">✕ Menú</button>
   <div id="panel">
-    <a class="pyromet-logo" href="./" aria-label="Pyromet, inici" title="Pyromet · meteorologia per a incendis forestals"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></a>
+    <a class="pyromet-logo" href="./" aria-label="Pyromet, inici" title="Pyromet · Meteorologia al servei de les decisions operatives en emergències"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></a>
     <p class="sub" id="fontline">Observació en temps real</p>
 
     <style>
