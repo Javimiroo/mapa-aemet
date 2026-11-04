@@ -84,7 +84,7 @@ jobs:
           if [ -z "$METEOFRANCE_APP_ID" ] && [ -z "$METEOFRANCE_CLIENT_ID" ] && [ -z "$METEOFRANCE_API_KEY" ]; then
             echo "AROME: sense credencials de Météo-France (secrets METEOFRANCE_*); es salta"; exit 0
           fi
-          python models_prep.py --model arome --store models_store
+          python models_prep.py --model arome --store models_store || { echo "::warning::AROME ha fallat (mira les línies de dalt); ICON no es veu afectat"; exit 1; }
 
       - name: Publica a la branca 'models'
         env:
@@ -95,7 +95,9 @@ jobs:
           rm -rf .git
           git init -q -b models
           git add -A
-          git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
-              commit -q -m "models $(date -u +%FT%TZ)"
+          # si cap model ha produït res de nou (p. ex. AROME ha fallat i ICON ja estava al dia), no hi ha
+          # res a cometre: eixim bé en lloc de fer fallar el run
+          if ! git -c user.name="aemet-bot" -c user.email="github-actions[bot]@users.noreply.github.com" \
+                 commit -q -m "models $(date -u +%FT%TZ)"; then echo "res nou a publicar"; exit 0; fi
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" models
           echo "publicat a la branca 'models'"
