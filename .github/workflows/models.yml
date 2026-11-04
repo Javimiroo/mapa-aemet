@@ -73,6 +73,7 @@ jobs:
         continue-on-error: true           # sense credencials (o API caiguda) no ha de tombar ICON
         env:
           MAPA_PASS: ${{ secrets.MAPA_PASS }}
+          METEOFRANCE_APP_ID: ${{ secrets.METEOFRANCE_APP_ID }}
           METEOFRANCE_CLIENT_ID: ${{ secrets.METEOFRANCE_CLIENT_ID }}
           METEOFRANCE_CLIENT_SECRET: ${{ secrets.METEOFRANCE_CLIENT_SECRET }}
           METEOFRANCE_API_KEY: ${{ secrets.METEOFRANCE_API_KEY }}
@@ -80,7 +81,7 @@ jobs:
         run: |
           M=$(echo "${MODEL_IN:-tots}" | tr 'A-Z' 'a-z')
           case "$M" in tots|arome|"") ;; *) echo "AROME no demanat; es salta"; exit 0 ;; esac
-          if [ -z "$METEOFRANCE_CLIENT_ID" ] && [ -z "$METEOFRANCE_API_KEY" ]; then
+          if [ -z "$METEOFRANCE_APP_ID" ] && [ -z "$METEOFRANCE_CLIENT_ID" ] && [ -z "$METEOFRANCE_API_KEY" ]; then
             echo "AROME: sense credencials de Météo-France (secrets METEOFRANCE_*); es salta"; exit 0
           fi
           python models_prep.py --model arome --store models_store
