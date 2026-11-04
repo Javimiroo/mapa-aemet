@@ -76,6 +76,15 @@
   </section>
 
   <section class="card">
+    <h2>Activitat <span class="sp"></span><span class="muted" style="font-weight:400;font-size:12px">batec cada 5 min des de l'app · es refresca sol</span><button class="btn small" id="btnAct">↻</button></h2>
+    <div class="kpis" id="actKpis" style="margin-bottom:12px"></div>
+    <div class="grid2">
+      <div><div class="muted" style="font-size:12px;margin-bottom:6px">En línia ara (últims 10 min)</div><table id="tOnline"><thead><tr><th>Usuari</th><th>Regió</th><th>Des de</th><th>Últim batec</th></tr></thead><tbody></tbody></table></div>
+      <div><div class="muted" style="font-size:12px;margin-bottom:6px">Visites per dia i regió (usuaris únics · sessions)</div><div id="visGraf" style="display:flex;align-items:flex-end;gap:3px;height:120px;border-bottom:1px solid var(--line);padding-bottom:2px"></div><div id="visLlegenda" class="muted" style="font-size:11px;margin-top:6px"></div></div>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>Usuaris <span class="sp"></span>
       <div class="tools"><input id="cerca" placeholder="Cerca per correu, nom o organització…"><select id="fOrg"><option value="">Totes les organitzacions</option></select><button class="btn primary" id="btnNou">+ Nou usuari</button></div>
     </h2>
@@ -192,7 +201,7 @@ $('bSave').onclick=async()=>{ $('bMsg').className='msg'; $('bMsg').textContent='
 // ---------------- inici ----------------
 async function inici(){
   $('who').textContent=ME.nom+' · '+ME.email;
-  await Promise.all([carregaOrgs(),carregaUsers()]); renderTot(); carregaEstat();
+  await Promise.all([carregaOrgs(),carregaUsers()]); renderTot(); carregaEstat(); carregaActivitat();
 }
 async function carregaUsers(){ const j=await api('/admin/users',{}); USERS=j.usuaris||[]; }
 async function carregaOrgs(){ const j=await api('/admin/orgs',{}); ORGS=j.orgs||[]; }
@@ -289,6 +298,29 @@ async function carregaEstat(){
   el.innerHTML=parts.join('');
 }
 $('btnEstat').onclick=carregaEstat;
+
+// ---------------- activitat: en línia + visites ----------------
+let ACT=null;
+async function carregaActivitat(){
+  const j=await api('/admin/activitat',{}); if(!j.ok) return; ACT=j;
+  const ara=Date.now(), rel=ms=>{ const m=Math.round((ara-ms)/60000); return m<1?'ara mateix':(m<60?m+' min':Math.round(m/60)+' h'); };
+  const perR={}; (j.online||[]).forEach(o=>{ perR[o.regio]=(perR[o.regio]||0)+1; });
+  const hui=new Date().toISOString().slice(0,10), dh=j.dies[hui]||{};
+  const totHui=Object.values(dh).reduce((a,v)=>a+(v.usuaris||0),0);
+  $('actKpis').innerHTML='<div class="kpi"><b>'+(j.online||[]).length+'</b><span>en línia ara</span></div>'
+    +Object.keys(CFG.regions).map(r=>'<div class="kpi"><b>'+(perR[r]||0)+'</b><span>en línia · '+esc(CFG.regions[r].nom)+'</span></div>').join('')
+    +'<div class="kpi"><b>'+totHui+'</b><span>usuaris únics hui</span></div>';
+  $('tOnline').querySelector('tbody').innerHTML=(j.online||[]).map(o=>'<tr><td><b>'+esc(o.nom||'')+'</b><div class="muted">'+esc(o.email)+(o.org?(' · '+esc(orgNom(o.org))):'')+'</div></td><td>'+esc((CFG.regions[o.regio]||{}).nom||o.regio)+'</td><td>'+fmtD(o.inici)+'</td><td>'+rel(o.ultim)+'</td></tr>').join('')||'<tr><td colspan="4" class="muted">Ningú en línia ara mateix.</td></tr>';
+  // gràfic 30 dies: barres apilades per regió (usuaris únics)
+  const cols={cat:'#38bdf8',cv:'#f97316'}; const dies=[]; for(let k=29;k>=0;k--){ const d=new Date(ara-k*86400000).toISOString().slice(0,10); dies.push(d); }
+  const mx=Math.max(1,...dies.map(d=>Object.values(j.dies[d]||{}).reduce((a,v)=>a+(v.usuaris||0),0)));
+  $('visGraf').innerHTML=dies.map(d=>{ const v=j.dies[d]||{}; const tot=Object.values(v).reduce((a,x)=>a+(x.usuaris||0),0);
+    const tip=d+': '+Object.keys(v).map(r=>r.toUpperCase()+' '+v[r].usuaris+' usuaris · '+v[r].sessions+' sessions').join(' | ');
+    return '<div title="'+esc(tip||d)+'" style="flex:1;display:flex;flex-direction:column-reverse;height:100%">'+Object.keys(v).map(r=>'<div style="height:'+Math.round(100*(v[r].usuaris||0)/mx)+'%;background:'+(cols[r]||'#94a3b8')+'"></div>').join('')+(tot?'':'<div style="height:2px;background:var(--line)"></div>')+'</div>'; }).join('');
+  $('visLlegenda').innerHTML=Object.keys(CFG.regions).map(r=>'<span class="dot" style="background:'+(cols[r]||'#94a3b8')+'"></span>'+esc(CFG.regions[r].nom)+' &nbsp; ').join('')+' · últims 30 dies (passa el ratolí per les barres)';
+}
+$('btnAct').onclick=carregaActivitat;
+setInterval(()=>{ if(ME && !document.hidden) carregaActivitat(); }, 60*1000);
 autoEntrar();
 </script>
 </body>

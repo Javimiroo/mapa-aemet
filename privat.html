@@ -2891,7 +2891,13 @@ function aplicaSessio(j){
   const bar=$('sessioBar'); if(bar){ bar.style.display='flex'; $('sessioQui').textContent=(j.usuari.nom||j.usuari.email)+(j.usuari.rol==='admin'?' · admin':''); }
   aplicaPermisos();
   if(j.usuari.passTemporal) setTimeout(()=>canviaContrasenya(true),600);
+  iniciaBatec();
 }
+// BATEC de presència: cada 5 min (i en obrir/tornar a la pestanya) l'app avisa el Worker que l'usuari és en línia;
+// el panell d'administració mostra qui hi ha ara i compta les visites diàries per regió. Sense sessió (mode antic) no fa res.
+let _batecT=null;
+function batec(){ if(!SESSIO||!SESSIO.token||document.hidden) return; authFetch('/ping',{regio:REGIO}).catch(()=>{}); }
+function iniciaBatec(){ if(_batecT) return; batec(); _batecT=setInterval(batec,5*60*1000); document.addEventListener('visibilitychange',()=>{ if(!document.hidden) batec(); }); }
 function aplicaPermisos(){
   // pestanyes: només les dels blocs permesos; si l'activa no ho és, salta a la primera permesa
   const tabs=[...document.querySelectorAll('#tabs .tab')]; let primera=null, activaOk=false;
