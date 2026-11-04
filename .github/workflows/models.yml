@@ -19,6 +19,11 @@ on:
         default: "tots"
         type: choice
         options: [tots, icon, arome]
+      forca:
+        description: "Torna a processar encara que la passada ja estiga al buffer"
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "20 3,9,15,21 * * *"      # ICON-EU acabat de publicar (+ AROME si hi ha credencials)
     - cron: "50 4,10,16,22 * * *"     # reintent / AROME (Météo-France publica més tard)
@@ -78,13 +83,15 @@ jobs:
           METEOFRANCE_CLIENT_SECRET: ${{ secrets.METEOFRANCE_CLIENT_SECRET }}
           METEOFRANCE_API_KEY: ${{ secrets.METEOFRANCE_API_KEY }}
           MODEL_IN: ${{ inputs.model }}
+          FORCA: ${{ inputs.forca }}
         run: |
           M=$(echo "${MODEL_IN:-tots}" | tr 'A-Z' 'a-z')
           case "$M" in tots|arome|"") ;; *) echo "AROME no demanat; es salta"; exit 0 ;; esac
+          EXTRA=""; [ "$FORCA" = "true" ] && EXTRA="--forca"
           if [ -z "$METEOFRANCE_APP_ID" ] && [ -z "$METEOFRANCE_CLIENT_ID" ] && [ -z "$METEOFRANCE_API_KEY" ]; then
             echo "AROME: sense credencials de Météo-France (secrets METEOFRANCE_*); es salta"; exit 0
           fi
-          python models_prep.py --model arome --store models_store || { echo "::warning::AROME ha fallat (mira les línies de dalt); ICON no es veu afectat"; exit 1; }
+          python models_prep.py --model arome --store models_store $EXTRA || { echo "::warning::AROME ha fallat (mira les línies de dalt); ICON no es veu afectat"; exit 1; }
 
       - name: Publica a la branca 'models'
         env:
