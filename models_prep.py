@@ -230,7 +230,7 @@ AROME_COV = {
     "hr":     {"pat": r"RELATIVE_HUMIDITY__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",     "per": "",      "height": 2,     "conv": lambda x: x},
     "u":      {"pat": r"U_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",   "per": "",      "height": 10,    "conv": lambda x: x},
     "v":      {"pat": r"V_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",   "per": "",      "height": 10,    "conv": lambda x: x},
-    "ratxa":  {"pat": r"WIND_SPEED_GUST__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",       "per": "_PT1H", "height": 10,    "conv": lambda x: x * 3.6},
+    "ratxa":  {"pat": r"WIND_SPEED(?:_OF)?_GUST__[A-Z_]+?___",                          "per": "_PT1H", "height": 10,    "conv": lambda x: x * 3.6},   # al catàleg real el nom pot ser WIND_SPEED_OF_GUST (CF standard name)
     "nuvol":  {"pat": r"TOTAL_CLOUD_COVER__GROUND_OR_WATER_SURFACE___",                "per": "",      "height": None,  "conv": lambda x: x},
 }
 AROME_DOMINI = (38.0, -3.0, 45.0, 6.0)          # S, W, N, E del subset demanat (Catalunya amb marge)
@@ -297,6 +297,11 @@ def arome_cataleg(s, hdr):
             if m:
                 cat[camp][m.group(1)] = cid
         print("  catàleg %-7s %d passades%s" % (camp, len(cat[camp]), "" if cat[camp] else "  <-- cap cobertura casa el patró; revisa AROME_COV"))
+        if not cat[camp]:                                                   # ajuda: cobertures semblants del catàleg
+            clau = cfg["pat"].split("__")[0].replace("(?:_OF)?", "").split("(")[0][:10]
+            sem = sorted({re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2}Z", "<run>", c) for c in ids if clau in c})[:8]
+            for c in sem:
+                print("     candidata: %s" % c)
     runs = sorted(set(cat["precip"].keys()) | set(cat["temp"].keys()), reverse=True)
     return cat, runs
 
