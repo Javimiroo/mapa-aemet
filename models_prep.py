@@ -230,7 +230,7 @@ AROME_COV = {
     "hr":     {"pat": r"RELATIVE_HUMIDITY__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",     "per": "",      "height": 2,     "conv": lambda x: x},
     "u":      {"pat": r"U_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",   "per": "",      "height": 10,    "conv": lambda x: x},
     "v":      {"pat": r"V_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",   "per": "",      "height": 10,    "conv": lambda x: x},
-    "ratxa":  {"pat": r"WIND_SPEED(?:_OF)?_GUST__[A-Z_]+?___",                          "per": "_PT1H", "height": 10,    "conv": lambda x: x * 3.6},   # al catàleg real el nom pot ser WIND_SPEED_OF_GUST (CF standard name)
+    "ratxa":  {"pat": r"WIND_SPEED_GUST_MAX__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND___",   "per": "_PT1H", "height": 10,    "conv": lambda x: x * 3.6},   # nom REAL del catàleg (04/11/2026): ratxa màx de l'última hora
     "nuvol":  {"pat": r"TOTAL_CLOUD_COVER__GROUND_OR_WATER_SURFACE___",                "per": "",      "height": None,  "conv": lambda x: x},
 }
 AROME_DOMINI = (38.0, -3.0, 45.0, 6.0)          # S, W, N, E del subset demanat (Catalunya amb marge)
