@@ -5309,6 +5309,9 @@ async function conCalcClick(){
     const ellipses=[1,3,6].map(h=>({hores:h, pts:conEllipse(lat,lon,res,h)}));
     FD.con={lat:lat,lon:lon,res:res,ellipses:ellipses,vent:vent,pend:pend,fm:fm,fuel:fuel,quan:Date.now()};
     if(!FD.conLayer){ FD.conLayer=new FocConLayer(); FD.conLayer.addTo(FD.map); } else FD.conLayer.redraw();
+    // enquadra el mapa perquè es veja el con de 6 h sencer (amb la flama) i redibuixa
+    try{ const b=L.latLngBounds(ellipses[2].pts); b.extend([lat,lon]); FD.map.invalidateSize({animate:false}); FD.map.fitBounds(b.pad(0.25),{animate:true,maxZoom:15}); FD.map.once('moveend',()=>{ if(FD&&FD.conLayer) FD.conLayer.redraw(); }); }catch(e){}
+    focAccOpen('accCon');
     const km=h=>(res.R_mmin*60*h/1000).toFixed(1);
     inf.innerHTML='<b style="color:#fbbf24">BETA</b> · vent <b>'+Math.round(vent.vv)+' km/h</b> de '+Math.round(vent.dv)+'° ('+vent.font+') · a mitja flama ×'+waf+' · pendent <b>'+pend.graus.toFixed(0)+'°</b>'+(pend.err?' (sense DEM!)':(' cap a '+Math.round(pend.aspectUp)+'°'))+' · FMd <b>'+fm.fmd.toFixed(1)+' %</b> ('+fm.font+') · viu '+Math.round(ml*100)+' % · '+fuel.nom;
     $('conRes').innerHTML='<table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#94a3b8"><th style="text-align:left">Cap</th><th>Veloc.</th><th>1 h</th><th>3 h</th><th>6 h</th></tr>'
