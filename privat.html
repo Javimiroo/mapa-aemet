@@ -301,6 +301,20 @@
     <div class="card coll collapsed">
       <h2>Incendi</h2>
       <div class="cardbody">
+        <div id="bomBloc" style="margin:0 0 12px;padding:9px 10px;border:1px solid #7c2d12;border-radius:10px;background:rgba(249,115,22,.07)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <b style="font-size:12px;color:#fb923c">🚒 Incendis de vegetació actius</b>
+            <span class="muted" style="font-size:11px">· Bombers (visor públic)</span>
+            <span style="flex:1"></span>
+            <button class="btn small" id="bomRefresca" title="Torna a consultar el visor de Bombers">↻</button>
+          </div>
+          <div id="bomInfo" class="muted" style="font-size:11px;margin:5px 0 6px">Consultant…</div>
+          <div id="bomList" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto"></div>
+          <div class="row" style="gap:6px;margin-top:8px;align-items:center">
+            <button class="btn primary small" id="bomAfegir" style="flex:1" disabled>➕ Afegir els seleccionats com a incendis</button>
+            <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap"><input type="checkbox" id="bomMapa" checked> al mapa</label>
+          </div>
+        </div>
         <details id="crearInc">
         <summary class="subhdr" style="cursor:pointer;user-select:none">CREAR INCENDI</summary>
         <button class="btn" id="focNou" style="width:100%;margin:8px 0 9px">➕ Nou incendi (buida el formulari)</button>
@@ -2892,6 +2906,7 @@ function aplicaSessio(j){
   aplicaPermisos();
   if(j.usuari.passTemporal) setTimeout(()=>canviaContrasenya(true),600);
   iniciaBatec();
+  if(teBloc('incendi') && typeof bomConsulta==='function') setTimeout(bomConsulta,1500);   // badge d'incendis actius a la pestanya
 }
 // BATEC de presència: cada 5 min (i en obrir/tornar a la pestanya) l'app avisa el Worker que l'usuari és en línia;
 // el panell d'administració mostra qui hi ha ara i compta les visites diàries per regió. Sense sessió (mode antic) no fa res.
@@ -3129,6 +3144,72 @@ function focNou(){                          // comença un incendi de zero (no m
   actualitzaBotoGuarda(); focsRender();
 }
 $('focNou').addEventListener('click',focNou);
+
+// ===================== INCENDIS ACTIUS DE BOMBERS (visor públic d'actuacions urgents, ArcGIS) =====================
+// Font: capa pública del visor d'actuacions de Bombers de la Generalitat (Interior) — punts de les actuacions
+// URGENTS en curs, tipus "incendi vegetació" (forestal VF / agrícola VA), amb municipi, hora d'inici, situació i
+// fase (Estabilitzat/Controlat). Es consulta en entrar i a petició; l'usuari tria quins vol donar d'alta com a
+// incendis de l'app (nom = municipi, flama = punt de l'actuació, hora d'inici = la de Bombers). Mai s'afig res sol.
+const BOMBERS_URL='https://services7.arcgis.com/ZCqVt1fRXwwK6GF4/arcgis/rest/services/ACTUACIONS_URGENTS_online_PRO_AMB_FASE_VIEW/FeatureServer/0/query';
+let bomActius=[], bomLayer=null, bomTimer=null;
+async function bomConsulta(){
+  const inf=$('bomInfo'); if(!inf) return;
+  inf.textContent='Consultant el visor de Bombers…';
+  try{
+    const u=BOMBERS_URL+'?where='+encodeURIComponent("TAL_COD_ALARMA1='IV'")+'&outFields=*&returnGeometry=true&outSR=4326&f=json&_='+Date.now();
+    const d=await fetch(u,{cache:'no-store'}).then(r=>r.json());
+    if(!d||!Array.isArray(d.features)) throw new Error('resposta buida');
+    bomActius=d.features.filter(f=>f.geometry&&f.attributes).map(f=>{ const a=f.attributes; return {
+      id:a.GlobalID||String(a.OBJECTID), lat:f.geometry.y, lon:f.geometry.x, municipi:a.MUNICIPI_DPX||a.MUNICIPI_SIG||'—',
+      tipus:a.TAL_COD_ALARMA2==='VF'?'forestal':(a.TAL_COD_ALARMA2==='VA'?'agrícola':(a.TAL_DESC_ALARMA2||'vegetació')),
+      inici:a.ACT_DAT_INICI||a.ACT_DAT_ACTUACIO||null, situacio:a.ACT_SITUACIO||'', fase:a.COM_FASE||'', veh:a.ACT_NUM_VEH||0, actual:a.DATA_ACT||a.ACT_DAT_ACTUAL||null }; })
+      .sort((x,y)=>(y.inici||0)-(x.inici||0));
+    bomRender();
+  }catch(e){ inf.textContent='No s\'ha pogut consultar el visor de Bombers ('+(e&&e.message||e)+').'; }
+}
+function bomJaAfegit(b){            // ja és a la llista d'incendis? (per id de Bombers, o mateix municipi a <1,5 km)
+  return (focsCache||[]).find(f=>(f.bombers&&f.bombers===b.id) || (f.flama && f.nom && f.nom.toLowerCase().startsWith(b.municipi.toLowerCase()) && haversineKm({lat:f.flama.lat,lng:f.flama.lng},{lat:b.lat,lng:b.lon})<1.5));
+}
+function bomBadge(){ const t=document.querySelector('#tabs .tab[data-t="incendi"]'); if(!t) return; let b=t.querySelector('.bomBadge'); if(!bomActius.length){ if(b) b.remove(); return; } if(!b){ b=document.createElement('span'); b.className='bomBadge'; b.style.cssText='display:inline-block;margin-left:5px;padding:0 6px;border-radius:999px;background:#f97316;color:#0b1220;font-size:10px;font-weight:700;vertical-align:1px'; t.appendChild(b); } b.textContent=bomActius.length; b.title=bomActius.length+' incendis de vegetació actius (Bombers)'; }
+function bomRender(){ bomBadge();
+  const inf=$('bomInfo'), ul=$('bomList'); if(!inf||!ul) return;
+  const fmt=ms=>ms?new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+  inf.innerHTML=bomActius.length?('<b>'+bomActius.length+'</b> actuacions en curs · consultat '+new Date().toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})):'Cap incendi de vegetació en curs ara mateix.';
+  ul.innerHTML=bomActius.map(b=>{ const ja=bomJaAfegit(b);
+    return '<label style="display:flex;gap:7px;align-items:flex-start;font-size:12px;padding:5px 6px;border-radius:7px;background:var(--bg);cursor:pointer'+(ja?';opacity:.55':'')+'">'
+      +'<input type="checkbox" class="bomChk" value="'+b.id+'" '+(ja?'disabled':'')+' style="margin-top:2px">'
+      +'<span style="flex:1"><b>'+b.municipi+'</b> <span class="muted">· '+b.tipus+'</span><br><span class="muted" style="font-size:11px">inici '+fmt(b.inici)+(b.fase?(' · <span style="color:#fbbf24">'+b.fase+'</span>'):'')+(b.veh?(' · '+b.veh+' veh.'):'')+(ja?' · <span style="color:#86efac">ja a l\'app</span>':'')+'</span></span>'
+      +'<button class="btn small bomVes" data-id="'+b.id+'" title="Centrar el mapa" style="padding:1px 6px">📍</button></label>'; }).join('');
+  bomCapaMapa(); bomBotons();
+}
+function bomBotons(){ const n=document.querySelectorAll('.bomChk:checked').length; const b=$('bomAfegir'); if(b){ b.disabled=!n; b.textContent=n?('➕ Afegir '+n+' com a incendi'+(n>1?'s':'')):'➕ Afegir els seleccionats com a incendis'; } }
+function bomCapaMapa(){               // punts taronja dels incendis actius de Bombers al mapa (opcional, sense desar)
+  if(bomLayer){ try{map.removeLayer(bomLayer);}catch(e){} bomLayer=null; }
+  if(!($('bomMapa')&&$('bomMapa').checked) || !bomActius.length) return;
+  bomLayer=L.layerGroup(bomActius.map(b=>L.circleMarker([b.lat,b.lon],{radius:7,color:'#7c2d12',weight:2,fillColor:'#fb923c',fillOpacity:.9,pane:'markerPane'})
+    .bindTooltip('🚒 '+b.municipi+' · '+b.tipus+(b.fase?(' · '+b.fase):''),{direction:'top'}))).addTo(map);
+}
+async function bomAfegir(){
+  const ids=[...document.querySelectorAll('.bomChk:checked')].map(c=>c.value); if(!ids.length) return;
+  const b=$('bomAfegir'); b.disabled=true; b.textContent='Afegint…';
+  let n=0, ultim=null;
+  for(const id of ids){ const x=bomActius.find(y=>y.id===id); if(!x) continue;
+    const foc={ nom:x.municipi+(x.tipus==='forestal'?'':(' ('+x.tipus+')')), flama:{lat:+x.lat.toFixed(5),lng:+x.lon.toFixed(5)}, perims:[], inici:x.inici||Date.now(), actiu:true, bombers:x.id };
+    const a=await focsAPI('guarda',{foc});
+    if(a){ focsCache=a; focsLocalDesa(a); n++; ultim=a[0]; }
+    else { foc.id='local'+Date.now(); foc.ts=Date.now(); focsCache=[foc].concat(focsCache).slice(0,20); focsLocalDesa(focsCache); n++; ultim=foc; }
+  }
+  focsRender(); if(typeof renderFocsActius==='function') try{ renderFocsActius(); }catch(e){}
+  if(ultim&&ultim.id) focCarrega(ultim.id);
+  bomRender(); b.textContent='✓ '+n+' afegit'+(n>1?'s':''); setTimeout(bomBotons,1800);
+}
+if($('bomRefresca')) $('bomRefresca').onclick=bomConsulta;
+if($('bomAfegir')) $('bomAfegir').onclick=bomAfegir;
+if($('bomMapa')) $('bomMapa').onchange=bomCapaMapa;
+if($('bomList')){ $('bomList').addEventListener('change',bomBotons);
+  $('bomList').addEventListener('click',e=>{ const v=e.target.closest('.bomVes'); if(!v) return; e.preventDefault(); const x=bomActius.find(y=>y.id===v.dataset.id); if(x) map.setView([x.lat,x.lon],12); }); }
+// es consulta en obrir la pestanya Incendi (i cada 10 min mentre estiga oberta)
+function bomArrenca(){ bomConsulta(); if(!bomTimer) bomTimer=setInterval(()=>{ if(!document.hidden && document.querySelector('#tabs .tab.actiu')?.dataset.t==='incendi') bomConsulta(); },10*60*1000); }
 $('focGuarda').addEventListener('click',focGuarda);
 $('focSync').addEventListener('click',()=>focsSync(false));
 $('focList').addEventListener('click',async e=>{
@@ -6076,6 +6157,7 @@ async function desaCorreguda(){
       if(typeof netejaAnalisi==='function') netejaAnalisi();
       if(t==='temps' && typeof reviewMode!=='undefined' && reviewMode && typeof tornaDirecte==='function') tornaDirecte();
       else if(typeof render==='function') render();
+      if(t==='incendi' && typeof bomArrenca==='function') bomArrenca();
       if(t==='prev'){ if(typeof pexInit==='function') pexInit(); if(typeof harMapToggle==='function') harMapToggle(true); }
       else { if(typeof harMapToggle==='function') harMapToggle(false); if(typeof pexCloseRight==='function') pexCloseRight(); }
     }catch(e){}
