@@ -240,6 +240,15 @@ def arome_sessio():
     import requests
     s = requests.Session()
     cid, csec = os.environ.get("METEOFRANCE_CLIENT_ID", "").strip(), os.environ.get("METEOFRANCE_CLIENT_SECRET", "").strip()
+    app_id = os.environ.get("METEOFRANCE_APP_ID", "").strip()          # "Application ID" del portal (base64 de "clau:secret")
+    if app_id and not (cid and csec):
+        try:
+            import base64 as _b64
+            dec = _b64.b64decode(app_id.replace("Basic", "").strip()).decode()
+            if ":" in dec:
+                cid, csec = dec.split(":", 1)
+        except Exception:
+            raise SystemExit("AROME: METEOFRANCE_APP_ID no és un base64 vàlid de 'clau:secret'")
     if cid and csec:
         r = s.post(AROME_TOKEN_URL, data={"grant_type": "client_credentials"}, auth=(cid, csec), timeout=30)
         if r.status_code != 200:
@@ -248,7 +257,7 @@ def arome_sessio():
     else:
         k = os.environ.get("METEOFRANCE_API_KEY", "").strip()
         if not k:
-            raise SystemExit("AROME: calen METEOFRANCE_CLIENT_ID + METEOFRANCE_CLIENT_SECRET (OAuth2) o METEOFRANCE_API_KEY")
+            raise SystemExit("AROME: cal METEOFRANCE_APP_ID (Application ID del portal) o METEOFRANCE_CLIENT_ID + METEOFRANCE_CLIENT_SECRET, o METEOFRANCE_API_KEY")
         hdr = {"apikey": k}
     hdr["User-Agent"] = UA
     return s, hdr
