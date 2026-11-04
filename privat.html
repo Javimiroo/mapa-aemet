@@ -2465,8 +2465,10 @@ async function generarImatge(){
     }
     // Nom per a la capçalera: l'INCENDI ACTIU (🟢) del qual estem traient informació; si n'hi ha més
     // d'un, tots separats per " · ". Si no n'hi ha cap d'actiu, el camp "Nom / lloc" del formulari (si està ple).
-    const actius=(typeof focsCache!=='undefined'&&Array.isArray(focsCache))?focsCache.filter(f=>f&&f.actiu&&f.nom):[];
-    const nom=actius.length?actius.map(f=>f.nom.trim()).join(' · '):($('incident').value||'').trim();
+    // NOMÉS els incendis que estan realment DIBUIXATS al mapa ara (flames actives) o la flama en edició amb nom:
+    // si l'usuari lleva l'incendi del mapa, el subtítol desapareix (ell decideix què és rellevant).
+    const alMapa=(typeof focsCache!=='undefined'&&Array.isArray(focsCache))?focsCache.filter(f=>f&&f.actiu&&f.flama&&f.nom&&map.hasLayer&&focsActiusMarkers.some(m=>map.hasLayer(m)&&m.getLatLng().lat===f.flama.lat&&m.getLatLng().lng===f.flama.lng)):[];
+    const nom=alMapa.length?alMapa.map(f=>f.nom.trim()).join(' · '):((flameLL&&($('incident').value||'').trim())||'');
     const panes = comboActive
       ? [{el:$('map'),mapObj:map,spec:specWithThr(comboActive.a)},{el:$('map2'),mapObj:map2,spec:specWithThr(comboActive.b)}]
       : [{el:$('map'),mapObj:map,spec:especMapaUnic()}];
@@ -3084,8 +3086,16 @@ async function focsAPI(accio,extra,dem){
 }
 async function focsSync(nomesSiPass){
   if(nomesSiPass && !passEquip(false)){ focsRender(); return; }
-  const a=await focsAPI('llista',null,!nomesSiPass);
-  if(a){ focsCache=a; focsLocalDesa(a); }
+  let a=await focsAPI('llista',null,!nomesSiPass);
+  if(a){
+    // RE-PUJADA automàtica dels incendis que van quedar "només ací" (el Worker va fallar en guardar-los):
+    // ara que hi ha connexió es pugen sols. Si no es poden pujar, NO es perden: es conserven a la llista local.
+    const pendents=focsCache.filter(f=>String(f.id).startsWith('local') && !a.some(x=>String(x.id)===String(f.id)));
+    const noPujats=[];
+    for(const f of pendents){ const r=await focsAPI('guarda',{foc:f},false); if(r) a=r; else noPujats.push(f); }
+    focsCache=noPujats.concat(a); focsLocalDesa(focsCache);
+    if(noPujats.length) console.warn('focs locals pendents de pujar:',noPujats.map(f=>f.nom));
+  }
   focsRender();
 }
 function focPerimsDe(f){    // compat: nou (perims) o antic (perim)
@@ -3101,7 +3111,7 @@ function focsRender(){
     const d=new Date(f.ts||Date.now());
     const q=d.toLocaleDateString('ca-ES',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
     const nper=focPerimsDe(f).length, nrun=(f.runs||[]).length;
-    const extra=(nper?(' · '+nper+' perím.'):'')+(nrun?(' · '+nrun+' vent'):'')+(f.fi?' · 🏁':'');
+    const extra=(nper?(' · '+nper+' perím.'):'')+(nrun?(' · '+nrun+' vent'):'')+(f.fi?' · 🏁':'')+(String(f.id).startsWith('local')?' · <span style="color:#fb923c">local* (no pujat al servidor)</span>':'');
     const sel=(String(f.id)===String(focActualId))?';outline:2px solid var(--accent)':'';
     return '<div class="row" style="align-items:stretch;gap:5px;margin-top:5px">'
       +'<button class="btn small focA" data-id="'+f.id+'" title="'+(f.actiu?'Actiu al mapa · clica per desactivar':'Inactiu · clica per mostrar-lo al mapa')+'" style="flex:0 0 auto">'+(f.actiu?'🟢':'⚪')+'</button>'
@@ -3223,13 +3233,14 @@ function bomCapaMapa(){               // punts taronja dels incendis actius de B
 async function bomAfegir(){
   const ids=[...document.querySelectorAll('.bomChk:checked')].map(c=>c.value); if(!ids.length) return;
   const b=$('bomAfegir'); b.disabled=true; b.textContent='Afegint…';
-  let n=0, ultim=null;
+  let n=0, ultim=null, nomesLocal=0;
   for(const id of ids){ const x=bomActius.find(y=>y.id===id); if(!x) continue;
     const foc={ nom:x.municipi+(x.tipus==='forestal'?'':(' ('+x.tipus+')')), flama:{lat:+x.lat.toFixed(5),lng:+x.lon.toFixed(5)}, perims:[], inici:x.inici||Date.now(), actiu:true, bombers:x.id };
     const a=await focsAPI('guarda',{foc});
     if(a){ focsCache=a; focsLocalDesa(a); n++; ultim=a[0]; }
-    else { foc.id='local'+Date.now(); foc.ts=Date.now(); focsCache=[foc].concat(focsCache).slice(0,20); focsLocalDesa(focsCache); n++; ultim=foc; }
+    else { foc.id='local'+Date.now(); foc.ts=Date.now(); focsCache=[foc].concat(focsCache).slice(0,20); focsLocalDesa(focsCache); n++; ultim=foc; nomesLocal++; }
   }
+  if(nomesLocal) alert(nomesLocal+' incendi'+(nomesLocal>1?'s':'')+' NO s\'ha'+(nomesLocal>1?'n':'')+' pogut guardar al servidor de l\'equip (queda'+(nomesLocal>1?'n':'')+' només en este navegador, marcat'+(nomesLocal>1?'s':'')+' «local»). Es tornarà a intentar pujar-lo en recarregar. Si persisteix, revisa la contrasenya de l\'equip (↻ a la llista).');
   focsRender(); if(typeof renderFocsActius==='function') try{ renderFocsActius(); }catch(e){}
   if(ultim&&ultim.id) focCarrega(ultim.id);
   bomRender(); b.textContent='✓ '+n+' afegit'+(n>1?'s':''); setTimeout(bomBotons,1800);
@@ -5727,7 +5738,7 @@ function focDrawStations(){
   }
 }
 function focDrawPerims(){ if(FD&&FD.perimLayer) FD.perimLayer.redraw(); }
-function focFlame(){ if(!FD||!FD.map)return; if(FD.flameM){FD.map.removeLayer(FD.flameM);FD.flameM=null;} if(FD.foc.flama) FD.flameM=L.marker([FD.foc.flama.lat,FD.foc.flama.lng],{icon:flamaIcon()}).addTo(FD.map); }
+function focFlame(){ if(!FD||!FD.map)return; if(FD.flameM){FD.map.removeLayer(FD.flameM);FD.flameM=null;} if(FD.foc.flama) FD.flameM=L.marker([FD.foc.flama.lat,FD.foc.flama.lng],{icon:L.divIcon({className:'foc-flama-m',html:FLAMA_SVG,iconSize:[52,64],iconAnchor:[26,62]})}).addTo(FD.map); }
 function focRenderEstList(){
   const box=$('focEstList'); if(!box)return;
   box.innerHTML=FD.nears.slice(0,14).map(o=>{ const id=String(o.st.idema), on=FD.chartIds.indexOf(id)>=0;
@@ -5807,18 +5818,24 @@ async function focComposaMapa(S){
   // s'ignoren a la captura i es dibuixen per PROJECCIÓ; els discos/etiquetes (markerPane) es
   // capturen a part i es posen els ÚLTIMS. Ordre final: etiquetes > límits > capes > fons.
   const ambLimits=!!(FD.limitsLayer && (comarcaGeo||catGeo));
+  // la FLAMA i els marcadors es dibuixen/capturen a part: html2canvas els desplaça a zoom fraccionari
   const base=await html2canvas(el,{useCORS:true, backgroundColor:(FD.fonsKey==='blanc'?'#ffffff':'#0b1220'), scale:S, logging:false,
-    ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-control-container')||x.classList.contains('leaflet-comarques-pane')||(ambLimits&&x.classList.contains('leaflet-marker-pane')))});
-  const c=base.getContext('2d');
-  if(ambLimits){
-    dibuixaLimitsCanvas(c, FD.map, 0, 0, base.width/el.clientWidth, base.height/el.clientHeight, S, FD.fonsKey||'satellite');
-    try{
-      const mk=await html2canvas(el,{useCORS:true, backgroundColor:null, scale:S, logging:false,
-        ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-control-container')||x.classList.contains('leaflet-overlay-pane')||x.classList.contains('leaflet-tile-pane')||x.classList.contains('leaflet-comarques-pane')),
-        onclone:dc=>{ dc.querySelectorAll('.leaflet-container,.leaflet-pane,.leaflet-tile-container').forEach(e=>{e.style.background='transparent';}); }});
-      c.drawImage(mk,0,0);
-    }catch(e){}
-  }
+    ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-control-container')||x.classList.contains('leaflet-comarques-pane')||x.classList.contains('leaflet-marker-pane')||x.classList.contains('leaflet-tooltip-pane'))});
+  const c=base.getContext('2d'), sx=base.width/el.clientWidth, sy=base.height/el.clientHeight;
+  if(ambLimits) dibuixaLimitsCanvas(c, FD.map, 0, 0, sx, sy, S, FD.fonsKey||'satellite');
+  try{   // marcadors (estacions, punts de previsió…) sense la flama
+    const mk=await html2canvas(el,{useCORS:true, backgroundColor:null, scale:S, logging:false,
+      ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-control-container')||x.classList.contains('leaflet-overlay-pane')||x.classList.contains('leaflet-tile-pane')||x.classList.contains('leaflet-comarques-pane')||x.classList.contains('foc-flama-m')),
+      onclone:dc=>{ dc.querySelectorAll('.leaflet-container,.leaflet-pane,.leaflet-tile-container').forEach(e=>{e.style.background='transparent';}); }});
+    c.drawImage(mk,0,0);
+  }catch(e){}
+  // FLAMA per PROJECCIÓ (sempre al lloc exacte)
+  if(FD.foc&&FD.foc.flama){ try{
+    const pt=FD.map.latLngToContainerPoint([FD.foc.flama.lat,FD.foc.flama.lng]);
+    const img=new Image(); img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(FLAMA_SVG.replace(/ style="[^"]*"/,''));
+    await new Promise(r=>{ img.onload=r; img.onerror=r; });
+    const w=52*S, h=64*S; c.drawImage(img, pt.x*sx-w/2, pt.y*sy-h*62/64, w, h);
+  }catch(e){} }
   if(FD.runData && $('focVentOn').checked) dibuixaLlegendaVentBox(c, 12*S, base.height-58*S, S, 'Vent WindNinja (km/h)');
   return base;
 }
@@ -5851,47 +5868,59 @@ async function focCapturaPanell(S){
 async function focExportImatge(){
   if(typeof html2canvas!=='function'){ alert('Falta la llibreria de captura.'); return; }
   const btn=$('focExport'),old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
+  try{ await pyrometFontLlesta(); }catch(e){}
   try{
+    // INFORME D'INCENDI en DIN A4 apaïsat, fons BLANC, mateix llenguatge que la resta d'exports:
+    // capçalera (logo Pyromet + títol a l'esquerra, Bombers a la dreta), mapa a l'esquerra (flama per
+    // projecció), panell obert a la dreta, llegenda de perímetres i con, peu d'una línia.
     const S=2, mapC=await focComposaMapa(S);
-    // PANELL DRET: s'exporta la secció de l'acordió que estiga OBERTA (previsió del model, WindNinja previsió,
-    // estacions & meteogrames o perímetres), desplegada del tot (sense barres de desplaçament) perquè isca sencera.
-    // Si no n'hi ha cap d'oberta (o el mapa està en "Mapa gran"), només s'exporta el mapa.
     const chartsC=await focCapturaPanell(S);
-    const pad=18*S, head=66*S, foot=30*S, gap=16*S;
+    const W=1240*S, H=877*S, m=14*S, footH=EXPORT_PEU*S;
     const q=ms=>new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    const hm=ms=>new Date(ms).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'});
-    // apaïsat: mapa a l'esquerra, meteogrames a la dreta, alineats a dalt
-    const ps=focPerimsList(), cols=focPerimColors(ps.length);
-    const legH=ps.length?(20*S+ps.length*17*S):0;                 // llegenda d'hores dels perímetres
-    const bodyH=Math.max(mapC.height+legH, chartsC?chartsC.height:0);
-    const W=pad+mapC.width+(chartsC?(gap+chartsC.width):0)+pad, H=head+bodyH+foot+2*pad;
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
-    c.fillStyle='#0b1220'; c.fillRect(0,0,W,H);
-    c.fillStyle='#fff'; c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(23*S)+'px Arial';
-    c.fillText('🔥 '+(FD.foc.nom||'Incendi'), pad, pad+head*0.34);
+    c.fillStyle='#fff'; c.fillRect(0,0,W,H);
+    const caixa=(bx,by,bw,bh,r)=>{ c.save(); c.fillStyle='#fff'; c.strokeStyle='rgba(0,0,0,.25)'; c.lineWidth=S; c.beginPath(); c.roundRect?c.roundRect(bx,by,bw,bh,(r||8)*S):c.rect(bx,by,bw,bh); c.fill(); c.stroke(); c.restore(); };
+    // ---- CAPÇALERA ----
+    const logoH=30*S, top=m, nom=FD.foc.nom||'Incendi';
+    const bombersOn=(typeof LOGO_BOMBERS_ON==='undefined')||LOGO_BOMBERS_ON;
+    const logoW=(logoBombersImg.complete&&logoBombersImg.naturalWidth)?logoH*logoBombersImg.naturalWidth/logoBombersImg.naturalHeight:logoH*2.87;
+    const lbw=logoW+20*S, lbh=logoH+16*S;
+    if(bombersOn){ caixa(W-m-lbw, top, lbw, lbh); dibuixaLogoBombers(c, W-m-lbw+10*S, top+8*S, logoH); }
     const ventMs=(FD.runData&&FD.runData.t&&FD.runData.t[0])||null;
-    c.fillStyle='#cbd5e1'; c.font=(13*S)+'px Arial'; c.textAlign='left';
-    c.fillText('Dades meteorològiques de les '+q(FD.tSel)+(ventMs?('   ·   Camp de vent WindNinja de les '+q(ventMs)):'')
-      +(FD.foc.inici?('   ·   Inici: '+q(FD.foc.inici)):'')+(FD.foc.fi?('   ·   🏁 '+q(FD.foc.fi)):'')
-      +((chartsC&&chartsC.$titol)?('   ·   Panell: '+chartsC.$titol):'')
-      +((FD.con)?('   ·   Con de propagació BETA: '+FD.con.res.R_mmin.toFixed(1)+' m/min cap a '+Math.round(FD.con.res.dir)+'° · '+FD.con.fuel.nom.split(' · ')[0]+' · vent '+Math.round(FD.con.vent.vv)+' km/h ('+FD.con.vent.font+') · FMd '+FD.con.fm.fmd.toFixed(1)+' %'):''), pad, pad+head*0.72);
-    // logo Bombers (dalt a la dreta): "bombers" + 4 quadrats
-    const lh=Math.round(head*0.60); c.font='900 '+Math.round(lh*0.66)+'px Arial';
-    const lw=c.measureText('bombers').width; dibuixaLogoBombers(c, W-pad-lw, pad+(head-lh)/2, lh);
-    const mapY=pad+head, chX=pad+mapC.width+gap;
-    c.drawImage(mapC, pad, mapY);
-    c.strokeStyle='#334155'; c.lineWidth=S; c.strokeRect(pad,mapY,mapC.width,mapC.height);
-    // llegenda dels perímetres (color + hora)
-    if(ps.length){ let ly=mapY+mapC.height+14*S;
-      c.textAlign='left'; c.textBaseline='middle'; c.fillStyle='#cbd5e1'; c.font='bold '+(12*S)+'px Arial';
-      c.fillText('Evolució del perímetre:', pad, ly); ly+=18*S;
-      ps.forEach((p,k)=>{ c.fillStyle=cols[k].s; c.fillRect(pad,ly-6*S,16*S,12*S); c.strokeStyle='#0b1220'; c.lineWidth=S; c.strokeRect(pad,ly-6*S,16*S,12*S);
-        c.fillStyle='#e5e7eb'; c.font=(12*S)+'px Arial'; c.textAlign='left';
-        c.fillText('Perímetre '+(k+1)+' · '+q(p.ts)+(k===0?'  (inicial)':(k===ps.length-1?'  (últim)':'')), pad+22*S, ly); ly+=17*S; });
-    }
-    if(chartsC) c.drawImage(chartsC, chX, mapY);
-    c.textAlign='left'; c.fillStyle='#64748b'; c.font=(11*S)+'px Arial';
-    c.fillText('Generat '+new Date().toLocaleString('ca-ES')+' · Vent d\'alta resolució WindNinja · Dades AEMET i Meteocat (SMC) · Base: Esri', pad, H-pad-foot*0.4);
+    const sub=['Dades meteo de les '+q(FD.tSel)].concat(ventMs?['WindNinja de les '+q(ventMs)]:[], FD.foc.inici?['Inici '+q(FD.foc.inici)]:[], FD.foc.fi?['🏁 '+q(FD.foc.fi)]:[]).join('  ·  ');
+    const L=[{t:'INCENDI · '+nom.toUpperCase(), f:'bold '+(20*S)+'px Arial', col:'#b00000', h:24*S},{t:sub, f:'bold '+(12.5*S)+'px Arial', col:'#334155', h:17*S}];
+    let maxw=0; L.forEach(l=>{ c.font=l.f; maxw=Math.max(maxw,c.measureText(l.t).width); });
+    const pmH=34*S, pmW=amplePyromet(c,pmH), pmPad=12*S, pmGap=14*S;
+    const tbw=Math.min(W-2*m-(bombersOn?lbw+10*S:0), pmPad+pmW+pmGap+maxw+28*S), tbh=Math.max(L.reduce((a,l)=>a+l.h,0)+14*S, pmH+16*S);
+    caixa(m, top, tbw, tbh);
+    dibuixaLogoPyromet(c, m+pmPad, top+(tbh-pmH)/2, pmH, true);
+    c.strokeStyle='rgba(0,0,0,.18)'; c.lineWidth=S; c.beginPath(); c.moveTo(m+pmPad+pmW+pmGap/2, top+8*S); c.lineTo(m+pmPad+pmW+pmGap/2, top+tbh-8*S); c.stroke();
+    { const tx0=m+pmPad+pmW+pmGap+14*S, th0=L.reduce((a,l)=>a+l.h,0); c.textAlign='left'; c.textBaseline='middle'; let ty=top+(tbh-th0)/2;
+      L.forEach(l=>{ c.font=l.f; c.fillStyle=l.col; let t=l.t; const maxTw=tbw-(tx0-m)-14*S; while(c.measureText(t).width>maxTw&&t.length>8) t=t.slice(0,-2)+'…'; c.fillText(t, tx0, ty+l.h/2); ty+=l.h; }); }
+    // ---- COS: mapa (esquerra) + panell (dreta) ----
+    const y0=top+Math.max(tbh,lbh)+12*S, bodyH=H-footH-10*S-y0;
+    const ps=focPerimsList(), cols=focPerimColors(ps.length);
+    const legH=ps.length?(16*S+ps.length*15*S):0, conH=FD.con?44*S:0;
+    const panW=chartsC?Math.min(0.42*(W-2*m), chartsC.width*((bodyH)/chartsC.height)):0;   // el panell cap sencer d'alt
+    const mapBoxW=W-2*m-(chartsC?panW+12*S:0), mapBoxH=bodyH-legH-conH;
+    const sc=Math.min(mapBoxW/mapC.width, mapBoxH/mapC.height), mw=Math.round(mapC.width*sc), mh=Math.round(mapC.height*sc);
+    c.drawImage(mapC,0,0,mapC.width,mapC.height, m, y0, mw, mh); c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(m,y0,mw,mh);
+    let ly=y0+mh+8*S;
+    if(ps.length){ c.textAlign='left'; c.textBaseline='middle'; c.fillStyle='#111'; c.font='bold '+(11.5*S)+'px Arial'; c.fillText('Evolució del perímetre', m, ly+6*S); ly+=16*S;
+      ps.forEach((p,k)=>{ c.fillStyle=cols[k].s; c.fillRect(m,ly-5*S,14*S,10*S); c.strokeStyle='#333'; c.lineWidth=S; c.strokeRect(m,ly-5*S,14*S,10*S);
+        c.fillStyle='#334155'; c.font=(11*S)+'px Arial'; c.fillText('Perímetre '+(k+1)+' · '+q(p.ts)+(k===0?'  (inicial)':(k===ps.length-1?'  (últim)':'')), m+20*S, ly); ly+=15*S; }); }
+    if(FD.con){ const r=FD.con.res; c.textAlign='left'; c.textBaseline='middle';
+      c.fillStyle='#b45309'; c.font='bold '+(11.5*S)+'px Arial'; c.fillText('Con de propagació (BETA · Rothermel, combustible homogeni, sense focus secundaris ni capçades)', m, ly+6*S); ly+=16*S;
+      c.fillStyle='#334155'; c.font=(11*S)+'px Arial';
+      c.fillText('Cap '+r.R_mmin.toFixed(1)+' m/min cap a '+Math.round(r.dir)+'° · 1 h '+(r.R_mmin*60/1000).toFixed(1)+' km · 3 h '+(r.R_mmin*180/1000).toFixed(1)+' km · 6 h '+(r.R_mmin*360/1000).toFixed(1)+' km · '+Math.round(r.I_kWm)+' kW/m · flama '+r.flama_m.toFixed(1)+' m', m, ly); ly+=14*S;
+      c.fillStyle='#64748b'; c.fillText(FD.con.fuel.nom+' · vent '+Math.round(FD.con.vent.vv)+' km/h de '+Math.round(FD.con.vent.dv)+'° ('+FD.con.vent.font+') · pendent '+FD.con.pend.graus.toFixed(0)+'° · FMd '+FD.con.fm.fmd.toFixed(1)+' % ('+FD.con.fm.font+')', m, ly); }
+    if(chartsC){ const px=W-m-panW, psc=Math.min(panW/chartsC.width, bodyH/chartsC.height), pw=Math.round(chartsC.width*psc), ph=Math.round(chartsC.height*psc);
+      c.save(); c.beginPath(); c.roundRect?c.roundRect(px,y0,pw,ph,8*S):c.rect(px,y0,pw,ph); c.clip(); c.drawImage(chartsC,0,0,chartsC.width,chartsC.height, px,y0,pw,ph); c.restore();
+      c.strokeStyle='#999'; c.lineWidth=S; c.beginPath(); c.roundRect?c.roundRect(px,y0,pw,ph,8*S):c.rect(px,y0,pw,ph); c.stroke(); }
+    // ---- PEU ----
+    const fy=H-footH/2; c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial'; c.textAlign='left';
+    c.fillText('Informe d\'incendi · generat '+q(Date.now())+' (hora local)'+(chartsC&&chartsC.$titol?('   ·   Panell: '+chartsC.$titol):''), m, fy);
+    c.textAlign='right'; c.fillText('Vent d\'alta resolució WindNinja · Dades: AEMET · Meteocat (SMC) · Base: Esri   ·   Eina desenvolupada per Javi Miró', W-m, fy);
     cv.toBlob(bl=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
       a.download='incendi_'+((FD.foc.nom||'incendi').replace(/[^\w]+/g,'_'))+'.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); },'image/png');
   }catch(e){ alert('No s\'ha pogut exportar: '+(e&&e.message||e)); }
