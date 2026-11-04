@@ -442,6 +442,7 @@
           <option value="ratxa">Ratxa màx. (km/h)</option>
           <option value="precip">Pluja (mm/h)</option>
           <option value="hr">Humitat relativa (%)</option>
+          <option value="fmd">Humitat combustible mort FMd (%)</option>
           <option value="nuvol">Nuvolositat (%)</option>
           <option value="llamps">Llamps</option>
           <option value="cap">— Cap superfície (només fletxes) —</option>
@@ -837,7 +838,7 @@
         </select>
         <select id="focHarVar" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px" title="Variable de la previsió">
           <option value="temp">Tª</option><option value="vent">Vent</option><option value="ratxa">Ratxa</option>
-          <option value="precip">Pluja</option><option value="hr">HR</option><option value="nuvol">Núvols</option><option value="llamps">Llamps</option><option value="cap">— cap —</option>
+          <option value="precip">Pluja</option><option value="hr">HR</option><option value="fmd">FMd</option><option value="nuvol">Núvols</option><option value="llamps">Llamps</option><option value="cap">— cap —</option>
         </select>
         <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" id="focHarArrows" checked> Fletxes</label>
         <button class="tb-btn" id="focHarPrev" title="Hora anterior" style="padding:1px 6px">◀</button>
@@ -1007,6 +1008,7 @@
 const VARS = {
   ta:    {label:'Temperatura',      unit:'°C',   dir:'>', scale:'temp', presets:[20,25,30,35,40], dec:1},
   hr:    {label:'Humitat relativa', unit:'%',    dir:'<', scale:'hum',  presets:[40,30,20,10],    dec:0},
+  fmd:   {label:'Humitat combustible mort (FMd)', unit:'%', dir:'<', scale:'fmd', presets:[12,10,8,6], dec:1},
   tpr:   {label:'Punt de rosada',   unit:'°C',   dir:'>', scale:'temp', presets:[10,15,20],       dec:1},
   barbes:{label:'Barbes: velocitat i direcció vent', unit:'', special:'barbs', presets:[],        dec:0},
   vv:    {label:'Vent mitjà',       unit:'km/h', dir:'>', scale:'wind', presets:[20,30,40],       dec:1},
@@ -1018,7 +1020,12 @@ const VARS = {
   tamax: {label:'Temp. màx (24 h)', unit:'°C',   dir:'>', scale:'temp', presets:[25,30,35,40],    dec:1},
   tamin: {label:'Temp. mín (24 h)', unit:'°C',   dir:'>', scale:'temp', presets:[15,20,25],       dec:1},
 };
-const ORDER = ['ta','hr','tpr','barbes','vv','vmax','dv','prec','pacum','pres','tamax','tamin'];
+const ORDER = ['ta','hr','fmd','tpr','barbes','vv','vmax','dv','prec','pacum','pres','tamax','tamin'];
+// ---- HUMITAT DEL COMBUSTIBLE FI MORT (FMd), % del pes sec: model VPD de Resco de Dios i col. (Rodrigues et al. 2024,
+// coeficients de pastura, com a fmd-beta.vercel.app): FMd = 1.19 + 19.81226·e^(−0.28511·VPD) − 2.70265, ≥ 0.
+// VPD (kPa) = es(T)·(1 − HR/100), es per Tetens. Es calcula a partir de Tª i HR (estacions i models ICON/AROME).
+function vpdKpa(t,hr){ if(t==null||hr==null||isNaN(t)||isNaN(hr)) return null; const es=0.6108*Math.exp(17.27*t/(t+237.3)); return Math.max(0,es*(1-Math.max(0,Math.min(100,hr))/100)); }
+function fmdDe(t,hr){ const v=vpdKpa(t,hr); if(v==null) return null; return Math.max(0, 1.19 + 19.81226*Math.exp(-0.28511*v) - 2.70265); }
 let pacumPeriode = '24h';
 let pacumMax = 200;                            // fins on arriba la LLEGENDA. Els colors són FIXOS (10, 50,
                                                // 100, 200 sempre el mateix color); només es RETALLA l'extensió
@@ -1049,6 +1056,7 @@ const PACUM_LAB = {'1h':'1 h','3h':'3 h','6h':'6 h','24h':'24 h','dia':'del dia 
 
 const SCALES = {
   temp:[[6,[150,225,230]],[12,[130,205,190]],[16,[150,210,150]],[20,[200,225,120]],[24,[250,240,110]],[28,[252,205,80]],[32,[250,150,60]],[36,[235,85,50]],[40,[195,25,35]],[44,[150,10,30]]],
+  fmd:[[4,[120,10,20]],[6,[205,35,35]],[8,[240,95,45]],[10,[250,160,60]],[12,[250,225,110]],[15,[150,210,100]],[20,[70,195,180]],[25,[60,140,205]]],   // sec (roig) -> humit (blau)
   hum:[[5,[140,10,25]],[15,[205,35,35]],[25,[240,95,45]],[35,[250,160,60]],[45,[250,225,110]],[55,[150,210,100]],[65,[70,195,180]],[75,[60,140,205]],[85,[70,85,190]],[95,[140,60,180]],[100,[180,90,200]]],
   wind:[[0,[150,230,230]],[10,[110,180,235]],[20,[70,120,220]],[30,[60,80,190]],[40,[90,175,95]],[50,[160,205,90]],[60,[235,225,90]],[70,[250,190,70]],[90,[240,110,50]],[110,[205,35,40]]],
   prec:[[0,[237,248,251]],[0.4,[189,215,231]],[2,[116,169,207]],[8,[43,113,181]],[20,[8,64,129]]],
@@ -1080,6 +1088,7 @@ function getVal(st,vk){
   if(vk==='tamax') return a.tamax_dia!=null?a.tamax_dia:a.tamax;
   if(vk==='tamin') return a.tamin_dia!=null?a.tamin_dia:a.tamin;
   if(vk==='pacum'){ const p=a.pacum; return (p&&p[pacumPeriode]!=null)?p[pacumPeriode]:null; }
+  if(vk==='fmd') return fmdDe(a.ta,a.hr);
   return a[vk];
 }
 function streakHores(st,vk,op,val){
@@ -4787,6 +4796,7 @@ function harPuntSerie(p,lat,lon){
     }
     out[k]=s;
   }
+  if(out.temp&&out.hr) out.fmd=out.temp.map((t,i)=>fmdDe(t,out.hr[i]));   // FMd derivada (ICON/AROME)
   return out;
 }
 async function focHarmonie(){
@@ -4877,6 +4887,16 @@ function harPaccRang(p,h){ const n=p.hores.length; h=Math.max(0,Math.min(n-1,h))
   const k=harPaccN(); if(k<=1) return [h,h];
   const b=Math.floor(h/k); return [b*k, Math.min(n-1,(b+1)*k-1)]; }
 const _harPaccCache={};
+// graella derivada FMd (Float32, ny*nx) per a l'hora h, a partir dels camps temp i hr del model (null si no els té)
+const _harFmdCache={};
+function harFmdGrid(p,h){
+  const ft=p.fields.temp, fh=p.fields.hr; if(!ft||!ft.arr||!fh||!fh.arr) return null;
+  const key=p.run+'|'+p.model+'|'+h; if(_harFmdCache[key]) return _harFmdCache[key];
+  const N=p.nx*p.ny, off=h*N, out=new Float32Array(N);
+  for(let q=0;q<N;q++){ const t=(ft.lo||0)+ft.arr[off+q]*ft.scale, hr=(fh.lo||0)+fh.arr[off+q]*fh.scale; const v=fmdDe(t,hr); out[q]=v==null?0:v; }
+  for(const k in _harFmdCache){ if(k.indexOf(p.run+'|')!==0) delete _harFmdCache[k]; }
+  _harFmdCache[key]=out; return out;
+}
 // Float32Array (ny*nx) amb els mm del mode actual per a l'hora h (amb memòria cau per passada/mode/hora)
 function harPrecipGrid(p,h){
   const f=p.fields.precip; if(!f||!f.arr) return null;
@@ -4902,6 +4922,7 @@ const HARV={
   vent:{lab:'Vent',unit:'km/h',wind:true,alwaysDraw:true},
   ratxa:{lab:'Ratxa',unit:'km/h',wind:true,alwaysDraw:true},
   precip:{lab:'Pluja',unit:'mm',pacum:true,thr:0.1},
+  fmd:{lab:'Humitat combustible mort (FMd)',unit:'%',alwaysDraw:true,derivat:['temp','hr'],stops:[[4,[120,10,20]],[6,[205,35,35]],[8,[240,95,45]],[10,[250,160,60]],[12,[250,225,110]],[15,[150,210,100]],[20,[70,195,180]],[25,[60,140,205]]]},   // derivada de Tª i HR (ICON/AROME)
   hr:{lab:'Humitat relativa',unit:'%',alwaysDraw:true,stops:[[5,[140,10,25]],[15,[205,35,35]],[25,[240,95,45]],[35,[250,160,60]],[45,[250,225,110]],[55,[150,210,100]],[65,[70,195,180]],[75,[60,140,205]],[85,[70,85,190]],[95,[140,60,180]],[100,[180,90,200]]]},   // ICON/AROME (HARMONIE no la porta); mateixa paleta que la HR observada
   nuvol:{lab:'Núvols',unit:'%',thr:3,stops:[[0,[255,255,255]],[20,[229,235,250]],[40,[196,214,229]],[60,[114,169,195]],[80,[33,115,184]],[100,[12,41,74]]]},
   llamps:{lab:'Llamps',unit:'',thr:0.01,stops:[[0,[120,220,150]],[0.05,[233,235,19]],[0.1,[232,144,14]],[0.2,[191,0,61]]]},
@@ -4929,11 +4950,12 @@ const HarMapSurface=L.Layer.extend({
   redraw:function(){if(this._m)this._rs();},
   _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
-    const p=HARM.payload; if(!p||HARM.varK==='cap')return; const f=p.fields[HARM.varK]; if(!f||!f.arr)return;
+    const p=HARM.payload; if(!p||HARM.varK==='cap')return; const f=p.fields[HARM.varK]||(HARM.varK==='fmd'?{lo:0,scale:1,arr:null}:null); if(!f||(!f.arr&&HARM.varK!=='fmd'))return;
     try{
       const nx=p.nx,ny=p.ny,B=p.bbox,h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
       const meta=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(meta.thr!=null?meta.thr:-1e9);
-      const acc=(HARM.varK==='precip')?harPrecipGrid(p,h):null;      // pluja: acumulació del mode triat (1 h / trams / total)
+      const acc=(HARM.varK==='precip')?harPrecipGrid(p,h):(HARM.varK==='fmd'?harFmdGrid(p,h):null);      // pluja: acumulació del mode triat; FMd: derivada de Tª+HR
+      if(HARM.varK==='fmd' && !acc) return;
       const off=document.createElement('canvas');off.width=nx;off.height=ny;
       const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
       for(let j=0;j<ny;j++){ for(let i=0;i<nx;i++){ const v=acc?acc[j*nx+i]:(base+f.arr[((h*ny)+j)*nx+i]*sc); const q=(j*nx+i)*4;
@@ -4990,8 +5012,8 @@ function harSyncControls(){ const mx=HARM.payload?HARM.payload.hores.length-1:47
   // model: selectors sincronitzats + variables que el model NO porta desactivades (p. ex. HR a HARMONIE, llamps a ICON/AROME)
   ['harModel','focHarModel','focHarModel2'].forEach(id=>{ const s=$(id); if(s) s.value=HARM.model; });
   const flds=HARM.payload?HARM.payload.fields:null;
-  ['harVar','focHarVar'].forEach(id=>{ const s=$(id); if(!s)return; Array.from(s.options).forEach(o=>{ o.disabled=!!(flds && o.value!=='cap' && !flds[o.value]); }); });
-  if(flds && HARM.varK!=='cap' && !flds[HARM.varK]){ HARM.varK=flds.temp?'temp':'vent'; }   // variable absent al model -> una que hi siga
+  ['harVar','focHarVar'].forEach(id=>{ const s=$(id); if(!s)return; Array.from(s.options).forEach(o=>{ o.disabled=!!(flds && o.value!=='cap' && !(flds[o.value] || (o.value==='fmd' && flds.temp && flds.hr))); }); });
+  if(flds && HARM.varK!=='cap' && !(flds[HARM.varK] || (HARM.varK==='fmd'&&flds.temp&&flds.hr))){ HARM.varK=flds.temp?'temp':'vent'; }   // variable absent al model -> una que hi siga
   const w=$('harPaccWrap'); if(w) w.style.display=(HARM.varK==='precip')?'':'none';
   if($('harPacc'))$('harPacc').value=String(HARM.pacc);
   if($('harVar'))$('harVar').value=HARM.varK; if($('harHour')){$('harHour').max=mx;$('harHour').value=HARM.hour;}
@@ -5010,7 +5032,7 @@ function harBottomLegend(){
   if(!meta||HARM.varK==='cap'){ el.innerHTML='<span style="font-size:12px;color:#cbd5e1">Model HARMONIE · només fletxes de vent</span>'; el.style.display='block'; return; }
   let lo=0,hi=1,unit=meta.unit||'',lab=meta.lab;
   if(meta.pacum){lo=0;hi=harPaccHi();lab=harPaccTitol();} else if(meta.wind){lo=0;hi=120;} else {const st=meta.stops;lo=st[0][0];hi=st[st.length-1][0];}
-  if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='hr'){lo=0;hi=100;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
+  if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='hr'){lo=0;hi=100;} if(HARM.varK==='fmd'){lo=4;hi=25;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
   let g=[]; for(let t=0;t<=1.001;t+=1/16){const v=lo+(hi-lo)*t,cc=harColor(HARM.varK,v); g.push('rgb('+cc[0]+','+cc[1]+','+cc[2]+') '+Math.round(t*100)+'%');}
   const ticks=[0,.25,.5,.75,1].map(t=>'<span>'+(Math.round((lo+(hi-lo)*t)*100)/100)+'</span>').join('');
   const hlab=(meta.pacum)?harPaccLabel(HARM.payload,HARM.hour):(new Date(Date.parse(HARM.payload.hores[Math.max(0,Math.min(HARM.payload.hores.length-1,HARM.hour))])).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'})+' h');
@@ -5035,7 +5057,7 @@ function harPointPopup(m,e){
     +'<b>🛰️ '+modelInfo().curt+' · '+t+'</b><br>'
     +((sel&&HARM.varK!=='cap')?('<div style="color:#0369a1;font-weight:700;font-size:13px;margin:2px 0">'+selLab+': '+valSel+' '+sel.unit+'</div>'):'')
     +'Tª '+s.temp[h].toFixed(1)+'°C · Vent '+Math.round(s.vent[h])+' km/h '+dd+'<br>'
-    +'Ratxa '+Math.round(s.ratxa[h])+' km/h · Pluja '+s.precip[h].toFixed(1)+' mm · Núv '+Math.round(s.nuvol[h])+'%'+(s.hr?(' · HR '+Math.round(s.hr[h])+'%'):'')
+    +'Ratxa '+Math.round(s.ratxa[h])+' km/h · Pluja '+s.precip[h].toFixed(1)+' mm · Núv '+Math.round(s.nuvol[h])+'%'+(s.hr?(' · HR '+Math.round(s.hr[h])+'%'):'')+(s.fmd?(' · FMd '+s.fmd[h].toFixed(1)+'%'):'')
     +'</div>';
   L.popup({maxWidth:250}).setLatLng(e.latlng).setContent(html).openOn(m);
 }
@@ -5142,7 +5164,7 @@ function pexUpdateNow(){ const s=PEX._s, el=$('pexNow'); if(!s||!el)return; cons
   el.style.display='block';
   el.innerHTML='<b>'+new Date(s.hores[h]).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'})+' h</b> · '
     +'Tª <b style="color:#dc2626">'+s.temp[h].toFixed(1)+'°C</b> · vent <b style="color:#059669">'+Math.round(s.vent[h])+'</b> km/h '+dd
-    +' · ratxa '+Math.round(s.ratxa[h])+' · pluja <b style="color:#0284c7">'+s.precip[h].toFixed(1)+'</b> mm · núv '+Math.round(s.nuvol[h])+'%'+(s.hr?(' · HR <b style="color:#7c3aed">'+Math.round(s.hr[h])+'%</b>'):'')+(s.llamps&&s.llamps[h]>=0.01?' · ⚡':'');
+    +' · ratxa '+Math.round(s.ratxa[h])+' · pluja <b style="color:#0284c7">'+s.precip[h].toFixed(1)+'</b> mm · núv '+Math.round(s.nuvol[h])+'%'+(s.hr?(' · HR <b style="color:#7c3aed">'+Math.round(s.hr[h])+'%</b>'):'')+(s.fmd?(' · FMd <b style="color:#b45309">'+s.fmd[h].toFixed(1)+'%</b>'):'')+(s.llamps&&s.llamps[h]>=0.01?' · ⚡':'');
   if(PEX.chart){ try{PEX.chart.update('none');}catch(e){} }   // redibuixa el cursor de l'hora
 }
 // Configuració del meteograma del punt (pantalla: big=false; imatge A4: big=true → fonts grans, sense animació)
@@ -5209,7 +5231,7 @@ function prevDibuixaLlegenda(c,x,y,w,S){
   if(!meta||HARM.varK==='cap'){ c.fillStyle='#111'; c.font='bold '+(14*S)+'px Arial'; c.fillText('Vent previst (fletxes de direcció i velocitat)',x,y+6*S); return; }
   let lo=0,hi=1,unit=meta.unit||'',lab=meta.lab||'';
   if(meta.pacum){lo=0;hi=harPaccHi();lab=harPaccTitol();} else if(meta.wind){lo=0;hi=120;} else {const st=meta.stops;lo=st[0][0];hi=st[st.length-1][0];}
-  if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='hr'){lo=0;hi=100;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
+  if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='hr'){lo=0;hi=100;} if(HARM.varK==='fmd'){lo=4;hi=25;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
   if(HARM.varK==='vent') lab='Vent mitjà previst'; if(HARM.varK==='ratxa') lab='Ratxa màxima prevista'; if(HARM.varK==='temp') lab='Temperatura prevista'; if(HARM.varK==='nuvol') lab='Nuvolositat prevista'; if(HARM.varK==='llamps') lab='Descàrregues elèctriques previstes';
   // títol: què representem (+ interval del tram si és pluja acumulada)
   let titol=lab+(unit?(' ('+unit+')'):'');
@@ -5243,9 +5265,9 @@ async function prevComposaMapa(S, mapW){
   c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();
   c.drawImage(shot,0,0,shot.width,shot.height,x,mapY,mapW,mapH);
   const el=$('map'), sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
-  if(HARM.varK!=='cap'){ const f=p.fields[HARM.varK]; if(f&&f.arr){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
+  if(HARM.varK!=='cap'){ const f=p.fields[HARM.varK]||(HARM.varK==='fmd'&&harFmdGrid(p,h)?{lo:0,scale:1,arr:null}:null); if(f&&(f.arr||HARM.varK==='fmd')){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
     const off=document.createElement('canvas'); off.width=nx; off.height=ny; const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
-    const acc=esAcc?harPrecipGrid(p,h):null;   // mateixa acumulació que a pantalla
+    const acc=esAcc?harPrecipGrid(p,h):(HARM.varK==='fmd'?harFmdGrid(p,h):null);   // mateixa acumulació que a pantalla
     for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){ const v=acc?acc[j*nx+i]:(base+f.arr[((h*ny)+j)*nx+i]*sc), q=(j*nx+i)*4; if(!mm.alwaysDraw&&v<thr){d[q+3]=0;continue;} const cc=harColor(HARM.varK,v); d[q]=cc[0];d[q+1]=cc[1];d[q+2]=cc[2];d[q+3]=255; }
     oc.putImageData(im,0,0);
     const pNW=map.latLngToContainerPoint([B[3],B[0]]),pSE=map.latLngToContainerPoint([B[2],B[1]]);
