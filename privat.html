@@ -247,9 +247,11 @@
   <div class="gatebox">
     <div class="pyromet-logo v" style="font-size:40px;margin:4px auto 14px" aria-label="Pyromet"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></div>
     <h1 style="font-weight:600;margin-bottom:16px;font-size:14px;color:var(--muted);letter-spacing:.2px">Meteorologia al servei de les decisions operatives en emergències</h1>
-    <input type="password" id="pass" autocomplete="current-password" autofocus placeholder="Introdueix la contrasenya" aria-label="Contrasenya">
+    <input type="email" id="gemail" autocomplete="username" autofocus placeholder="Correu electrònic" aria-label="Correu electrònic" style="width:100%;margin-bottom:10px;text-align:center;font-size:15px;padding:10px">
+    <input type="password" id="pass" autocomplete="current-password" placeholder="Contrasenya" aria-label="Contrasenya">
     <button id="enter" class="btn primary">Entrar</button>
     <div class="gerr" id="gateerr"></div>
+    <div id="gateSessio" class="muted" style="font-size:11px;margin-top:10px;display:none">Recuperant la sessió…</div>
   </div>
 </div>
 
@@ -258,6 +260,7 @@
   <div id="panel">
     <div class="pyromet-logo" aria-label="Pyromet" title="Pyromet · Meteorologia al servei de les decisions operatives en emergències"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></div>
     <p class="sub" id="fontline">Observació en temps real</p>
+    <div id="sessioBar" style="display:none;align-items:center;gap:8px;font-size:11px;color:var(--muted);margin:-2px 0 6px"><span id="sessioQui" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn small" id="sessioPass" title="Canviar la meua contrasenya">🔑</button><button class="btn small" id="sessioOut" title="Tancar sessió">Eixir</button></div>
 
     <style>
       #tabs{position:sticky;top:0;z-index:6;display:flex;gap:4px;flex-wrap:wrap;background:var(--bg);padding:6px 0 8px;margin:0 0 8px;border-bottom:1px solid var(--line)}
@@ -2861,19 +2864,86 @@ async function tornaDirecte(){
   renderCalArxiu();
   try{ await carregar(PASS); }catch(e){}
 }
+// ===================== ACCÉS PER USUARI (Worker pyromet-auth) =====================
+// Cada persona entra amb el seu correu + contrasenya. El Worker torna la sessió, els permisos (regions i
+// blocs) i la CLAU de dades d'aquesta regió, amb què es desxifren les dades com sempre (PASS). Si el camp de
+// correu es deixa buit, es prova la CONTRASENYA COMPARTIDA antiga (mode de transició, per no deixar ningú fora).
+const AUTH_URL='https://pyromet-auth.javiermiroo.workers.dev';   // Worker d'autenticació (comú a totes les regions)
+const REGIO='cat';                                                 // regió d'aquesta app (clau de dades que es demana)
+const SESSIO_KEY='pyromet_sessio_'+REGIO;
+let SESSIO=null;                                                   // {token, usuari, blocs, regions}
+const TAB_BLOC={temps:'observacio',analisi:'analisi',prev:'previsio',incendi:'incendi',arxiu:'arxiu'};
+function teBloc(b){ return !SESSIO || !SESSIO.blocs || SESSIO.blocs.includes(b); }   // sense sessió (mode antic) = tot
+async function authFetch(path,body,method){
+  const r=await fetch(AUTH_URL+path,{method:method||'POST',headers:{'Content-Type':'application/json',...(SESSIO&&SESSIO.token?{Authorization:'Bearer '+SESSIO.token}:{})},body:(method==='GET')?undefined:JSON.stringify(body||{})});
+  let j={}; try{ j=await r.json(); }catch(e){} return Object.assign({status:r.status},j);
+}
+async function entraAmbDades(p){
+  await carregar(p);
+  PASS=p; $('gate').style.display='none';
+  carregaIndexArxiu(); carregaVent();
+  setTimeout(()=>map.invalidateSize(),150);
+}
+function aplicaSessio(j){
+  SESSIO={token:j.token||(SESSIO&&SESSIO.token),usuari:j.usuari,blocs:j.usuari.blocs||[],regions:j.usuari.regions||[]};
+  try{ localStorage.setItem(SESSIO_KEY,JSON.stringify({token:SESSIO.token})); }catch(e){}
+  if(j.clausApp && j.clausApp[REGIO]){ try{ localStorage.setItem('app_pass',j.clausApp[REGIO]); }catch(e){} }   // Worker d'incendis/actualitzar
+  const bar=$('sessioBar'); if(bar){ bar.style.display='flex'; $('sessioQui').textContent=(j.usuari.nom||j.usuari.email)+(j.usuari.rol==='admin'?' · admin':''); }
+  aplicaPermisos();
+  if(j.usuari.passTemporal) setTimeout(()=>canviaContrasenya(true),600);
+}
+function aplicaPermisos(){
+  // pestanyes: només les dels blocs permesos; si l'activa no ho és, salta a la primera permesa
+  const tabs=[...document.querySelectorAll('#tabs .tab')]; let primera=null, activaOk=false;
+  tabs.forEach(b=>{ const ok=teBloc(TAB_BLOC[b.dataset.t]||''); b.style.display=ok?'':'none'; if(ok&&!primera)primera=b; if(ok&&b.classList.contains('actiu'))activaOk=true; });
+  if(!activaOk && primera && window.mostraTab) window.mostraTab(primera.dataset.t);
+  // blocs dins de pestanyes
+  const amaga=(sel,ok)=>document.querySelectorAll(sel).forEach(el=>{ el.style.display=ok?'':'none'; });
+  const card=txt=>{ let r=null; document.querySelectorAll('#panel > .card').forEach(c=>{ const h=c.querySelector('h2'); if(!r&&h&&h.textContent.indexOf(txt)>=0) r=c; }); return r; };
+  const cL=card('Llamps'); if(cL){ cL.dataset.perm=teBloc('llamps')?'':'no'; if(!teBloc('llamps')) cL.style.display='none'; }
+  if(!teBloc('qpe')){ const sel=$('pacumFont'); if(sel){ sel.value='idw'; try{ sel.dispatchEvent(new Event('change')); }catch(e){} sel.disabled=true; } const cR=card('Radar'); if(cR){ cR.style.display='none'; cR.dataset.perm='no'; } }
+  amaga('#exportar,#harExport,#pexExport,#focExport', teBloc('export'));
+}
 async function provaEntrar(){
-  const p=$('pass').value; if(!p)return;
+  const email=($('gemail')?$('gemail').value.trim():''), p=$('pass').value; if(!p)return;
   $('gateerr').textContent='Comprovant…';
   try{
-    await carregar(p);
-    PASS=p; $('gate').style.display='none';
-    carregaIndexArxiu();
-    carregaVent();
-    setTimeout(()=>map.invalidateSize(),150);
+    if(!email){ await entraAmbDades(p); return; }                      // mode antic: contrasenya compartida
+    const j=await authFetch('/login',{email:email,pass:p});
+    if(!j.ok){ $('gateerr').textContent=j.missatge||(j.error==='credencials'?'Correu o contrasenya incorrectes.':j.error==='massa_intents'?'Massa intents. Espera 15 minuts.':'No s\'ha pogut entrar ('+(j.error||j.status)+').'); $('pass').select(); return; }
+    if(!(j.claus&&j.claus[REGIO])){ $('gateerr').textContent='El teu compte no té accés a aquesta regió.'; return; }
+    aplicaSessio(j);
+    await entraAmbDades(j.claus[REGIO]);
   }catch(e){
-    $('gateerr').textContent=(e&&e.message==='no-data')?'Encara no hi ha dades publicades. Torna en uns minuts.':'Contrasenya incorrecta.';
+    $('gateerr').textContent=(e&&e.message==='no-data')?'Encara no hi ha dades publicades. Torna en uns minuts.':'No s\'han pogut desxifrar les dades. Avisa l\'administrador.';
     $('pass').select();
   }
+}
+// sessió recordada: en obrir la pàgina, si hi ha token vàlid entra directament
+async function recuperaSessio(){
+  let t=null; try{ t=JSON.parse(localStorage.getItem(SESSIO_KEY)||'null'); }catch(e){}
+  if(!t||!t.token) return false;
+  const gs=$('gateSessio'); if(gs) gs.style.display='block';
+  SESSIO={token:t.token};
+  try{
+    const j=await authFetch('/me',null,'GET');
+    if(!j.ok||!(j.claus&&j.claus[REGIO])) throw new Error('sessio');
+    aplicaSessio(j); await entraAmbDades(j.claus[REGIO]); return true;
+  }catch(e){ SESSIO=null; try{ localStorage.removeItem(SESSIO_KEY); }catch(e2){} if(gs) gs.style.display='none'; return false; }
+}
+async function tancaSessio(){
+  try{ if(SESSIO&&SESSIO.token) await authFetch('/logout',{}); }catch(e){}
+  try{ localStorage.removeItem(SESSIO_KEY); localStorage.removeItem('app_pass'); }catch(e){}
+  location.reload();
+}
+async function canviaContrasenya(obligat){
+  const actual=prompt(obligat?'Tens una contrasenya TEMPORAL. Escriu-la una altra vegada per confirmar-la:':'Contrasenya actual:'); if(actual==null) return;
+  const nova=prompt('Contrasenya nova (mínim 8 caràcters):'); if(nova==null) return;
+  if(nova.length<8){ alert('Ha de tenir 8 caràcters o més.'); return; }
+  const j=await authFetch('/password',{actual:actual,nova:nova});
+  if(!j.ok){ alert(j.missatge||(j.error==='credencials'?'La contrasenya actual no és correcta.':'No s\'ha pogut canviar.')); return; }
+  SESSIO.token=j.token; try{ localStorage.setItem(SESSIO_KEY,JSON.stringify({token:j.token})); }catch(e){}
+  alert('Contrasenya canviada.');
 }
 // ---------------- incendis: importar perímetre i guardar els 20 últims ----------------
 // Extreu el perímetre d'un KML: agafa el bloc <coordinates> amb MÉS punts (el contorn
@@ -3977,6 +4047,10 @@ map.on('click',e=>{
 });
 $('enter').onclick=provaEntrar;
 $('pass').addEventListener('keydown',e=>{if(e.key==='Enter')provaEntrar();});
+if($('gemail')) $('gemail').addEventListener('keydown',e=>{if(e.key==='Enter')$('pass').focus();});
+if($('sessioOut')) $('sessioOut').onclick=tancaSessio;
+if($('sessioPass')) $('sessioPass').onclick=()=>canviaContrasenya(false);
+setTimeout(()=>{ recuperaSessio(); },50);
 $('calArxiu').addEventListener('click',e=>{
   const nav=e.target.closest('.cal-nav');
   if(nav){ calMes.m+=(+nav.dataset.d); if(calMes.m<0){calMes.m=11;calMes.y--;} if(calMes.m>11){calMes.m=0;calMes.y++;} renderCalArxiu(); return; }
@@ -5990,6 +6064,7 @@ async function desaCorreguda(){
 
   // 5) PESTANYES (Dades i 'all' es mostren sempre; 'hidden' mai)
   function mostraTab(t){
+    if(typeof teBloc==='function' && typeof TAB_BLOC!=='undefined' && !teBloc(TAB_BLOC[t]||'')) return;   // pestanya no permesa per al pla de l'usuari
     // en canviar de pestanya: neteja les anàlisis actives; i si tornes a Temps real, ix de l'arxiu
     try{
       if(typeof netejaAnalisi==='function') netejaAnalisi();
@@ -5999,7 +6074,7 @@ async function desaCorreguda(){
       else { if(typeof harMapToggle==='function') harMapToggle(false); if(typeof pexCloseRight==='function') pexCloseRight(); }
     }catch(e){}
     panel.querySelectorAll(':scope > .card').forEach(c=>{ const dt=c.dataset.tab;
-      c.style.display=(dt===t||dt==='all')?'':'none'; });
+      c.style.display=((dt===t||dt==='all') && c.dataset.perm!=='no')?'':'none'; });
     // la columna dreta només es mostra quan hi ha un punt triat; en eixir de Previsió es tanca
     if(t!=='prev'){ const pp=$('prevPanel'); if(pp)pp.style.display='none'; const app=document.getElementById('app'); if(app)app.classList.remove('prevopen'); }
     else if(PEX.chart){ setTimeout(()=>{try{PEX.chart.resize();}catch(e){}},60); }
