@@ -894,6 +894,28 @@
           <div id="focPrevActiveInfo" style="margin-top:4px"></div>
         </div>
       </div>
+      <!-- 2b) CON DE PROPAGACIÓ (BETA) -->
+      <div class="acc collapsed" id="accCon">
+        <div class="acc-h">🔥 Con de propagació <span style="font-weight:700;font-size:10px;color:#0b1220;background:#fbbf24;border-radius:999px;padding:1px 7px;margin-left:4px">BETA</span> <span style="font-weight:400;font-size:11px;color:#94a3b8">· 1 / 3 / 6 h</span><span class="chev">▾</span></div>
+        <div class="acc-b">
+          <p style="font-size:11px;color:#fbbf24;margin:0 0 8px;line-height:1.35">⚠️ <b>Versió beta.</b> Estimació de superfície amb el model de Rothermel (1972) i el·lipse d'Alexander/Anderson, a partir del vent al punt, el pendent i un model de combustible <b>únic i homogeni</b>. No modela focus secundaris, foc de capçades, canvis de combustible ni extinció. Suport a la decisió, no predicció.</p>
+          <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;font-size:11px;color:#cbd5e1">
+            <label>Combustible (Anderson 13)<select id="conFuel" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"></select></label>
+            <label>Vent<select id="conVentSrc" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px">
+              <option value="auto">Automàtic (WindNinja › model › estació)</option><option value="wn">WindNinja (camp fi)</option><option value="model">Model de previsió (hora de la barra)</option><option value="est">Estació més pròxima</option><option value="man">Manual</option></select></label>
+            <label>Vent manual (km/h · de °)<div class="row" style="gap:4px"><input type="number" id="conVv" min="0" max="150" step="1" placeholder="km/h" style="width:50%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"><input type="number" id="conDv" min="0" max="360" step="5" placeholder="de °" style="width:50%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"></div></label>
+            <label>Factor vent a mitja flama<input type="number" id="conWaf" value="0.4" min="0.1" max="1" step="0.05" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px" title="Fracció del vent a 10 m que arriba a mitja flama (0,4 obert · 0,3 matollar · 0,15 sota bosc)"></label>
+            <label>FMd 1 h (%) <span style="color:#94a3b8">auto si buit</span><input type="number" id="conFmd" min="1" max="35" step="0.5" placeholder="auto" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"></label>
+            <label>Humitat combustible viu (%)<input type="number" id="conLive" value="90" min="30" max="300" step="5" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"></label>
+          </div>
+          <div class="row" style="gap:6px;margin-top:8px;align-items:center">
+            <button class="btn small" id="conCalc" style="flex:1">🔥 Calcular con (1 · 3 · 6 h)</button>
+            <button class="btn small" id="conClear" title="Esborrar el con del mapa">🗑</button>
+          </div>
+          <div id="conInfo" style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4">Des de la flama de l'incendi. Prem «Calcular».</div>
+          <div id="conRes" style="margin-top:6px"></div>
+        </div>
+      </div>
       <!-- 3) Estacions + meteogrames -->
       <div class="acc collapsed" id="accEst">
         <div class="acc-h">📡 Estacions & meteogrames <span style="font-weight:400;font-size:11px;color:#94a3b8">· clica'n fins a 3</span><span class="chev">▾</span></div>
@@ -5128,6 +5150,179 @@ function focAccOpen(id){ document.querySelectorAll('#focRight .acc').forEach(a=>
 function initFocAccordion(){ document.querySelectorAll('#focRight .acc-h').forEach(h=>{ if(h.dataset.w==='1')return; h.dataset.w='1';
   h.onclick=(e)=>{ if(e.target.closest('select'))return; const a=h.parentElement;
     if(a.classList.contains('collapsed')) focAccOpen(a.id); else a.classList.add('collapsed'); }; }); }
+// ====================== CON DE PROPAGACIÓ (BETA): Rothermel (1972) + el·lipse (Anderson 1983 / Alexander 1985) ======================
+// Models de combustible d'Anderson (1982): càrregues t/ac (1h,10h,100h,viu herbaci,viu llenyós), SAV ft⁻¹ (1h, viu),
+// profunditat ft, humitat d'extinció %. Dins del motor es treballa en unitats imperials (constants originals) i
+// s'exporta en mètric. Referència: Andrews (2018) "The Rothermel surface fire spread model and associated developments".
+const FUELS13={
+  1:{nom:'1 · Herba curta (pastura)',           w:[0.74,0,0,0,0],        sav:3500,savL:1500,d:1.0,mx:12},
+  2:{nom:'2 · Herba amb arbres/matoll dispers', w:[2.00,1.00,0.50,0.50,0],sav:3000,savL:1500,d:1.0,mx:15},
+  3:{nom:'3 · Herba alta (canyar/cereal)',      w:[3.01,0,0,0,0],        sav:1500,savL:1500,d:2.5,mx:25},
+  4:{nom:'4 · Matollar alt i dens (>2 m)',      w:[5.01,4.01,2.00,0,5.01],sav:2000,savL:1500,d:6.0,mx:20},
+  5:{nom:'5 · Matollar baix (<1 m)',            w:[1.00,0.50,0,0,2.00],  sav:2000,savL:1500,d:2.0,mx:20},
+  6:{nom:'6 · Matollar mitjà (1–2 m)',          w:[1.50,2.50,2.00,0,0],  sav:1750,savL:1500,d:2.5,mx:25},
+  7:{nom:'7 · Bosc amb sotabosc arbustiu',      w:[1.13,1.87,1.50,0,0.37],sav:1750,savL:1550,d:2.5,mx:40},
+  8:{nom:'8 · Bosc, fullaraca compacta',        w:[1.50,1.00,2.50,0,0],  sav:2000,savL:1500,d:0.2,mx:30},
+  9:{nom:'9 · Bosc, fullaraca solta (pinassa)', w:[2.92,0.41,0.15,0,0],  sav:2500,savL:1500,d:0.2,mx:25},
+  10:{nom:'10 · Bosc amb restes i sotabosc',    w:[3.01,2.00,5.01,0,2.00],sav:2000,savL:1500,d:1.0,mx:25},
+  11:{nom:'11 · Restes lleugeres (tallades)',   w:[1.50,4.51,5.51,0,0],  sav:1500,savL:1500,d:1.0,mx:15},
+  12:{nom:'12 · Restes mitjanes',               w:[4.01,14.03,16.53,0,0],sav:1500,savL:1500,d:2.3,mx:20},
+  13:{nom:'13 · Restes pesades',                w:[7.01,23.04,28.05,0,0],sav:1500,savL:1500,d:3.0,mx:25},
+};
+// Rothermel amb ponderació d'Albini per classes. Entrades: fuel (FUELS13), mdead=[m1h,m10h,m100h] (fracció), mlive (fracció),
+// Umid = vent a mitja flama (m/s), slope = tan(pendent) en la direcció del vent... es combinen com a vectors (vegeu conCalcula).
+function rothermel(fuel, mdead, mlive, Umid_ms, tanSlope){
+  const TPA=2000/43560;                                   // t/ac -> lb/ft²
+  const w0=fuel.w.map(x=>x*TPA);                          // [1h,10h,100h,herb,llenyós]
+  const sav=[fuel.sav,109,30,fuel.savL,fuel.savL];
+  const M=[mdead[0],mdead[1],mdead[2],mlive,mlive];
+  const h=8000, rp=32, ST=0.0555, SE=0.010;
+  const cat=[[0,1,2],[3,4]];                              // mort / viu
+  const A=w0.map((w,j)=>sav[j]*w/rp);
+  const Ai=cat.map(ix=>ix.reduce((a,j)=>a+A[j],0)), AT=Ai[0]+Ai[1];
+  if(AT<=0) return null;
+  const f=w0.map((w,j)=>{ const i=j<3?0:1; return Ai[i]>0?A[j]/Ai[i]:0; });
+  const fi=Ai.map(a=>a/AT);
+  const sigI=cat.map((ix,i)=>ix.reduce((a,j)=>a+f[j]*sav[j],0));
+  const sig=fi[0]*sigI[0]+fi[1]*sigI[1];
+  // grups de mida per a la càrrega neta (Albini)
+  const grup=sv=>sv>=1200?0:(sv>=192?1:(sv>=96?2:(sv>=48?3:(sv>=16?4:5))));
+  // càrrega neta per categoria: wn_i = Σ_j g_ij·w0_j·(1−ST), amb g_ij = Σ f de les classes del mateix grup de mida (Albini 1976)
+  const wnI=cat.map((ix,i)=>{ const gsum={}; ix.forEach(j=>{ const k=grup(sav[j]); gsum[k]=(gsum[k]||0)+f[j]; }); return ix.reduce((a,j)=>a+ gsum[grup(sav[j])]*w0[j]*(1-ST),0); });
+  const wtot=w0.reduce((a,b)=>a+b,0), delta=fuel.d, rb=wtot/delta, beta=rb/rp;
+  const bop=3.348*Math.pow(sig,-0.8189), rel=beta/bop;
+  const gmax=Math.pow(sig,1.5)/(495+0.0594*Math.pow(sig,1.5)), Aexp=133*Math.pow(sig,-0.7913);
+  const gamma=gmax*Math.pow(rel,Aexp)*Math.exp(Aexp*(1-rel));
+  const Mf=cat.map((ix,i)=>ix.reduce((a,j)=>a+f[j]*M[j],0));
+  let mxL=fuel.mx/100;
+  if(Ai[1]>0){ const num=cat[0].reduce((a,j)=>a+w0[j]*Math.exp(-138/sav[j]),0), den=cat[1].reduce((a,j)=>a+w0[j]*Math.exp(-500/sav[j]),0);
+    const W=den>0?num/den:0; mxL=Math.max(fuel.mx/100, 2.9*W*(1-Mf[0]/(fuel.mx/100))-0.226); }
+  const mx=[fuel.mx/100,mxL];
+  const etaM=cat.map((ix,i)=>{ const r=Math.min(1,Mf[i]/mx[i]); return Math.max(0,1-2.59*r+5.11*r*r-3.52*r*r*r); });
+  const etaS=0.174*Math.pow(SE,-0.19);
+  const IR=gamma*(wnI[0]*h*etaM[0]*etaS+(Ai[1]>0?wnI[1]*h*etaM[1]*etaS:0));
+  const xi=Math.exp((0.792+0.681*Math.sqrt(sig))*(beta+0.1))/(192+0.2595*sig);
+  const sink=rb*cat.reduce((acc,ix,i)=>acc+fi[i]*ix.reduce((a,j)=>a+f[j]*Math.exp(-138/sav[j])*(250+1116*M[j]),0),0);
+  const R0=sink>0?IR*xi/sink:0;                           // ft/min, sense vent ni pendent
+  const C=7.47*Math.exp(-0.133*Math.pow(sig,0.55)), B=0.02526*Math.pow(sig,0.54), E=0.715*Math.exp(-3.59e-4*sig);
+  let U=Math.max(0,Umid_ms)*196.85;                       // m/s -> ft/min
+  const Umax=0.9*IR; if(U>Umax) U=Umax;                   // límit de vent de Rothermel
+  const phiW=C*Math.pow(U,B)*Math.pow(rel,-E);
+  const phiS=5.275*Math.pow(beta,-0.3)*tanSlope*tanSlope;
+  const tr=384/sig;                                       // temps de residència (min)
+  return {R0:R0, phiW:phiW, phiS:phiS, IR:IR, tr:tr, C:C, B:B, E:E, rel:rel, sig:sig, beta:beta, Umid_ftmin:U};
+}
+// Combinació vectorial vent + pendent (Finney 1998): direcció de màxima propagació i factor efectiu.
+function conCalcula(fuel, mdead, mlive, Umid_ms, ventDirFrom, tanSlope, aspectUpslope){
+  const r=rothermel(fuel, mdead, mlive, Umid_ms, tanSlope); if(!r) return null;
+  const toRad=d=>d*Math.PI/180;
+  const dirVent=(ventDirFrom+180)%360;                     // cap on bufa = cap on empeny el foc
+  const wx=r.phiW*Math.sin(toRad(dirVent)), wy=r.phiW*Math.cos(toRad(dirVent));
+  const sx=r.phiS*Math.sin(toRad(aspectUpslope)), sy=r.phiS*Math.cos(toRad(aspectUpslope));
+  const ex=wx+sx, ey=wy+sy, phiE=Math.hypot(ex,ey);
+  const dirMax=phiE>1e-6?((Math.atan2(ex,ey)*180/Math.PI)+360)%360:dirVent;
+  const R=r.R0*(1+phiE);                                   // ft/min cap
+  // vent efectiu (ft/min) a partir de phiE, per a la forma de l'el·lipse
+  const Ue=phiE>0?Math.pow(phiE*Math.pow(r.rel,r.E)/r.C,1/r.B):0, Ue_ms=Ue/196.85;
+  let LB=0.936*Math.exp(0.2566*Ue_ms)+0.461*Math.exp(-0.1548*Ue_ms)-0.397; LB=Math.max(1,Math.min(8,LB));
+  const ecc=Math.sqrt(1-1/(LB*LB)), Rb=R*(1-ecc)/(1+ecc), Rf=R/LB;   // cua i flanc
+  const IB=r.IR*R*r.tr/60;                                 // BTU/ft/s
+  const Lf=0.45*Math.pow(Math.max(0,IB),0.46);             // ft
+  return {R_mmin:R*0.3048, Rb_mmin:Rb*0.3048, Rf_mmin:Rf*0.3048, R0_mmin:r.R0*0.3048, dir:dirMax, LB:LB, I_kWm:IB*3.4613, flama_m:Lf*0.3048,
+          phiW:r.phiW, phiS:r.phiS, Ue_ms:Ue_ms, IR:r.IR};
+}
+// El·lipse de propagació (polígon lat/lon) per a t hores des de (lat,lon)
+function conEllipse(lat,lon,res,hores,n){
+  const a=(res.R_mmin+res.Rb_mmin)/2*60*hores, b=a/res.LB, c=(res.R_mmin-res.Rb_mmin)/2*60*hores;
+  const th=res.dir*Math.PI/180, MLAT=111320, MLON=111320*Math.cos(lat*Math.PI/180), pts=[];
+  for(let k=0;k<(n||72);k++){ const t=2*Math.PI*k/(n||72); const xe=b*Math.sin(t), ye=c+a*Math.cos(t);   // eix major cap a la direcció
+    const x=xe*Math.cos(th)+ye*Math.sin(th), y=-xe*Math.sin(th)+ye*Math.cos(th);               // rotació (y=nord)
+    pts.push([lat+y/MLAT, lon+x/MLON]); }
+  return pts;
+}
+// Pendent i orientació a partir d'elevacions (Open-Meteo, lliure i amb CORS): centre + 8 punts a 200 m
+async function conPendent(lat,lon){
+  const d=200, MLAT=111320, MLON=111320*Math.cos(lat*Math.PI/180), P=[[lat,lon]];
+  for(let k=0;k<8;k++){ const a=k*Math.PI/4; P.push([lat+d*Math.cos(a)/MLAT, lon+d*Math.sin(a)/MLON]); }
+  const u='https://api.open-meteo.com/v1/elevation?latitude='+P.map(p=>p[0].toFixed(5)).join(',')+'&longitude='+P.map(p=>p[1].toFixed(5)).join(',');
+  const j=await fetch(u).then(r=>r.json()); const z=j.elevation; if(!z||z.length<9) throw new Error('elevació');
+  // ajust pla z = z0 + gx·x + gy·y (x est, y nord) per mínims quadrats
+  let sxx=0,syy=0,sxy=0,sxz=0,syz=0;
+  for(let k=1;k<9;k++){ const a=(k-1)*Math.PI/4, x=d*Math.sin(a), y=d*Math.cos(a), dz=z[k]-z[0]; sxx+=x*x; syy+=y*y; sxy+=x*y; sxz+=x*dz; syz+=y*dz; }
+  const det=sxx*syy-sxy*sxy, gx=(sxz*syy-syz*sxy)/det, gy=(syz*sxx-sxz*sxy)/det;
+  const tan=Math.hypot(gx,gy), aspectUp=((Math.atan2(gx,gy)*180/Math.PI)+360)%360;   // direcció cap amunt
+  return {tan:tan, graus:Math.atan(tan)*180/Math.PI, aspectUp:aspectUp, z:z[0]};
+}
+// Vent al punt segons la font triada → {vv (km/h a 10 m), dv (d'on ve), font}
+function conVent(src,lat,lon){
+  const tryWN=()=>{ const W=FD&&FD.runData; if(!W||!W.bbox)return null; const B=W.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3])return null;
+    const dlon=(B[1]-B[0])/(W.nx-1),dlat=(B[3]-B[2])/(W.ny-1), i=Math.round((lon-B[0])/dlon), j=Math.round((B[3]-lat)/dlat); if(i<0||j<0||i>=W.nx||j>=W.ny)return null;
+    const pos=W.landPos[j*W.nx+i]; if(pos<0)return null; const u=W.buf[pos*2]*W.esc, v=W.buf[pos*2+1]*W.esc, sp=Math.hypot(u,v);
+    return {vv:sp*3.6, dv:(Math.atan2(-u,-v)*180/Math.PI+360)%360, font:'WindNinja'}; };
+  const tryModel=()=>{ const p=HARM&&HARM.payload; if(!p)return null; const s=harPuntSerie(p,lat,lon), h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+    if(s.vent==null||s.dir==null||s.dir[h]==null)return null; return {vv:s.vent[h], dv:s.dir[h], font:modelInfo().curt+' '+new Date(Date.parse(p.hores[h])).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit'})+'h', serie:s, h:h}; };
+  const tryEst=()=>{ if(!DATA)return null; let best=null,bd=1e9; DATA.estacions.forEach(st=>{ const a=st.actual||{}; if(st.lat==null||a.vv==null||a.dv==null)return; const d=haversineKm(L.latLng(lat,lon),L.latLng(st.lat,st.lon)); if(d<bd){bd=d;best=st;} });
+    if(!best)return null; return {vv:best.actual.vv, dv:best.actual.dv, font:best.nom+' ('+bd.toFixed(1)+' km)', st:best}; };
+  if(src==='man'){ const vv=+$('conVv').value, dv=+$('conDv').value; if(isNaN(vv)||isNaN(dv)||!$('conVv').value)return null; return {vv:vv,dv:dv,font:'manual'}; }
+  if(src==='wn') return tryWN(); if(src==='model') return tryModel(); if(src==='est') return tryEst();
+  return tryWN()||tryModel()||tryEst();
+}
+function conFmdAuto(lat,lon,vent){           // FMd 1 h: del model (si la font és el model i té HR), si no de l'estació més pròxima amb ta+hr
+  if(vent&&vent.serie&&vent.serie.fmd) return {fmd:vent.serie.fmd[vent.h], font:'model'};
+  if(DATA){ let best=null,bd=1e9; DATA.estacions.forEach(st=>{ const a=st.actual||{}; if(st.lat==null||a.ta==null||a.hr==null)return; const d=haversineKm(L.latLng(lat,lon),L.latLng(st.lat,st.lon)); if(d<bd){bd=d;best=st;} });
+    if(best) return {fmd:fmdDe(best.actual.ta,best.actual.hr), font:best.nom+' ('+bd.toFixed(1)+' km)'}; }
+  return {fmd:8, font:'per defecte (8 %)'};
+}
+const FocConLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    const C=FD&&FD.con; if(!C)return;
+    const cols=[['rgba(239,68,68,.38)','#b91c1c'],['rgba(249,115,22,.28)','#c2410c'],['rgba(251,191,36,.20)','#a16207']];
+    C.ellipses.slice().reverse().forEach((e,ri)=>{ const k=C.ellipses.length-1-ri; ctx.beginPath(); e.pts.forEach((q,i)=>{const pt=m.latLngToContainerPoint(q);i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y);}); ctx.closePath();
+      ctx.fillStyle=cols[k][0]; ctx.fill(); ctx.strokeStyle=cols[k][1]; ctx.lineWidth=k===0?2:1.5; ctx.setLineDash(k===0?[]:[6,4]); ctx.stroke(); ctx.setLineDash([]);
+      // etiqueta al cap
+      const head=e.pts[0], hp=m.latLngToContainerPoint(head); ctx.font='bold 11px system-ui'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+      const t=e.hores+' h'; const w=ctx.measureText(t).width+8; ctx.fillStyle='rgba(15,23,42,.85)'; ctx.fillRect(hp.x-w/2,hp.y-16,w,14); ctx.fillStyle='#fde68a'; ctx.fillText(t,hp.x,hp.y-3); });
+    // fletxa de la direcció de màxima propagació
+    const o=m.latLngToContainerPoint([C.lat,C.lon]); const L0=28, th=C.res.dir*Math.PI/180, tx=o.x+L0*Math.sin(th), ty=o.y-L0*Math.cos(th);
+    ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(tx,ty); ctx.stroke(); ctx.strokeStyle='#dc2626'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(tx,ty); ctx.stroke();
+    ctx.font='bold 10px system-ui'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.fillText('BETA', o.x+6, o.y-8);
+  }
+});
+function conOmpleFuels(){ const s=$('conFuel'); if(!s||s.options.length)return; Object.keys(FUELS13).forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=FUELS13[k].nom; s.appendChild(o); }); s.value='6'; }
+async function conCalcClick(){
+  if(!FD||!FD.map){ return; } const c=FD.centre; if(!c){ $('conInfo').textContent='Cal la flama de l\'incendi al mapa.'; return; }
+  const inf=$('conInfo'), btn=$('conCalc'); btn.disabled=true; inf.textContent='Calculant (vent, pendent, Rothermel)…'; $('conRes').innerHTML='';
+  try{
+    const lat=c.lat, lon=c.lng, fuel=FUELS13[$('conFuel').value]||FUELS13[6];
+    const vent=conVent($('conVentSrc').value,lat,lon); if(!vent) throw new Error('no hi ha vent disponible per a la font triada (prova Manual)');
+    let pend; try{ pend=await conPendent(lat,lon); }catch(e){ pend={tan:0,graus:0,aspectUp:0,z:null,err:true}; }
+    const fm=$('conFmd').value?{fmd:+$('conFmd').value,font:'manual'}:conFmdAuto(lat,lon,vent);
+    const m1=Math.max(0.01,Math.min(0.35,fm.fmd/100)), md=[m1,m1+0.01,m1+0.02], ml=Math.max(0.3,(+$('conLive').value||90)/100);
+    const waf=Math.max(0.05,Math.min(1,+$('conWaf').value||0.4)), Umid=vent.vv/3.6*waf;
+    const res=conCalcula(fuel,md,ml,Umid,vent.dv,pend.tan,pend.aspectUp); if(!res) throw new Error('model de combustible no vàlid');
+    const ellipses=[1,3,6].map(h=>({hores:h, pts:conEllipse(lat,lon,res,h)}));
+    FD.con={lat:lat,lon:lon,res:res,ellipses:ellipses,vent:vent,pend:pend,fm:fm,fuel:fuel,quan:Date.now()};
+    if(!FD.conLayer){ FD.conLayer=new FocConLayer(); FD.conLayer.addTo(FD.map); } else FD.conLayer.redraw();
+    const km=h=>(res.R_mmin*60*h/1000).toFixed(1);
+    inf.innerHTML='<b style="color:#fbbf24">BETA</b> · vent <b>'+Math.round(vent.vv)+' km/h</b> de '+Math.round(vent.dv)+'° ('+vent.font+') · a mitja flama ×'+waf+' · pendent <b>'+pend.graus.toFixed(0)+'°</b>'+(pend.err?' (sense DEM!)':(' cap a '+Math.round(pend.aspectUp)+'°'))+' · FMd <b>'+fm.fmd.toFixed(1)+' %</b> ('+fm.font+') · viu '+Math.round(ml*100)+' % · '+fuel.nom;
+    $('conRes').innerHTML='<table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#94a3b8"><th style="text-align:left">Cap</th><th>Veloc.</th><th>1 h</th><th>3 h</th><th>6 h</th></tr>'
+      +'<tr><td>Direcció <b>'+Math.round(res.dir)+'°</b> · L/A '+res.LB.toFixed(1)+'</td><td style="text-align:center"><b>'+res.R_mmin.toFixed(1)+'</b> m/min<br>('+(res.R_mmin*0.06).toFixed(2)+' km/h)</td><td style="text-align:center">'+km(1)+' km</td><td style="text-align:center">'+km(3)+' km</td><td style="text-align:center">'+km(6)+' km</td></tr></table>'
+      +'<div style="font-size:11px;color:#cbd5e1;margin-top:4px">Intensitat lineal <b>'+Math.round(res.I_kWm)+' kW/m</b> · longitud de flama <b>'+res.flama_m.toFixed(1)+' m</b> · cua '+res.Rb_mmin.toFixed(1)+' · flanc '+res.Rf_mmin.toFixed(1)+' m/min · sense vent ni pendent '+res.R0_mmin.toFixed(1)+' m/min'
+      +(res.I_kWm>4000?' · <span style="color:#f87171">intensitat molt alta: possible foc de capçades, fora de l\'abast del model</span>':'')+'</div>';
+  }catch(e){ inf.textContent='No s\'ha pogut calcular: '+(e&&e.message||e); }
+  btn.disabled=false;
+}
+function conEsborra(){ if(FD){ FD.con=null; if(FD.conLayer) FD.conLayer.redraw(); } if($('conInfo')) $('conInfo').textContent='Con esborrat.'; if($('conRes')) $('conRes').innerHTML=''; }
+conOmpleFuels();
+if($('conCalc')) $('conCalc').onclick=conCalcClick;
+if($('conClear')) $('conClear').onclick=conEsborra;
+if($('conVentSrc')) $('conVentSrc').onchange=()=>{ const man=$('conVentSrc').value==='man'; $('conVv').disabled=!man; $('conDv').disabled=!man; };
 initFocAccordion();
 // ====== EXPLORADOR DE PREVISIÓ (pestanya Previsió): clic al mapa -> meteograma + acumulats + taula ======
 const PEX={lat:null,lon:null,chart:null,marker:null,pick:false,_s:null};
@@ -5675,7 +5870,8 @@ async function focExportImatge(){
     c.fillStyle='#cbd5e1'; c.font=(13*S)+'px Arial'; c.textAlign='left';
     c.fillText('Dades meteorològiques de les '+q(FD.tSel)+(ventMs?('   ·   Camp de vent WindNinja de les '+q(ventMs)):'')
       +(FD.foc.inici?('   ·   Inici: '+q(FD.foc.inici)):'')+(FD.foc.fi?('   ·   🏁 '+q(FD.foc.fi)):'')
-      +((chartsC&&chartsC.$titol)?('   ·   Panell: '+chartsC.$titol):''), pad, pad+head*0.72);
+      +((chartsC&&chartsC.$titol)?('   ·   Panell: '+chartsC.$titol):'')
+      +((FD.con)?('   ·   Con de propagació BETA: '+FD.con.res.R_mmin.toFixed(1)+' m/min cap a '+Math.round(FD.con.res.dir)+'° · '+FD.con.fuel.nom.split(' · ')[0]+' · vent '+Math.round(FD.con.vent.vv)+' km/h ('+FD.con.vent.font+') · FMd '+FD.con.fm.fmd.toFixed(1)+' %'):''), pad, pad+head*0.72);
     // logo Bombers (dalt a la dreta): "bombers" + 4 quadrats
     const lh=Math.round(head*0.60); c.font='900 '+Math.round(lh*0.66)+'px Arial';
     const lw=c.measureText('bombers').width; dibuixaLogoBombers(c, W-pad-lw, pad+(head-lh)/2, lh);
