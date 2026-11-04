@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pyromet · Administració</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='26' fill='%230b1220'/%3E%3Cg fill='none' stroke-linejoin='round' stroke-linecap='round' stroke-width='7' transform='translate(6,6) scale(.9)'%3E%3Cg transform='translate(0,-6)'%3E%3Cpath d='M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z' stroke='%23e2e8f0'/%3E%3Cpath d='M44 90L40 104M62 90L58 104' stroke='%2338bdf8'/%3E%3C/g%3E%3Cpath transform='translate(0,3)' d='M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z' stroke='%23f97316'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0b1220;--panel:#111a2c;--panel2:#172238;--line:#243047;--txt:#e5e7eb;--muted:#94a3b8;--accent:#38bdf8;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+  a{color:var(--accent)}
+  .pyromet-logo{--pm-text:#f8fafc;--pm-cloud:#e2e8f0;--pm-cyan:#38bdf8;display:inline-flex;align-items:center;gap:.3em;font:700 26px/1 'Sora',system-ui,sans-serif;letter-spacing:-.035em;color:var(--pm-text)}
+  .pyromet-logo svg{width:1.8em;height:1.8em;color:var(--pm-cloud)} .pyromet-logo b{font-weight:inherit;color:var(--pm-cyan)}
+  header{display:flex;align-items:center;gap:16px;padding:12px 22px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+  header .sub{color:var(--muted);font-size:12px} header .sp{flex:1}
+  .btn{font:inherit;font-size:13px;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);cursor:pointer}
+  .btn:hover{border-color:var(--accent)} .btn.primary{background:var(--accent);color:#0b1220;border-color:var(--accent);font-weight:600}
+  .btn.danger{color:#fecaca;border-color:#7f1d1d} .btn.small{padding:4px 8px;font-size:12px}
+  main{max-width:1240px;margin:0 auto;padding:18px 22px;display:grid;gap:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h2{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:10px} .card h2 .sp{flex:1}
+  table{width:100%;border-collapse:collapse;font-size:13px} th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px} tr:hover td{background:rgba(56,189,248,.04)}
+  .chip{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;border:1px solid var(--line);background:var(--panel2);margin:1px 2px 1px 0}
+  .chip.on{border-color:#0e7490;color:#a5f3fc} .chip.rol-admin{border-color:#b45309;color:#fcd34d} .chip.off{opacity:.45;text-decoration:line-through}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px} .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.warn{background:var(--warn)}
+  input,select,textarea{font:inherit;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:7px 9px;width:100%}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px} .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 14px}
+  .checks{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:4px} .checks label{display:flex;align-items:center;gap:6px;margin:0;color:var(--txt);font-size:13px;cursor:pointer} .checks input{width:auto}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:20} .modal.on{display:flex}
+  .modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;width:620px;max-width:94vw;max-height:92vh;overflow:auto}
+  .modal .box h3{margin:0 0 8px;font-size:16px}
+  .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  .msg{font-size:12px;color:var(--muted);min-height:16px} .msg.bad{color:#fca5a5} .msg.ok{color:#86efac}
+  #gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:30}
+  .gatebox{width:340px;max-width:90vw;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px 22px;text-align:center}
+  .gatebox input{margin-bottom:10px;text-align:center}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px} .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .kpi b{display:block;font-size:22px} .kpi span{font-size:12px;color:var(--muted)}
+  .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap} .tools input{width:240px}
+  .muted{color:var(--muted)} .right{text-align:right}
+  @media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr} header{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gatebox">
+    <div class="pyromet-logo" style="font-size:34px;flex-direction:column;gap:.25em;margin-bottom:10px"><svg viewBox="0 0 120 120" aria-hidden="true" style="width:2.4em;height:2.4em"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></div>
+    <div class="muted" style="font-size:12px;margin-bottom:16px">Panell d'administració</div>
+    <input type="email" id="gEmail" placeholder="Correu" autocomplete="username">
+    <input type="password" id="gPass" placeholder="Contrasenya" autocomplete="current-password">
+    <button class="btn primary" id="gEnter" style="width:100%">Entrar</button>
+    <div class="msg" id="gMsg" style="margin-top:8px"></div>
+    <div style="margin-top:14px;font-size:11px"><a href="#" id="gBoot">Primer administrador (bootstrap)</a></div>
+  </div>
+</div>
+
+<header>
+  <div class="pyromet-logo"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></div>
+  <div><div style="font-weight:600">Administració</div><div class="sub">Usuaris · organitzacions · accessos · estat de les apps</div></div>
+  <div class="sp"></div>
+  <span class="muted" id="who"></span>
+  <button class="btn small" id="btnPass">Canviar la meua contrasenya</button>
+  <button class="btn small" id="btnOut">Tancar sessió</button>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Estat de les apps <span class="sp"></span><button class="btn small" id="btnEstat">↻ Actualitza</button></h2>
+    <div class="kpis" id="estat"></div>
+  </section>
+
+  <section class="card">
+    <h2>Usuaris <span class="sp"></span>
+      <div class="tools"><input id="cerca" placeholder="Cerca per correu, nom o organització…"><select id="fOrg"><option value="">Totes les organitzacions</option></select><button class="btn primary" id="btnNou">+ Nou usuari</button></div>
+    </h2>
+    <div class="kpis" id="kpis" style="margin-bottom:12px"></div>
+    <div style="overflow:auto"><table id="tUsers"><thead><tr><th>Usuari</th><th>Organització</th><th>Rol</th><th>Regions</th><th>Blocs</th><th>Accés</th><th class="right"></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Organitzacions <span class="sp"></span><button class="btn" id="btnNovaOrg">+ Nova organització</button></h2>
+    <table id="tOrgs"><thead><tr><th>Id</th><th>Nom</th><th>Tipus</th><th>Usuaris</th><th>Notes</th><th class="right"></th></tr></thead><tbody></tbody></table>
+  </section>
+</main>
+
+<!-- modal usuari -->
+<div class="modal" id="mUser"><div class="box">
+  <h3 id="mUserTitle">Nou usuari</h3>
+  <div class="grid2">
+    <div><label>Correu (identificador)</label><input id="uEmail" type="email"></div>
+    <div><label>Nom</label><input id="uNom"></div>
+    <div><label>Organització</label><select id="uOrg"></select></div>
+    <div><label>Rol</label><select id="uRol"><option value="usuari">usuari</option><option value="gestor">gestor</option><option value="admin">admin</option></select></div>
+    <div><label>Contrasenya <span class="muted" id="uPassHint">(obligatòria en crear)</span></label><input id="uPass" type="text" autocomplete="off" placeholder="mín. 8 caràcters"><div style="margin-top:4px"><button class="btn small" id="uGen" type="button">Genera'n una</button></div></div>
+    <div><label>Caducitat de l'accés (opcional)</label><input id="uCaduca" type="date"></div>
+  </div>
+  <label>Regions</label><div class="checks" id="uRegions"></div>
+  <label>Blocs permesos</label><div class="checks" id="uBlocs"></div>
+  <div style="margin-top:6px"><button class="btn small" id="uTots" type="button">Marca-ho tot</button> <button class="btn small" id="uCap" type="button">Desmarca-ho tot</button></div>
+  <label>Notes</label><textarea id="uNotes" rows="2"></textarea>
+  <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--txt)"><input type="checkbox" id="uActiu" checked style="width:auto"> Accés actiu</label>
+  <div class="msg" id="uMsg"></div>
+  <div class="actions"><button class="btn danger" id="uDel" style="margin-right:auto">Esborra l'usuari</button><button class="btn" id="uCancel">Cancel·la</button><button class="btn primary" id="uSave">Desa</button></div>
+</div></div>
+
+<!-- modal organització -->
+<div class="modal" id="mOrg"><div class="box" style="width:460px">
+  <h3 id="mOrgTitle">Nova organització</h3>
+  <label>Identificador (curt, sense espais)</label><input id="oId" placeholder="bombers-cat">
+  <label>Nom</label><input id="oNom">
+  <label>Tipus</label><select id="oTipus"><option>cos de bombers</option><option>administració</option><option>empresa</option><option>consorci</option><option>universitat</option><option>particular</option><option>intern</option></select>
+  <label>Notes</label><textarea id="oNotes" rows="2"></textarea>
+  <div class="msg" id="oMsg"></div>
+  <div class="actions"><button class="btn danger" id="oDel" style="margin-right:auto">Esborra</button><button class="btn" id="oCancel">Cancel·la</button><button class="btn primary" id="oSave">Desa</button></div>
+</div></div>
+
+<!-- modal contrasenya pròpia -->
+<div class="modal" id="mPass"><div class="box" style="width:420px">
+  <h3>Canviar la meua contrasenya</h3>
+  <label>Contrasenya actual</label><input id="pActual" type="password" autocomplete="current-password">
+  <label>Contrasenya nova (8+ caràcters)</label><input id="pNova" type="password" autocomplete="new-password">
+  <div class="msg" id="pMsg"></div>
+  <div class="actions"><button class="btn" id="pCancel">Cancel·la</button><button class="btn primary" id="pSave">Canvia</button></div>
+</div></div>
+
+<!-- modal bootstrap -->
+<div class="modal" id="mBoot"><div class="box" style="width:460px">
+  <h3>Primer administrador</h3>
+  <p class="muted" style="font-size:12px;margin:0 0 6px">Només funciona una vegada, quan encara no hi ha cap administrador. Cal la clau BOOTSTRAP_KEY configurada al Worker.</p>
+  <label>Clau de bootstrap</label><input id="bKey" type="password">
+  <label>Correu</label><input id="bEmail" type="email">
+  <label>Nom</label><input id="bNom">
+  <label>Contrasenya (8+ caràcters)</label><input id="bPass" type="password">
+  <div class="msg" id="bMsg"></div>
+  <div class="actions"><button class="btn" id="bCancel">Cancel·la</button><button class="btn primary" id="bSave">Crea l'administrador</button></div>
+</div></div>
+
+<script>
+// >>> URL del Worker d'autenticació (acaba en .workers.dev)
+const AUTH_URL='https://pyromet-auth.javiermiroo.workers.dev';
+// Fonts públiques per a l'estat de cada regió (índexs menuts, sense xifrar)
+const ESTAT_FONTS={
+  cat:{nom:'Catalunya', app:'https://javimiroo.github.io/mapa-aemet/privat.html', harmonie:'https://raw.githubusercontent.com/Javimiroo/mapa-aemet/harmonie/harmonie.json', models:'https://raw.githubusercontent.com/Javimiroo/mapa-aemet/models/models.json', qpe:'https://raw.githubusercontent.com/Javimiroo/mapa-aemet/qpe/qpe_dies.json', repo:'Javimiroo/mapa-aemet'},
+  cv:{nom:'Comunitat Valenciana', app:'https://javimiroo.github.io/mapa-avamet/privat.html', harmonie:'https://raw.githubusercontent.com/Javimiroo/mapa-avamet/harmonie/harmonie.json', models:null, qpe:'https://raw.githubusercontent.com/Javimiroo/mapa-avamet/qpe/qpe_dies.json', repo:'Javimiroo/mapa-avamet'},
+};
+const $=id=>document.getElementById(id);
+let TOKEN=localStorage.getItem('pyromet_admin_token')||null, ME=null, CFG={regions:{},blocs:{}}, USERS=[], ORGS=[];
+async function api(path,body,method){
+  method=method||(body===undefined?'POST':'POST');
+  const r=await fetch(AUTH_URL+path,{method:method,headers:{'Content-Type':'application/json',...(TOKEN?{Authorization:'Bearer '+TOKEN}:{})},body:method==='GET'?undefined:JSON.stringify(body||{})});
+  let j={}; try{ j=await r.json(); }catch(e){}
+  if(r.status===401 && path!=='/login'){ sessioFora(); }
+  return Object.assign({status:r.status},j);
+}
+function sessioFora(){ TOKEN=null; ME=null; localStorage.removeItem('pyromet_admin_token'); $('gate').style.display='flex'; }
+function fmtD(s){ if(!s)return '—'; const d=new Date(s); return isNaN(d)?'—':d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ---------------- entrada ----------------
+async function entrar(){
+  const email=$('gEmail').value.trim(), pass=$('gPass').value; if(!email||!pass)return;
+  $('gMsg').textContent='Comprovant…'; $('gMsg').className='msg';
+  const j=await api('/login',{email,pass});
+  if(!j.ok){ $('gMsg').textContent=j.missatge||(j.error==='credencials'?'Correu o contrasenya incorrectes.':'No s\'ha pogut entrar ('+(j.error||j.status)+').'); $('gMsg').className='msg bad'; return; }
+  if(j.usuari.rol!=='admin'){ $('gMsg').textContent='Aquest compte no és administrador.'; $('gMsg').className='msg bad'; return; }
+  TOKEN=j.token; localStorage.setItem('pyromet_admin_token',TOKEN); ME=j.usuari; CFG={regions:j.regions,blocs:j.blocs};
+  $('gPass').value=''; $('gate').style.display='none'; inici();
+}
+async function autoEntrar(){
+  if(!TOKEN){ $('gate').style.display='flex'; return; }
+  const j=await api('/me',null,'GET');
+  if(!j.ok||j.usuari.rol!=='admin'){ sessioFora(); return; }
+  ME=j.usuari; CFG={regions:j.regions,blocs:j.blocs}; $('gate').style.display='none'; inici();
+}
+$('gEnter').onclick=entrar; $('gPass').addEventListener('keydown',e=>{if(e.key==='Enter')entrar();}); $('gEmail').addEventListener('keydown',e=>{if(e.key==='Enter')$('gPass').focus();});
+$('btnOut').onclick=async()=>{ await api('/logout',{}); sessioFora(); };
+$('gBoot').onclick=e=>{ e.preventDefault(); $('mBoot').classList.add('on'); };
+$('bCancel').onclick=()=>$('mBoot').classList.remove('on');
+$('bSave').onclick=async()=>{ const j=await api('/admin/bootstrap',{key:$('bKey').value,email:$('bEmail').value,nom:$('bNom').value,pass:$('bPass').value});
+  $('bMsg').className='msg '+(j.ok?'ok':'bad'); $('bMsg').textContent=j.ok?'Administrador creat. Ja pots entrar.':(j.missatge||'Error: '+(j.error||j.status));
+  if(j.ok){ setTimeout(()=>{ $('mBoot').classList.remove('on'); $('gEmail').value=$('bEmail').value; $('gPass').focus(); },900); } };
+
+// ---------------- inici ----------------
+async function inici(){
+  $('who').textContent=ME.nom+' · '+ME.email;
+  await Promise.all([carregaOrgs(),carregaUsers()]); renderTot(); carregaEstat();
+}
+async function carregaUsers(){ const j=await api('/admin/users',{}); USERS=j.usuaris||[]; }
+async function carregaOrgs(){ const j=await api('/admin/orgs',{}); ORGS=j.orgs||[]; }
+function orgNom(id){ const o=ORGS.find(o=>o.id===id); return o?o.nom:(id||'—'); }
+function renderTot(){ renderKpis(); renderUsers(); renderOrgs(); renderOrgSelects(); }
+function renderKpis(){
+  const act=USERS.filter(u=>u.actiu!==false).length, adm=USERS.filter(u=>u.rol==='admin').length, cad=USERS.filter(u=>u.caduca&&Date.parse(u.caduca)<Date.now()).length;
+  const perR={}; Object.keys(CFG.regions).forEach(r=>perR[r]=USERS.filter(u=>(u.regions||[]).includes(r)&&u.actiu!==false).length);
+  $('kpis').innerHTML='<div class="kpi"><b>'+USERS.length+'</b><span>usuaris</span></div><div class="kpi"><b>'+act+'</b><span>actius</span></div><div class="kpi"><b>'+ORGS.length+'</b><span>organitzacions</span></div><div class="kpi"><b>'+adm+'</b><span>administradors</span></div>'
+    +Object.keys(perR).map(r=>'<div class="kpi"><b>'+perR[r]+'</b><span>amb accés a '+esc(CFG.regions[r].nom)+'</span></div>').join('')+(cad?'<div class="kpi"><b style="color:var(--warn)">'+cad+'</b><span>amb accés caducat</span></div>':'');
+}
+function renderUsers(){
+  const q=$('cerca').value.trim().toLowerCase(), fo=$('fOrg').value;
+  const rows=USERS.filter(u=>(!fo||u.org===fo)&&(!q||[u.email,u.nom,u.org,orgNom(u.org)].join(' ').toLowerCase().includes(q)));
+  $('tUsers').querySelector('tbody').innerHTML=rows.map(u=>{
+    const cad=u.caduca&&Date.parse(u.caduca)<Date.now();
+    const estat=u.actiu===false?'<span class="dot bad"></span>desactivat':(cad?'<span class="dot warn"></span>caducat':'<span class="dot ok"></span>actiu');
+    return '<tr data-e="'+esc(u.email)+'"><td><div><b>'+esc(u.nom||'')+'</b></div><div class="muted">'+esc(u.email)+'</div></td><td>'+esc(orgNom(u.org))+'</td>'
+      +'<td><span class="chip rol-'+esc(u.rol)+'">'+esc(u.rol)+'</span></td>'
+      +'<td>'+Object.keys(CFG.regions).map(r=>'<span class="chip '+((u.regions||[]).includes(r)?'on':'off')+'">'+r.toUpperCase()+'</span>').join('')+'</td>'
+      +'<td>'+Object.keys(CFG.blocs).map(b=>'<span class="chip '+((u.blocs||[]).includes(b)?'on':'off')+'" title="'+esc(CFG.blocs[b])+'">'+b+'</span>').join('')+'</td>'
+      +'<td>'+estat+'<div class="muted" style="font-size:11px">últim: '+fmtD(u.ultimAcces)+(u.nAccessos?(' · '+u.nAccessos+' accessos'):'')+(u.passTemporal?' · <span style="color:var(--warn)">contrasenya temporal</span>':'')+(u.caduca?(' · caduca '+u.caduca):'')+'</div></td>'
+      +'<td class="right"><button class="btn small" data-act="edit">Edita</button> <button class="btn small" data-act="kill" title="Tanca totes les sessions obertes">Tanca sessions</button></td></tr>';
+  }).join('')||'<tr><td colspan="7" class="muted">Cap usuari.</td></tr>';
+}
+function renderOrgs(){
+  $('tOrgs').querySelector('tbody').innerHTML=ORGS.map(o=>'<tr data-id="'+esc(o.id)+'"><td><code>'+esc(o.id)+'</code></td><td>'+esc(o.nom)+'</td><td>'+esc(o.tipus||'')+'</td><td>'+USERS.filter(u=>u.org===o.id).length+'</td><td class="muted">'+esc(o.notes||'')+'</td><td class="right"><button class="btn small" data-act="edit">Edita</button></td></tr>').join('')||'<tr><td colspan="6" class="muted">Cap organització.</td></tr>';
+}
+function renderOrgSelects(){
+  const opts=ORGS.map(o=>'<option value="'+esc(o.id)+'">'+esc(o.nom)+'</option>').join('');
+  const fo=$('fOrg').value; $('fOrg').innerHTML='<option value="">Totes les organitzacions</option>'+opts; $('fOrg').value=fo;
+  $('uOrg').innerHTML='<option value="">— sense organització —</option>'+opts;
+}
+$('cerca').oninput=renderUsers; $('fOrg').onchange=renderUsers;
+$('tUsers').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b)return; const email=b.closest('tr').dataset.e; const u=USERS.find(x=>x.email===email);
+  if(b.dataset.act==='edit') obriUser(u);
+  if(b.dataset.act==='kill'){ if(!confirm('Tancar totes les sessions de '+email+'?'))return; await api('/admin/sessions_del',{email}); alert('Sessions tancades.'); } });
+$('tOrgs').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b)return; obriOrg(ORGS.find(o=>o.id===b.closest('tr').dataset.id)); });
+
+// ---------------- usuari: modal ----------------
+let EDIT=null;
+function checks(cont,obj,sel){ cont.innerHTML=Object.keys(obj).map(k=>'<label><input type="checkbox" value="'+k+'" '+(sel.includes(k)?'checked':'')+'> '+esc(typeof obj[k]==='string'?obj[k]:obj[k].nom)+' <span class="muted">('+k+')</span></label>').join(''); }
+function obriUser(u){
+  EDIT=u||null; $('mUserTitle').textContent=u?('Edita: '+u.email):'Nou usuari';
+  $('uEmail').value=u?u.email:''; $('uEmail').disabled=!!u; $('uNom').value=u?u.nom||'':''; $('uOrg').value=u?u.org||'':''; $('uRol').value=u?u.rol:'usuari';
+  $('uPass').value=''; $('uPassHint').textContent=u?'(deixa-ho buit per no canviar-la)':'(obligatòria en crear)'; $('uCaduca').value=u&&u.caduca?u.caduca:''; $('uNotes').value=u?u.notes||'':''; $('uActiu').checked=u?u.actiu!==false:true;
+  checks($('uRegions'),CFG.regions,u?u.regions||[]:Object.keys(CFG.regions)); checks($('uBlocs'),CFG.blocs,u?u.blocs||[]:Object.keys(CFG.blocs));
+  $('uDel').style.display=u?'':'none'; $('uMsg').textContent=''; $('uMsg').className='msg'; $('mUser').classList.add('on'); (u?$('uNom'):$('uEmail')).focus();
+}
+$('btnNou').onclick=()=>obriUser(null); $('uCancel').onclick=()=>$('mUser').classList.remove('on');
+$('uGen').onclick=()=>{ const a='abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'; let p=''; const r=new Uint32Array(12); crypto.getRandomValues(r); for(const x of r)p+=a[x%a.length]; $('uPass').value=p; };
+$('uTots').onclick=()=>document.querySelectorAll('#uRegions input,#uBlocs input').forEach(c=>c.checked=true);
+$('uCap').onclick=()=>document.querySelectorAll('#uRegions input,#uBlocs input').forEach(c=>c.checked=false);
+$('uSave').onclick=async()=>{
+  const body={email:$('uEmail').value.trim(),nom:$('uNom').value.trim(),org:$('uOrg').value,rol:$('uRol').value,actiu:$('uActiu').checked,caduca:$('uCaduca').value||null,notes:$('uNotes').value,
+    regions:[...document.querySelectorAll('#uRegions input:checked')].map(c=>c.value),blocs:[...document.querySelectorAll('#uBlocs input:checked')].map(c=>c.value)};
+  if($('uPass').value) body.pass=$('uPass').value;
+  $('uMsg').className='msg'; $('uMsg').textContent='Desant…';
+  const j=await api('/admin/user',body);
+  if(!j.ok){ $('uMsg').className='msg bad'; $('uMsg').textContent=j.missatge||('Error: '+(j.error||j.status)); return; }
+  await carregaUsers(); renderTot(); $('uMsg').className='msg ok'; $('uMsg').textContent=j.nou?'Usuari creat. Envia-li el correu i la contrasenya temporal (li demanarem que la canvie).':'Desat.';
+  if(!j.nou) setTimeout(()=>$('mUser').classList.remove('on'),600);
+};
+$('uDel').onclick=async()=>{ if(!EDIT||!confirm('Esborrar definitivament '+EDIT.email+'?'))return; const j=await api('/admin/user_del',{email:EDIT.email}); if(!j.ok){ alert(j.missatge||j.error); return; } await carregaUsers(); renderTot(); $('mUser').classList.remove('on'); };
+
+// ---------------- organització: modal ----------------
+let EDITO=null;
+function obriOrg(o){ EDITO=o||null; $('mOrgTitle').textContent=o?('Edita: '+o.nom):'Nova organització'; $('oId').value=o?o.id:''; $('oId').disabled=!!o; $('oNom').value=o?o.nom:''; $('oTipus').value=o&&o.tipus?o.tipus:'cos de bombers'; $('oNotes').value=o?o.notes||'':''; $('oDel').style.display=o?'':'none'; $('oMsg').textContent=''; $('mOrg').classList.add('on'); }
+$('btnNovaOrg').onclick=()=>obriOrg(null); $('oCancel').onclick=()=>$('mOrg').classList.remove('on');
+$('oSave').onclick=async()=>{ const j=await api('/admin/org',{id:$('oId').value,nom:$('oNom').value,tipus:$('oTipus').value,notes:$('oNotes').value}); if(!j.ok){ $('oMsg').className='msg bad'; $('oMsg').textContent=j.missatge||j.error; return; } await carregaOrgs(); renderTot(); $('mOrg').classList.remove('on'); };
+$('oDel').onclick=async()=>{ if(!EDITO||!confirm('Esborrar l\'organització '+EDITO.nom+'?'))return; const j=await api('/admin/org_del',{id:EDITO.id}); if(!j.ok){ $('oMsg').className='msg bad'; $('oMsg').textContent=j.missatge||j.error; return; } await carregaOrgs(); renderTot(); $('mOrg').classList.remove('on'); };
+
+// ---------------- contrasenya pròpia ----------------
+$('btnPass').onclick=()=>{ $('pActual').value=''; $('pNova').value=''; $('pMsg').textContent=''; $('mPass').classList.add('on'); };
+$('pCancel').onclick=()=>$('mPass').classList.remove('on');
+$('pSave').onclick=async()=>{ const j=await api('/password',{actual:$('pActual').value,nova:$('pNova').value}); if(!j.ok){ $('pMsg').className='msg bad'; $('pMsg').textContent=j.missatge||(j.error==='credencials'?'La contrasenya actual no és correcta.':j.error); return; } TOKEN=j.token; localStorage.setItem('pyromet_admin_token',TOKEN); $('pMsg').className='msg ok'; $('pMsg').textContent='Canviada.'; setTimeout(()=>$('mPass').classList.remove('on'),700); };
+
+// ---------------- estat de les apps ----------------
+async function carregaEstat(){
+  const el=$('estat'); el.innerHTML='<div class="kpi muted">Consultant…</div>';
+  const fj=async u=>{ if(!u)return null; try{ const r=await fetch(u+'?_='+Date.now(),{cache:'no-store'}); return r.ok?await r.json():null; }catch(e){ return null; } };
+  const runs=async repo=>{ try{ const r=await fetch('https://api.github.com/repos/'+repo+'/actions/runs?per_page=12'); if(!r.ok)return null; const d=await r.json(); const m={}; (d.workflow_runs||[]).forEach(x=>{ if(!m[x.name]) m[x.name]=x; }); return m; }catch(e){ return null; } };
+  const parts=[];
+  for(const r of Object.keys(ESTAT_FONTS)){ const f=ESTAT_FONTS[r];
+    const [h,m,rr]=await Promise.all([fj(f.harmonie),fj(f.models),runs(f.repo)]);
+    const ok=x=>x?'<span class="dot ok"></span>':'<span class="dot bad"></span>';
+    let html='<div class="kpi"><b style="font-size:15px">'+esc(f.nom)+'</b><span><a href="'+f.app+'" target="_blank">obrir l\'app</a></span><div style="margin-top:6px;font-size:12px">';
+    html+=ok(h)+'HARMONIE '+(h?('passada '+h.darrera.slice(8,10)+'Z '+h.darrera.slice(6,8)+'/'+h.darrera.slice(4,6)):'sense dades')+'<br>';
+    if(f.models) html+=ok(m)+'Models '+(m&&m.models?Object.keys(m.models).map(k=>k.toUpperCase()+' '+m.models[k].darrera.slice(8,10)+'Z').join(' · '):'sense dades')+'<br>';
+    if(rr){ Object.values(rr).slice(0,5).forEach(x=>{ html+=(x.conclusion==='success'?'<span class="dot ok"></span>':(x.status==='in_progress'||x.status==='queued'?'<span class="dot warn"></span>':'<span class="dot bad"></span>'))+esc(x.name.slice(0,34))+' <span class="muted">'+fmtD(x.updated_at)+'</span><br>'; }); }
+    else html+='<span class="muted">(estat dels workflows no disponible)</span>';
+    parts.push(html+'</div></div>');
+  }
+  el.innerHTML=parts.join('');
+}
+$('btnEstat').onclick=carregaEstat;
+autoEntrar();
+</script>
+</body>
+</html>
