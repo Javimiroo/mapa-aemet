@@ -152,12 +152,15 @@ const ESTAT_FONTS={
 const $=id=>document.getElementById(id);
 let TOKEN=localStorage.getItem('pyromet_admin_token')||null, ME=null, CFG={regions:{},blocs:{}}, USERS=[], ORGS=[];
 async function api(path,body,method){
-  method=method||(body===undefined?'POST':'POST');
-  const r=await fetch(AUTH_URL+path,{method:method,headers:{'Content-Type':'application/json',...(TOKEN?{Authorization:'Bearer '+TOKEN}:{})},body:method==='GET'?undefined:JSON.stringify(body||{})});
+  method=method||'POST';
+  let r;
+  try{ r=await fetch(AUTH_URL+path,{method:method,headers:{'Content-Type':'application/json',...(TOKEN?{Authorization:'Bearer '+TOKEN}:{})},body:method==='GET'?undefined:JSON.stringify(body||{})}); }
+  catch(e){ return {ok:false,status:0,error:'xarxa',missatge:'No s\'ha pogut contactar amb el Worker ('+(e&&e.message||e)+'). Revisa AUTH_URL i la connexió.'}; }
   let j={}; try{ j=await r.json(); }catch(e){}
   if(r.status===401 && path!=='/login'){ sessioFora(); }
   return Object.assign({status:r.status},j);
 }
+window.addEventListener('error',e=>{ const m=document.getElementById('gMsg'); if(m){ m.className='msg bad'; m.textContent='Error de la pàgina: '+(e.message||e); } });
 function sessioFora(){ TOKEN=null; ME=null; localStorage.removeItem('pyromet_admin_token'); $('gate').style.display='flex'; }
 function fmtD(s){ if(!s)return '—'; const d=new Date(s); return isNaN(d)?'—':d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -182,7 +185,7 @@ $('gEnter').onclick=entrar; $('gPass').addEventListener('keydown',e=>{if(e.key==
 $('btnOut').onclick=async()=>{ await api('/logout',{}); sessioFora(); };
 $('gBoot').onclick=e=>{ e.preventDefault(); $('mBoot').classList.add('on'); };
 $('bCancel').onclick=()=>$('mBoot').classList.remove('on');
-$('bSave').onclick=async()=>{ const j=await api('/admin/bootstrap',{key:$('bKey').value,email:$('bEmail').value,nom:$('bNom').value,pass:$('bPass').value});
+$('bSave').onclick=async()=>{ $('bMsg').className='msg'; $('bMsg').textContent='Enviant…'; const j=await api('/admin/bootstrap',{key:$('bKey').value,email:$('bEmail').value,nom:$('bNom').value,pass:$('bPass').value});
   $('bMsg').className='msg '+(j.ok?'ok':'bad'); $('bMsg').textContent=j.ok?'Administrador creat. Ja pots entrar.':(j.missatge||'Error: '+(j.error||j.status));
   if(j.ok){ setTimeout(()=>{ $('mBoot').classList.remove('on'); $('gEmail').value=$('bEmail').value; $('gPass').focus(); },900); } };
 
