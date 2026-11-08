@@ -2963,7 +2963,8 @@ async function provaEntrar(){
   $('gateerr').textContent='Comprovant…';
   try{
     if(!email){ await entraAmbDades(p); return; }                      // mode antic: contrasenya compartida
-    const j=await authFetch('/login',{email:email,pass:p});
+    let j; try{ j=await authFetch('/login',{email:email,pass:p}); }
+    catch(e){ $('gateerr').textContent='No s\'ha pogut contactar amb el servidor d\'accés (Cloudflare). Torna-ho a provar en uns minuts o entra amb la contrasenya compartida deixant el correu buit.'; return; }
     if(!j.ok){ $('gateerr').textContent=j.missatge||(j.error==='credencials'?'Correu o contrasenya incorrectes.':j.error==='massa_intents'?'Massa intents. Espera 15 minuts.':'No s\'ha pogut entrar ('+(j.error||j.status)+').'); $('pass').select(); return; }
     if(!(j.claus&&j.claus[REGIO])){ $('gateerr').textContent='El teu compte no té accés a aquesta regió.'; return; }
     aplicaSessio(j);
