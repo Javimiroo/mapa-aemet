@@ -8,7 +8,14 @@
 <html lang="ca">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b1220">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pyromet">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Pyromet · Meteorologia al servei de les decisions operatives en emergències</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='26' fill='%230b1220'/%3E%3Cg fill='none' stroke-linejoin='round' stroke-linecap='round' stroke-width='7' transform='translate(6,6) scale(.9)'%3E%3Cg transform='translate(0,-6)'%3E%3Cpath d='M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z' stroke='%23e2e8f0'/%3E%3Cpath d='M44 90L40 104M62 90L58 104' stroke='%2338bdf8'/%3E%3C/g%3E%3Cpath transform='translate(0,3)' d='M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z' stroke='%23f97316'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -129,7 +136,7 @@
                  background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px}
   .gatebox .btn{width:100%}
   .gatebox input::placeholder{color:var(--muted);opacity:.9;transition:opacity .15s}
-  .gatebox input:hover::placeholder,.gatebox input:focus::placeholder{opacity:0}   /* el text d'ajuda desapareix en passar-hi el cursor o escriure */
+  @media (hover:hover){ .gatebox input:hover::placeholder{opacity:0} }   /* el text d'ajuda desapareix en passar-hi el cursor (ordinador) o en escriure */
   .gerr{font-size:12px;color:var(--warn);margin-top:12px;min-height:16px}
   /* cercador de pobles */
   #cercaWrap{position:relative}
@@ -257,6 +264,7 @@
 
 <div id="app">
   <button id="toggle">✕ Menú</button>
+  <div id="offPill">📴 Sense connexió · última situació guardada</div>
   <div id="panel">
     <div class="pyromet-logo" aria-label="Pyromet" title="Pyromet · Meteorologia al servei de les decisions operatives en emergències"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke-linejoin="round" stroke-linecap="round" stroke-width="5"><g transform="translate(0,-6)"><path d="M30 78H86A16 16 0 0 0 86 46A22 22 0 0 0 44 40A21 21 0 0 0 30 78Z" stroke="currentColor"/><path d="M44 90L40 104M62 90L58 104" stroke="var(--pm-cyan)"/></g><path transform="translate(0,3)" d="M90 72C96 80 104 86 104 96A14 14 0 0 1 76 96C76 90 79 86 82 83C82 88 85 90 87 90C85 83 87 78 90 72Z" stroke="#f97316"/></g></svg><span>Pyro<b>met</b></span></div>
     <p class="sub" id="fontline">Observació en temps real</p>
@@ -280,6 +288,48 @@
       .leaflet-top.leaflet-left{top:auto!important;bottom:86px!important;left:auto!important;right:12px!important}
       .leaflet-top.leaflet-left .leaflet-control-zoom{margin:0!important}
       @media(max-width:720px){ #floatTop{left:10px;right:10px} #floatTop #cercaWrap{width:auto;flex:1} }
+      #offPill{position:absolute;top:56px;left:50%;transform:translateX(-50%);z-index:1250;display:none;background:#7c2d12;color:#fed7aa;border:1px solid #c2410c;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+      /* ====================== MÒBIL (≤ 760 px): mapa complet + menú com a full inferior ====================== */
+      @media (max-width:760px){
+        #app{height:100dvh}
+        #panel{top:auto;bottom:0;left:0;width:100%;max-width:100%;height:64dvh;border-right:none;border-top:1px solid var(--line);
+               border-radius:16px 16px 0 0;padding:6px 12px calc(28px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px rgba(0,0,0,.55);z-index:1300}
+        #panel::before{content:'';display:block;width:44px;height:4px;border-radius:4px;background:#475569;margin:4px auto 8px}
+        #app.collapsed #panel{transform:translateY(106%)}
+        #panel .pyromet-logo{font-size:20px}
+        #tabs{top:-6px}
+        #tabs .tab{min-width:0;flex:1 1 30%;padding:10px 4px;font-size:13px}
+        #panel select,#panel input[type=text],#panel input[type=number],#panel input[type=datetime-local],.gatebox input,#floatTop #cerca{font-size:16px}   /* 16 px: iOS no fa zoom en enfocar */
+        #panel .btn,#prevPanel .btn{min-height:40px}
+        #panel .btn.small,#prevPanel .btn.small{min-height:36px;padding:6px 10px}
+        #panel .switch{margin:11px 0;font-size:13px}
+        #toggle{top:8px;right:8px;height:42px;z-index:1400}
+        #floatTop,#app.collapsed #floatTop{left:8px;right:102px;top:8px;padding:5px 6px;gap:6px}
+        #floatTop #cercaWrap{width:auto;flex:1;min-width:0}
+        #floatTop #exportar{font-size:0;padding:8px 11px;min-height:40px}
+        #floatTop #exportar::before{content:'📷';font-size:17px}
+        .leaflet-control-zoom{display:none!important}                 /* al mòbil, zoom amb dos dits */
+        #floatFons,#app.prevopen #floatFons{right:8px;top:auto;bottom:calc(60px + env(safe-area-inset-bottom));padding:4px 6px}
+        #floatFons #basemap{font-size:13px;max-width:120px}
+        #timebar{bottom:calc(8px + env(safe-area-inset-bottom));max-width:96vw}
+        .tb-btn{padding:9px 11px}
+        #harLegend{bottom:calc(10px + env(safe-area-inset-bottom));max-width:94vw}
+        #prevPanel{top:auto;bottom:0;width:100%;max-width:100%;height:72dvh;border-left:none;border-top:1px solid var(--line);border-radius:16px 16px 0 0;z-index:1350;padding-bottom:calc(28px + env(safe-area-inset-bottom))}
+        #offPill{top:58px}
+        /* tauler d'incendi: una sola columna (mapa a dalt, seccions a sota, tot desplaçable) */
+        #focModal .foc-body{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch}
+        #focModal .foc-left{flex:none!important;height:auto;border-right:none!important;border-bottom:1px solid #334155}
+        #focMap{flex:none!important;height:50dvh;min-height:300px}
+        #focModal .foc-left select{width:auto;max-width:46vw}
+        #focSub{display:none}
+        #focRight{flex:none!important;min-width:0!important;max-width:none!important;width:100%;overflow:visible!important}
+        #focModal .foc-head{padding:6px 8px!important;gap:6px!important}
+        #focModal .foc-head .btn.small{padding:7px 9px;font-size:12px;min-height:36px}
+        #focTitol{font-size:15px!important;flex:1 1 100%}
+        #focFull{display:none}
+        #focModal .tb-btn{padding:6px 10px}
+        .leaflet-container .leaflet-control-attribution{font-size:9px}
+      }
     </style>
     <div id="tabs">
       <button class="tab actiu" data-t="temps">Temps real</button>
@@ -785,7 +835,7 @@
 #focRight .acc-b{padding:8px 12px;background:#0b1220}
 </style>
 <div id="focModal" style="display:none;position:fixed;inset:0;z-index:5000;background:#0b1220;color:#e5e7eb;flex-direction:column">
-  <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #334155;background:#0f172a;flex-wrap:wrap">
+  <div class="foc-head" style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #334155;background:#0f172a;flex-wrap:wrap">
     <b id="focTitol" style="font-size:16px">🔥 Incendi</b>
     <label style="font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:5px">Inici
       <input type="datetime-local" id="focIniciInput" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 6px;font-size:12px"></label>
@@ -798,8 +848,8 @@
     <button class="btn small" id="focZipBtn">🗜 ZIP</button>
     <button class="btn small" id="focTancar">✕ Tancar</button>
   </div>
-  <div style="flex:1;display:flex;min-height:0">
-    <div style="flex:1.4;position:relative;min-width:0;display:flex;flex-direction:column;border-right:1px solid #334155">
+  <div class="foc-body" style="flex:1;display:flex;min-height:0">
+    <div class="foc-left" style="flex:1.4;position:relative;min-width:0;display:flex;flex-direction:column;border-right:1px solid #334155">
       <!-- barra d'eines slim: només observació i edició -->
       <div style="display:flex;gap:8px;align-items:center;padding:6px 10px;background:#0f172a;border-bottom:1px solid #1e293b;flex-wrap:wrap">
         <label style="font-size:12px;color:#cbd5e1">Variable:</label>
@@ -2681,11 +2731,7 @@ async function generarImatge(){
       c.fillText('Dades: AEMET · Meteocat (SMC) · Base: ICGC  ·  Eina desenvolupada per Javi Miró', W-pad, y2);
     }
     if(restaura){ try{restaura();}catch(e){} restaura=null; }   // torna el mapa a com estava
-    cv.toBlob(bl=>{
-      const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
-      a.download='situacio_meteo_'+(nom||'incendi').replace(/[^\w]+/g,'_')+'.png'; a.click();
-      setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-    },'image/png');
+    cv.toBlob(bl=>lliuraImatge(bl,'situacio_meteo_'+(nom||'pyromet').replace(/[^\w]+/g,'_')+'.png','Situació meteorològica'+(nom?(' · '+nom):'')),'image/png');
   }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
   if(restaura){ try{restaura();}catch(e){} }           // si ha petat a mig camí, torna la vista igualment
   try{ const el=$('map'); if(el && el.style.width){ el.style.width=''; el.style.height=''; el.style.right=''; el.style.bottom=''; map.invalidateSize({animate:false}); } }catch(e){}   // seguretat: mai deixar el mapa redimensionat
@@ -2764,6 +2810,39 @@ $('toggle').onclick=()=>{
   $('toggle').textContent=app.classList.contains('collapsed')?'☰ Menú':'✕ Menú';
   setTimeout(()=>map.invalidateSize(),300);
 };
+// ===================== MÒBIL =====================
+// Al mòbil el menú és un full inferior: arrenca tancat (el mapa és el protagonista) i es tanca sol quan
+// l'acció següent és tocar el mapa (situar la flama, dibuixar el perímetre, anar a un incendi).
+const ES_MOBIL=()=>window.matchMedia('(max-width:760px)').matches;
+function mobilTancaMenu(){ if(!ES_MOBIL()) return; const app=$('app'); if(!app.classList.contains('collapsed')){ app.classList.add('collapsed'); $('toggle').textContent='☰ Menú'; } }
+if(ES_MOBIL()){ $('app').classList.add('collapsed'); $('toggle').textContent='☰ Menú'; }
+['flama','perimBtn'].forEach(id=>{ const b=$(id); if(b) b.addEventListener('click',()=>setTimeout(mobilTancaMenu,0)); });
+// píndola "sense connexió" (la PWA mostra l'última situació guardada pel service worker)
+function foraLinia(on){ const o=$('offPill'); if(o) o.style.display=on?'block':'none'; }
+window.addEventListener('offline',()=>foraLinia(true)); window.addEventListener('online',()=>foraLinia(false));
+if(navigator.onLine===false) foraLinia(true);
+// LLIURAMENT D'IMATGES: a l'ordinador es descarrega; al mòbil s'obri una previsualització amb «Compartir»
+// (full natiu: WhatsApp, Telegram, correu…) i «Descarregar». Cal un toc nou de l'usuari per compartir, per això el full.
+function baixaBlob(blob,nom){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nom; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+function lliuraImatge(blob,nom,titol){
+  let file=null; try{ file=new File([blob],nom,{type:'image/png'}); }catch(e){}
+  const tactil=ES_MOBIL()||window.matchMedia('(pointer:coarse)').matches;
+  let pot=false; try{ pot=!!(file&&tactil&&navigator.canShare&&navigator.canShare({files:[file]})); }catch(e){}
+  if(!pot){ baixaBlob(blob,nom); return; }
+  const vell=$('shareOv'); if(vell) vell.remove();
+  const url=URL.createObjectURL(blob), ov=document.createElement('div'); ov.id='shareOv';
+  ov.style.cssText='position:fixed;inset:0;z-index:9000;background:rgba(2,6,23,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px';
+  ov.innerHTML='<img src="'+url+'" alt="Imatge generada" style="max-width:100%;max-height:60dvh;border-radius:10px;border:1px solid #334155;background:#fff">'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">'
+    +'<button class="btn primary" id="shGo" style="min-height:46px;padding:0 20px;font-size:15px">📤 Compartir</button>'
+    +'<button class="btn" id="shDl" style="min-height:46px;padding:0 16px;font-size:15px">⬇️ Descarregar</button>'
+    +'<button class="btn" id="shX" style="min-height:46px;padding:0 16px;font-size:15px">✕ Tancar</button></div>';
+  document.body.appendChild(ov);
+  const tanca=()=>{ ov.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000); };
+  ov.querySelector('#shX').onclick=tanca;
+  ov.querySelector('#shDl').onclick=()=>{ baixaBlob(blob,nom); tanca(); };
+  ov.querySelector('#shGo').onclick=async()=>{ try{ await navigator.share({files:[file],title:titol||'Pyromet',text:titol||''}); tanca(); }catch(e){ if(!(e&&e.name==='AbortError')) baixaBlob(blob,nom); } };
+}
 
 // ------------------------------------------------------------------ dades (xifrades)
 function infoXarxa(font){
@@ -2922,7 +3001,9 @@ let SESSIO=null;                                                   // {token, us
 const TAB_BLOC={temps:'observacio',analisi:'analisi',prev:'previsio',incendi:'incendi',arxiu:'arxiu'};
 function teBloc(b){ return !SESSIO || !SESSIO.blocs || SESSIO.blocs.includes(b); }   // sense sessió (mode antic) = tot
 async function authFetch(path,body,method){
-  const r=await fetch(AUTH_URL+path,{method:method||'POST',headers:{'Content-Type':'application/json',...(SESSIO&&SESSIO.token?{Authorization:'Bearer '+SESSIO.token}:{})},body:(method==='GET')?undefined:JSON.stringify(body||{})});
+  const ctl=(typeof AbortController!=='undefined')?new AbortController():null, to=ctl?setTimeout(()=>ctl.abort(),9000):null;   // 9 s: si el servidor d'accés no respon, no ens quedem penjats
+  let r; try{ r=await fetch(AUTH_URL+path,{method:method||'POST',headers:{'Content-Type':'application/json',...(SESSIO&&SESSIO.token?{Authorization:'Bearer '+SESSIO.token}:{})},body:(method==='GET')?undefined:JSON.stringify(body||{}),signal:ctl?ctl.signal:undefined}); }
+  finally{ if(to) clearTimeout(to); }
   let j={}; try{ j=await r.json(); }catch(e){} return Object.assign({status:r.status},j);
 }
 async function entraAmbDades(p){
@@ -2931,9 +3012,14 @@ async function entraAmbDades(p){
   carregaIndexArxiu(); carregaVent();
   setTimeout(()=>map.invalidateSize(),150);
 }
+const CLAU_KEY='pyromet_k_'+REGIO;
+function desaSessio(){ try{ const u=SESSIO.usuari||{}; localStorage.setItem(SESSIO_KEY,JSON.stringify({token:SESSIO.token,u:{nom:u.nom,email:u.email,rol:u.rol,blocs:SESSIO.blocs,regions:SESSIO.regions}})); }catch(e){} }
 function aplicaSessio(j){
   SESSIO={token:j.token||(SESSIO&&SESSIO.token),usuari:j.usuari,blocs:j.usuari.blocs||[],regions:j.usuari.regions||[]};
-  try{ localStorage.setItem(SESSIO_KEY,JSON.stringify({token:SESSIO.token})); }catch(e){}
+  desaSessio();
+  // clau de dades de la regió, guardada en este dispositiu per poder obrir l'última situació SENSE connexió o si el
+  // servidor d'accés està caigut (s'esborra en tancar sessió o si el servidor revoca l'accés)
+  if(j.claus && j.claus[REGIO]){ try{ localStorage.setItem(CLAU_KEY,j.claus[REGIO]); }catch(e){} }
   if(j.clausApp && j.clausApp[REGIO]){ try{ localStorage.setItem('app_pass',j.clausApp[REGIO]); }catch(e){} }   // Worker d'incendis/actualitzar
   const bar=$('sessioBar'); if(bar){ bar.style.display='flex'; $('sessioQui').textContent=(j.usuari.nom||j.usuari.email)+(j.usuari.rol==='admin'?' · admin':''); }
   aplicaPermisos();
@@ -2980,15 +3066,27 @@ async function recuperaSessio(){
   if(!t||!t.token) return false;
   const gs=$('gateSessio'); if(gs) gs.style.display='block';
   SESSIO={token:t.token};
+  let j=null, senseServidor=false;
+  try{ j=await authFetch('/me',null,'GET'); if(j.status>=500) senseServidor=true; }catch(e){ senseServidor=true; }
+  if(senseServidor){
+    // sense connexió o servidor d'accés caigut: entra amb l'última clau i els permisos guardats en este dispositiu
+    let k=null; try{ k=localStorage.getItem(CLAU_KEY); }catch(e){}
+    if(k){ try{
+        const u=t.u||{}; SESSIO={token:t.token,usuari:u,blocs:u.blocs||null,regions:u.regions||[]};
+        const bar=$('sessioBar'); if(bar){ bar.style.display='flex'; $('sessioQui').textContent=(u.nom||u.email||'')+' · sense servidor d\'accés'; }
+        await entraAmbDades(k); aplicaPermisos(); if(navigator.onLine===false) foraLinia(true); return true;
+      }catch(e){} }
+    SESSIO=null; if(gs) gs.style.display='none';
+    $('gateerr').textContent='No s\'ha pogut contactar amb el servidor d\'accés. Torna-ho a provar en uns minuts.'; return false;   // la sessió NO s'esborra
+  }
   try{
-    const j=await authFetch('/me',null,'GET');
     if(!j.ok||!(j.claus&&j.claus[REGIO])) throw new Error('sessio');
     aplicaSessio(j); await entraAmbDades(j.claus[REGIO]); return true;
-  }catch(e){ SESSIO=null; try{ localStorage.removeItem(SESSIO_KEY); }catch(e2){} if(gs) gs.style.display='none'; return false; }
+  }catch(e){ SESSIO=null; try{ localStorage.removeItem(SESSIO_KEY); localStorage.removeItem(CLAU_KEY); }catch(e2){} if(gs) gs.style.display='none'; return false; }
 }
 async function tancaSessio(){
   try{ if(SESSIO&&SESSIO.token) await authFetch('/logout',{}); }catch(e){}
-  try{ localStorage.removeItem(SESSIO_KEY); localStorage.removeItem('app_pass'); }catch(e){}
+  try{ localStorage.removeItem(SESSIO_KEY); localStorage.removeItem(CLAU_KEY); localStorage.removeItem('app_pass'); }catch(e){}
   location.reload();
 }
 async function canviaContrasenya(obligat){
@@ -2997,7 +3095,7 @@ async function canviaContrasenya(obligat){
   if(nova.length<8){ alert('Ha de tenir 8 caràcters o més.'); return; }
   const j=await authFetch('/password',{actual:actual,nova:nova});
   if(!j.ok){ alert(j.missatge||(j.error==='credencials'?'La contrasenya actual no és correcta.':'No s\'ha pogut canviar.')); return; }
-  SESSIO.token=j.token; try{ localStorage.setItem(SESSIO_KEY,JSON.stringify({token:j.token})); }catch(e){}
+  SESSIO.token=j.token; desaSessio();
   alert('Contrasenya canviada.');
 }
 // ---------------- incendis: importar perímetre i guardar els 20 últims ----------------
@@ -3172,6 +3270,7 @@ function focCarrega(id){
   const pts=perimLL.slice(); if(flameLL) pts.push(flameLL);
   if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.35));
   focsRender(); actualitzaBotoGuarda();
+  if(typeof mobilTancaMenu==='function') mobilTancaMenu();
 }
 function actualitzaBotoGuarda(){
   const b=$('focGuarda'); if(!b)return;
@@ -3196,6 +3295,7 @@ const BOMBERS_URL='https://services7.arcgis.com/ZCqVt1fRXwwK6GF4/arcgis/rest/ser
 let bomActius=[], bomLayer=null, bomTimer=null;
 async function bomConsulta(){
   const inf=$('bomInfo'); if(!inf) return;
+  if(REGIO!=='cat'){ const b=$('bomBloc'); if(b) b.style.display='none'; return; }   // el visor és de Bombers de la Generalitat (Catalunya)
   inf.textContent='Consultant el visor de Bombers…';
   try{
     const u=BOMBERS_URL+'?where='+encodeURIComponent("TAL_COD_ALARMA1='IV'")+'&outFields=*&returnGeometry=true&outSR=4326&f=json&_='+Date.now();
@@ -3250,7 +3350,7 @@ if($('bomRefresca')) $('bomRefresca').onclick=bomConsulta;
 if($('bomAfegir')) $('bomAfegir').onclick=bomAfegir;
 if($('bomMapa')) $('bomMapa').onchange=bomCapaMapa;
 if($('bomList')){ $('bomList').addEventListener('change',bomBotons);
-  $('bomList').addEventListener('click',e=>{ const v=e.target.closest('.bomVes'); if(!v) return; e.preventDefault(); const x=bomActius.find(y=>y.id===v.dataset.id); if(x) map.setView([x.lat,x.lon],12); }); }
+  $('bomList').addEventListener('click',e=>{ const v=e.target.closest('.bomVes'); if(!v) return; e.preventDefault(); const x=bomActius.find(y=>y.id===v.dataset.id); if(x){ map.setView([x.lat,x.lon],12); if(typeof mobilTancaMenu==='function') mobilTancaMenu(); } }); }
 // es consulta en obrir la pestanya Incendi (i cada 10 min mentre estiga oberta)
 function bomArrenca(){ bomConsulta(); if(!bomTimer) bomTimer=setInterval(()=>{ if(!document.hidden && document.querySelector('#tabs .tab.actiu')?.dataset.t==='incendi') bomConsulta(); },10*60*1000); }
 $('focGuarda').addEventListener('click',focGuarda);
@@ -5555,7 +5655,7 @@ async function prevExporta(){
       c.fillText('Model '+modelInfo().nom+' · passada '+p.run.slice(8,10)+'Z del '+p.run.slice(6,8)+'/'+p.run.slice(4,6)+'/'+p.run.slice(0,4)+' · hores en hora local   ·   Informe generat: '+new Date().toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), 14*S, fy);
       c.textAlign='right';
       c.fillText('Dades: '+modelInfo().font+' · Base: ICGC   ·   Eina desenvolupada per Javi Miró', W-14*S, fy); }
-    const a=document.createElement('a'); a.download='previsio_harmonie_'+HARM.varK+'_'+p.run+'_h'+h+'.png'; a.href=cv.toDataURL('image/png'); a.click();
+    cv.toBlob(bl=>lliuraImatge(bl,'previsio_'+HARM.model+'_'+HARM.varK+'_'+p.run+'_h'+h+'.png','Previsió meteorològica · '+modelInfo().curt),'image/png');
   }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
   finally{ btns.forEach((b,i)=>{b.disabled=false;b.textContent=olds[i];}); }
 }
@@ -5633,7 +5733,7 @@ async function pexExportaPunt(){
     const fy=H-footH/2; c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial'; c.textAlign='left';
     c.fillText('Model '+modelInfo().nom+' · '+runTxt+' · hores en hora local   ·   Informe generat: '+new Date().toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), m, fy);
     c.textAlign='right'; c.fillText('Dades: '+modelInfo().font+' · Base: ICGC   ·   Eina desenvolupada per Javi Miró', W-m, fy);
-    const a=document.createElement('a'); a.download='previsio_punt_'+PEX.lat.toFixed(3)+'_'+PEX.lon.toFixed(3)+'_'+p.run+'.png'; a.href=cv.toDataURL('image/png'); a.click();
+    cv.toBlob(bl=>lliuraImatge(bl,'previsio_punt_'+PEX.lat.toFixed(3)+'_'+PEX.lon.toFixed(3)+'_'+p.run+'.png','Previsió del punt · '+modelInfo().curt),'image/png');
   }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
   finally{ if(wrap){ try{wrap.remove();}catch(e){} } if(btn){btn.disabled=false;btn.textContent=old;} }
 }
@@ -5922,8 +6022,8 @@ async function focExportImatge(){
     const fy=H-footH/2; c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial'; c.textAlign='left';
     c.fillText('Informe d\'incendi · generat '+q(Date.now())+' (hora local)'+(chartsC&&chartsC.$titol?('   ·   Panell: '+chartsC.$titol):''), m, fy);
     c.textAlign='right'; c.fillText('Vent d\'alta resolució WindNinja · Dades: AEMET · Meteocat (SMC) · Base: Esri   ·   Eina desenvolupada per Javi Miró', W-m, fy);
-    cv.toBlob(bl=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
-      a.download='incendi_'+((FD.foc.nom||'incendi').replace(/[^\w]+/g,'_'))+'.png'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); },'image/png');
+    const nomFoc=FD.foc.nom||'incendi';
+    cv.toBlob(bl=>lliuraImatge(bl,'incendi_'+nomFoc.replace(/[^\w]+/g,'_')+'.png','Incendi · '+nomFoc),'image/png');
   }catch(e){ alert('No s\'ha pogut exportar: '+(e&&e.message||e)); }
   btn.disabled=false; btn.textContent=old;
 }
@@ -6425,6 +6525,8 @@ async function desaCorreguda(){
   document.querySelectorAll('#tabs .tab').forEach(b=> b.addEventListener('click',()=>mostraTab(b.dataset.t)) );
   window.mostraTab=mostraTab; mostraTab('temps');
 })();
+// PWA: service worker (instal·lable + última situació disponible sense connexió). Només en https.
+if('serviceWorker' in navigator && location.protocol==='https:'){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
 </script>
 </body>
 </html>
