@@ -3017,6 +3017,10 @@ async function entraAmbDades(p){
   setTimeout(()=>map.invalidateSize(),150);
 }
 const CLAU_KEY='pyromet_k_'+REGIO;
+// IDENTIFICADOR DE DISPOSITIU: aleatori, es crea una vegada i es guarda en este navegador/app. El servidor el fa servir
+// per saber des de quants dispositius entra cada usuari (i limitar-ho) i si l'app està instal·lada. No conté cap dada personal.
+function devId(){ let d=null; try{ d=localStorage.getItem('pyromet_dev'); if(!d){ d=(crypto.randomUUID?crypto.randomUUID():(Date.now().toString(36)+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2))).replace(/[^A-Za-z0-9_-]/g,''); localStorage.setItem('pyromet_dev',d); } }catch(e){} return d; }
+function esAppInstalada(){ try{ return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone===true; }catch(e){ return false; } }
 function desaSessio(){ try{ const u=SESSIO.usuari||{}; localStorage.setItem(SESSIO_KEY,JSON.stringify({token:SESSIO.token,u:{nom:u.nom,email:u.email,rol:u.rol,blocs:SESSIO.blocs,regions:SESSIO.regions}})); }catch(e){} }
 function aplicaSessio(j){
   SESSIO={token:j.token||(SESSIO&&SESSIO.token),usuari:j.usuari,blocs:j.usuari.blocs||[],regions:j.usuari.regions||[]};
@@ -3034,7 +3038,7 @@ function aplicaSessio(j){
 // BATEC de presència: cada 5 min (i en obrir/tornar a la pestanya) l'app avisa el Worker que l'usuari és en línia;
 // el panell d'administració mostra qui hi ha ara i compta les visites diàries per regió. Sense sessió (mode antic) no fa res.
 let _batecT=null;
-function batec(){ if(!SESSIO||!SESSIO.token||document.hidden) return; authFetch('/ping',{regio:REGIO}).catch(()=>{}); }
+function batec(){ if(!SESSIO||!SESSIO.token||document.hidden) return; authFetch('/ping',{regio:REGIO,dev:devId(),pwa:esAppInstalada()}).catch(()=>{}); }
 function iniciaBatec(){ if(_batecT) return; batec(); _batecT=setInterval(batec,5*60*1000); document.addEventListener('visibilitychange',()=>{ if(!document.hidden) batec(); }); }
 function aplicaPermisos(){
   // pestanyes: només les dels blocs permesos; si l'activa no ho és, salta a la primera permesa
@@ -3053,7 +3057,7 @@ async function provaEntrar(){
   $('gateerr').textContent='Comprovant…';
   try{
     if(!email){ await entraAmbDades(p); return; }                      // mode antic: contrasenya compartida
-    let j; try{ j=await authFetch('/login',{email:email,pass:p}); }
+    let j; try{ j=await authFetch('/login',{email:email,pass:p,dev:devId(),pwa:esAppInstalada()}); }
     catch(e){ $('gateerr').textContent='No s\'ha pogut contactar amb el servidor d\'accés (Cloudflare). Torna-ho a provar en uns minuts o entra amb la contrasenya compartida deixant el correu buit.'; return; }
     if(!j.ok){ $('gateerr').textContent=j.missatge||(j.error==='credencials'?'Correu o contrasenya incorrectes.':j.error==='massa_intents'?'Massa intents. Espera 15 minuts.':'No s\'ha pogut entrar ('+(j.error||j.status)+').'); $('pass').select(); return; }
     if(!(j.claus&&j.claus[REGIO])){ $('gateerr').textContent='El teu compte no té accés a aquesta regió.'; return; }
@@ -3089,7 +3093,7 @@ async function recuperaSessio(){
   }catch(e){ SESSIO=null; try{ localStorage.removeItem(SESSIO_KEY); localStorage.removeItem(CLAU_KEY); }catch(e2){} if(gs) gs.style.display='none'; return false; }
 }
 async function tancaSessio(){
-  try{ if(SESSIO&&SESSIO.token) await authFetch('/logout',{}); }catch(e){}
+  try{ if(SESSIO&&SESSIO.token) await authFetch('/logout',{dev:devId()}); }catch(e){}
   try{ localStorage.removeItem(SESSIO_KEY); localStorage.removeItem(CLAU_KEY); localStorage.removeItem('app_pass'); }catch(e){}
   location.reload();
 }

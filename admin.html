@@ -41,7 +41,7 @@
   .gatebox input{margin-bottom:10px;text-align:center}
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px} .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
   .kpi b{display:block;font-size:22px} .kpi span{font-size:12px;color:var(--muted)}
-  .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap} .tools input{width:240px}
+  .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end} .tools input{width:240px} .tools select{width:230px} .card h2{flex-wrap:wrap}
   .muted{color:var(--muted)} .right{text-align:right}
   @media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr} header{flex-wrap:wrap}}
 </style>
@@ -79,7 +79,7 @@
     <h2>Activitat <span class="sp"></span><span class="muted" style="font-weight:400;font-size:12px">batec cada 5 min des de l'app · es refresca sol</span><button class="btn small" id="btnAct">↻</button></h2>
     <div class="kpis" id="actKpis" style="margin-bottom:12px"></div>
     <div class="grid2">
-      <div><div class="muted" style="font-size:12px;margin-bottom:6px">En línia ara (últims 10 min)</div><table id="tOnline"><thead><tr><th>Usuari</th><th>Regió</th><th>Des de</th><th>Últim batec</th></tr></thead><tbody></tbody></table></div>
+      <div><div class="muted" style="font-size:12px;margin-bottom:6px">En línia ara (últims 10 min)</div><table id="tOnline"><thead><tr><th>Usuari</th><th>Dispositiu</th><th>Regió</th><th>Des de</th><th>Últim batec</th></tr></thead><tbody></tbody></table></div>
       <div><div class="muted" style="font-size:12px;margin-bottom:6px">Visites per dia i regió (usuaris únics · sessions)</div><div id="visGraf" style="display:flex;align-items:flex-end;gap:3px;height:120px;border-bottom:1px solid var(--line);padding-bottom:2px"></div><div id="visLlegenda" class="muted" style="font-size:11px;margin-top:6px"></div></div>
     </div>
   </section>
@@ -108,11 +108,15 @@
     <div><label>Rol</label><select id="uRol"><option value="usuari">usuari</option><option value="gestor">gestor</option><option value="admin">admin</option></select></div>
     <div><label>Contrasenya <span class="muted" id="uPassHint">(obligatòria en crear)</span></label><input id="uPass" type="text" autocomplete="off" placeholder="mín. 8 caràcters"><div style="margin-top:4px"><button class="btn small" id="uGen" type="button">Genera'n una</button></div></div>
     <div><label>Caducitat de l'accés (opcional)</label><input id="uCaduca" type="date"></div>
+    <div><label>Màxim de dispositius <span class="muted">(navegadors o apps diferents)</span></label><input id="uMaxDisp" type="number" min="1" max="20" value="3"></div>
   </div>
   <label>Regions</label><div class="checks" id="uRegions"></div>
   <label>Blocs permesos</label><div class="checks" id="uBlocs"></div>
   <div style="margin-top:6px"><button class="btn small" id="uTots" type="button">Marca-ho tot</button> <button class="btn small" id="uCap" type="button">Desmarca-ho tot</button></div>
   <label>Notes</label><textarea id="uNotes" rows="2"></textarea>
+  <div id="uDevsWrap" style="display:none"><label>Dispositius registrats <span class="muted">(els que fa 30 dies que no entren deixen de comptar)</span></label>
+    <table id="uDevs" style="font-size:12px"><tbody></tbody></table>
+    <div style="margin-top:6px"><button class="btn small" id="uDevsReset" type="button" title="Oblida tots els dispositius i tanca les sessions: haurà de tornar a entrar">Allibera tots els dispositius</button></div></div>
   <label style="display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--txt)"><input type="checkbox" id="uActiu" checked style="width:auto"> Accés actiu</label>
   <div class="msg" id="uMsg"></div>
   <div class="actions"><button class="btn danger" id="uDel" style="margin-right:auto">Esborra l'usuari</button><button class="btn" id="uCancel">Cancel·la</button><button class="btn primary" id="uSave">Desa</button></div>
@@ -211,7 +215,15 @@ function renderKpis(){
   const act=USERS.filter(u=>u.actiu!==false).length, adm=USERS.filter(u=>u.rol==='admin').length, cad=USERS.filter(u=>u.caduca&&Date.parse(u.caduca)<Date.now()).length;
   const perR={}; Object.keys(CFG.regions).forEach(r=>perR[r]=USERS.filter(u=>(u.regions||[]).includes(r)&&u.actiu!==false).length);
   $('kpis').innerHTML='<div class="kpi"><b>'+USERS.length+'</b><span>usuaris</span></div><div class="kpi"><b>'+act+'</b><span>actius</span></div><div class="kpi"><b>'+ORGS.length+'</b><span>organitzacions</span></div><div class="kpi"><b>'+adm+'</b><span>administradors</span></div>'
-    +Object.keys(perR).map(r=>'<div class="kpi"><b>'+perR[r]+'</b><span>amb accés a '+esc(CFG.regions[r].nom)+'</span></div>').join('')+(cad?'<div class="kpi"><b style="color:var(--warn)">'+cad+'</b><span>amb accés caducat</span></div>':'');
+    +Object.keys(perR).map(r=>'<div class="kpi"><b>'+perR[r]+'</b><span>amb accés a '+esc(CFG.regions[r].nom)+'</span></div>').join('')+'<div class="kpi"><b>'+USERS.filter(u=>(u.dispositius||[]).some(d=>d.pwa)).length+'</b><span>amb l\'app instal·lada</span></div>'+(cad?'<div class="kpi"><b style="color:var(--warn)">'+cad+'</b><span>amb accés caducat</span></div>':'');
+}
+// resum de dispositius d'un usuari: quants (sobre el màxim), si té l'app instal·lada i si n'hi ha diversos EN LÍNIA alhora
+function resumDisp(u){
+  const d=u.dispositius||[], max=u.maxDisp||3, app=d.some(x=>x.pwa), ple=d.length>=max;
+  const alhora=ACT?(ACT.online||[]).filter(o=>o.email===u.email).length:0;
+  return '<div style="font-size:11px;margin-top:3px"><span class="chip" style="'+(ple?'border-color:#b45309;color:#fcd34d':'')+'" title="'+esc(d.map(x=>x.ua+(x.pwa?' (app)':'')+' · últim '+fmtD(x.ultim)).join('\n')||'Encara no ha entrat des de cap dispositiu identificat')+'">📱 '+d.length+'/'+max+' dispositius</span>'
+    +(app?'<span class="chip on" title="Té l\'app instal·lada (pantalla d\'inici)">app instal·lada</span>':'')
+    +(alhora>1?'<span class="chip" style="border-color:#b91c1c;color:#fca5a5" title="Ara mateix hi ha '+alhora+' dispositius en línia amb este usuari">⚠ '+alhora+' alhora</span>':'')+'</div>';
 }
 function renderUsers(){
   const q=$('cerca').value.trim().toLowerCase(), fo=$('fOrg').value;
@@ -223,7 +235,7 @@ function renderUsers(){
       +'<td><span class="chip rol-'+esc(u.rol)+'">'+esc(u.rol)+'</span></td>'
       +'<td>'+Object.keys(CFG.regions).map(r=>'<span class="chip '+((u.regions||[]).includes(r)?'on':'off')+'">'+r.toUpperCase()+'</span>').join('')+'</td>'
       +'<td>'+Object.keys(CFG.blocs).map(b=>'<span class="chip '+((u.blocs||[]).includes(b)?'on':'off')+'" title="'+esc(CFG.blocs[b])+'">'+b+'</span>').join('')+'</td>'
-      +'<td>'+estat+'<div class="muted" style="font-size:11px">últim: '+fmtD(u.ultimAcces)+(u.nAccessos?(' · '+u.nAccessos+' accessos'):'')+(u.passTemporal?' · <span style="color:var(--warn)">contrasenya temporal</span>':'')+(u.caduca?(' · caduca '+u.caduca):'')+'</div></td>'
+      +'<td>'+estat+'<div class="muted" style="font-size:11px">últim: '+fmtD(u.ultimAcces)+(u.nAccessos?(' · '+u.nAccessos+' accessos'):'')+(u.passTemporal?' · <span style="color:var(--warn)">contrasenya temporal</span>':'')+(u.caduca?(' · caduca '+u.caduca):'')+'</div>'+resumDisp(u)+'</td>'
       +'<td class="right"><button class="btn small" data-act="edit">Edita</button> <button class="btn small" data-act="kill" title="Tanca totes les sessions obertes">Tanca sessions</button></td></tr>';
   }).join('')||'<tr><td colspan="7" class="muted">Cap usuari.</td></tr>';
 }
@@ -247,16 +259,27 @@ function checks(cont,obj,sel){ cont.innerHTML=Object.keys(obj).map(k=>'<label><i
 function obriUser(u){
   EDIT=u||null; $('mUserTitle').textContent=u?('Edita: '+u.email):'Nou usuari';
   $('uEmail').value=u?u.email:''; $('uEmail').disabled=!!u; $('uNom').value=u?u.nom||'':''; $('uOrg').value=u?u.org||'':''; $('uRol').value=u?u.rol:'usuari';
-  $('uPass').value=''; $('uPassHint').textContent=u?'(deixa-ho buit per no canviar-la)':'(obligatòria en crear)'; $('uCaduca').value=u&&u.caduca?u.caduca:''; $('uNotes').value=u?u.notes||'':''; $('uActiu').checked=u?u.actiu!==false:true;
+  $('uPass').value=''; $('uPassHint').textContent=u?'(deixa-ho buit per no canviar-la)':'(obligatòria en crear)'; $('uCaduca').value=u&&u.caduca?u.caduca:''; $('uMaxDisp').value=u&&u.maxDisp?u.maxDisp:3; pintaDevs(u); $('uNotes').value=u?u.notes||'':''; $('uActiu').checked=u?u.actiu!==false:true;
   checks($('uRegions'),CFG.regions,u?u.regions||[]:Object.keys(CFG.regions)); checks($('uBlocs'),CFG.blocs,u?u.blocs||[]:Object.keys(CFG.blocs));
   $('uDel').style.display=u?'':'none'; $('uMsg').textContent=''; $('uMsg').className='msg'; $('mUser').classList.add('on'); (u?$('uNom'):$('uEmail')).focus();
 }
+function pintaDevs(u){
+  const w=$('uDevsWrap'), d=(u&&u.dispositius)||[]; w.style.display=u?'':'none'; if(!u) return;
+  const on=new Set((ACT&&ACT.online||[]).filter(o=>o.email===u.email).map(o=>o.dev));
+  $('uDevs').querySelector('tbody').innerHTML=d.map(x=>'<tr data-d="'+esc(x.id)+'"><td>'+(on.has(x.id)?'<span class="dot ok" title="en línia ara"></span>':'<span class="dot" style="background:#475569"></span>')+esc(x.ua||'?')+(x.pwa?' <span class="chip on">app</span>':'')+'</td><td class="muted">primer '+fmtD(x.primer)+'</td><td class="muted">últim '+fmtD(x.ultim)+'</td><td class="muted">'+(x.n||0)+' entrades</td><td class="right"><button class="btn small" data-act="devdel" type="button">Allibera</button></td></tr>').join('')
+    ||'<tr><td class="muted">Encara no ha entrat des de cap dispositiu identificat.</td></tr>';
+}
+$('uDevs').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b||!EDIT) return; const dev=b.closest('tr').dataset.d;
+  if(!confirm('Alliberar este dispositiu? Es tancaran les sessions de l\'usuari i haurà de tornar a entrar.')) return;
+  await api('/admin/devs_del',{email:EDIT.email,dev}); await carregaUsers(); EDIT=USERS.find(x=>x.email===EDIT.email)||EDIT; pintaDevs(EDIT); renderTot(); });
+$('uDevsReset').onclick=async()=>{ if(!EDIT||!confirm('Alliberar TOTS els dispositius de '+EDIT.email+'? Haurà de tornar a entrar a tot arreu.')) return;
+  await api('/admin/devs_del',{email:EDIT.email}); await carregaUsers(); EDIT=USERS.find(x=>x.email===EDIT.email)||EDIT; pintaDevs(EDIT); renderTot(); };
 $('btnNou').onclick=()=>obriUser(null); $('uCancel').onclick=()=>$('mUser').classList.remove('on');
 $('uGen').onclick=()=>{ const a='abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'; let p=''; const r=new Uint32Array(12); crypto.getRandomValues(r); for(const x of r)p+=a[x%a.length]; $('uPass').value=p; };
 $('uTots').onclick=()=>document.querySelectorAll('#uRegions input,#uBlocs input').forEach(c=>c.checked=true);
 $('uCap').onclick=()=>document.querySelectorAll('#uRegions input,#uBlocs input').forEach(c=>c.checked=false);
 $('uSave').onclick=async()=>{
-  const body={email:$('uEmail').value.trim(),nom:$('uNom').value.trim(),org:$('uOrg').value,rol:$('uRol').value,actiu:$('uActiu').checked,caduca:$('uCaduca').value||null,notes:$('uNotes').value,
+  const body={email:$('uEmail').value.trim(),nom:$('uNom').value.trim(),org:$('uOrg').value,rol:$('uRol').value,actiu:$('uActiu').checked,caduca:$('uCaduca').value||null,notes:$('uNotes').value,maxDisp:+$('uMaxDisp').value||3,
     regions:[...document.querySelectorAll('#uRegions input:checked')].map(c=>c.value),blocs:[...document.querySelectorAll('#uBlocs input:checked')].map(c=>c.value)};
   if($('uPass').value) body.pass=$('uPass').value;
   $('uMsg').className='msg'; $('uMsg').textContent='Desant…';
@@ -307,10 +330,12 @@ async function carregaActivitat(){
   const perR={}; (j.online||[]).forEach(o=>{ perR[o.regio]=(perR[o.regio]||0)+1; });
   const hui=new Date().toISOString().slice(0,10), dh=j.dies[hui]||{};
   const totHui=Object.values(dh).reduce((a,v)=>a+(v.usuaris||0),0);
-  $('actKpis').innerHTML='<div class="kpi"><b>'+(j.online||[]).length+'</b><span>en línia ara</span></div>'
+  $('actKpis').innerHTML='<div class="kpi"><b>'+new Set((j.online||[]).map(o=>o.email)).size+'</b><span>usuaris en línia ara</span></div>'
     +Object.keys(CFG.regions).map(r=>'<div class="kpi"><b>'+(perR[r]||0)+'</b><span>en línia · '+esc(CFG.regions[r].nom)+'</span></div>').join('')
     +'<div class="kpi"><b>'+totHui+'</b><span>usuaris únics hui</span></div>';
-  $('tOnline').querySelector('tbody').innerHTML=(j.online||[]).map(o=>'<tr><td><b>'+esc(o.nom||'')+'</b><div class="muted">'+esc(o.email)+(o.org?(' · '+esc(orgNom(o.org))):'')+'</div></td><td>'+esc((CFG.regions[o.regio]||{}).nom||o.regio)+'</td><td>'+fmtD(o.inici)+'</td><td>'+rel(o.ultim)+'</td></tr>').join('')||'<tr><td colspan="4" class="muted">Ningú en línia ara mateix.</td></tr>';
+  const nDev={}; (j.online||[]).forEach(o=>{ nDev[o.email]=(nDev[o.email]||0)+1; });
+  $('tOnline').querySelector('tbody').innerHTML=(j.online||[]).map(o=>'<tr><td><b>'+esc(o.nom||'')+'</b>'+(nDev[o.email]>1?' <span class="chip" style="border-color:#b91c1c;color:#fca5a5">⚠ '+nDev[o.email]+' alhora</span>':'')+'<div class="muted">'+esc(o.email)+(o.org?(' · '+esc(orgNom(o.org))):'')+'</div></td><td>'+esc(o.ua||'?')+(o.pwa?' <span class="chip on">app</span>':'')+'</td><td>'+esc((CFG.regions[o.regio]||{}).nom||o.regio)+'</td><td>'+fmtD(o.inici)+'</td><td>'+rel(o.ultim)+'</td></tr>').join('')||'<tr><td colspan="5" class="muted">Ningú en línia ara mateix.</td></tr>';
+  if(USERS.length) renderUsers();   // refresca l'avís «alhora» de la taula d'usuaris
   // gràfic 30 dies: barres apilades per regió (usuaris únics)
   const cols={cat:'#38bdf8',cv:'#f97316'}; const dies=[]; for(let k=29;k>=0;k--){ const d=new Date(ara-k*86400000).toISOString().slice(0,10); dies.push(d); }
   const mx=Math.max(1,...dies.map(d=>Object.values(j.dies[d]||{}).reduce((a,v)=>a+(v.usuaris||0),0)));
