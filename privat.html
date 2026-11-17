@@ -167,6 +167,9 @@
   #app.prevtab #timebar{display:none!important}
   /* a Previsió només es veu el model: s'amaguen les capes d'OBSERVACIÓ (pluja QPE/IDW, radar, llamps, camp de vents) */
   #app.prevtab #map .obs-capa{display:none!important}
+  .mapc{position:absolute;top:0;height:100%;display:none;z-index:5;border-left:2px solid #000}
+  .cmplab{position:absolute;top:58px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(15,23,42,.92);color:#e5e7eb;font:700 12px system-ui,Arial;padding:4px 11px;border-radius:8px;border:1px solid #334155;pointer-events:none;white-space:nowrap;max-width:94%;overflow:hidden;text-overflow:ellipsis}
+  @media(max-width:760px){ #harCmpWrap{display:none!important} #cmpMaps{flex-direction:column} }
   #app.prevtab #exportar{display:none!important}   /* a Previsió, la imatge es trau des de la targeta del model (el botó flotant generava el mapa d'observació, en blanc) */
   #harLegend{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:1150;display:none;
              background:rgba(18,20,26,.92);border:1px solid var(--line);border-radius:10px;padding:8px 12px;box-shadow:0 6px 22px rgba(0,0,0,.45)}
@@ -537,6 +540,14 @@
           <b style="font-size:13px">🔎 Explorador de previsió</b>
           <p class="muted" style="font-size:11px;margin:4px 0 0"><b>Clica un punt al mapa</b> i s'obrirà a la dreta la previsió completa d'eixe punt (meteograma, taula i acumulats). Mou la barra d'<b>hora</b> per veure com evoluciona.</p>
         </div>
+        <div id="harCmpWrap" style="margin-top:12px">
+          <label style="font-size:12px;display:block;margin-bottom:4px" title="Parteix el mapa en 2 o 3 panells sincronitzats, un per model, amb la mateixa variable i hora">Comparar amb altres models (costat a costat)</label>
+          <div class="row" style="gap:6px">
+            <select id="harCmp1" style="flex:1;min-width:0;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px"><option value="">— cap —</option><option value="harmonie">HARMONIE</option><option value="icon">ICON-EU</option><option value="arome">AROME</option></select>
+            <select id="harCmp2" style="flex:1;min-width:0;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px"><option value="">— cap —</option><option value="harmonie">HARMONIE</option><option value="icon">ICON-EU</option><option value="arome">AROME</option></select>
+          </div>
+          <div id="harCmpInfo" class="muted" style="font-size:11px;margin-top:4px"></div>
+        </div>
         <label style="font-size:12px;display:block;margin:12px 0 4px">Passada del model</label>
         <select id="harRun" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px"></select>
         <button class="btn" id="harExport" style="width:100%;margin-top:10px" title="Exportar una imatge del mapa tal com el veus (variable/acumulació, hora, fletxes i llegenda)">📷 Imatge del mapa de previsió</button>
@@ -821,6 +832,8 @@
   <div id="map"></div>
   <div id="prevPanel"></div>
   <div id="map2"></div>
+  <div id="mapC1" class="mapc"></div>
+  <div id="mapC2" class="mapc"></div>
   <div class="maplab" id="lab1"></div>
   <div class="maplab" id="lab2"></div>
   <div id="timebar">
@@ -849,6 +862,12 @@
 #focRight .acc.collapsed .acc-b{display:none}
 #focRight .acc-b{padding:8px 12px;background:#0b1220}
 </style>
+<div id="cmpModal" style="display:none;position:fixed;inset:0;z-index:5600;background:#0b1220;color:#e5e7eb;flex-direction:column">
+  <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #334155;flex-wrap:wrap"><b style="font-size:15px">🔀 Comparativa de previsions WindNinja</b><span id="cmpSub" style="font-size:12px;color:#94a3b8;flex:1"></span><button class="btn small" id="cmpExport">📷 Exportar A4</button><button class="btn small" id="cmpX">✕ Tancar</button></div>
+  <div id="cmpPick" style="padding:6px 14px"></div>
+  <div id="cmpMaps" style="flex:1;min-height:0;display:flex;gap:8px;padding:0 14px"></div>
+  <div id="cmpTaula" style="padding:8px 14px 12px;overflow:auto;max-height:34dvh"></div>
+</div>
 <div id="focLogModal" style="display:none;position:fixed;inset:0;z-index:6000;background:rgba(2,6,23,.8);align-items:center;justify-content:center;padding:14px">
   <div style="background:#0f172a;border:1px solid #334155;border-radius:14px;width:680px;max-width:100%;max-height:86dvh;display:flex;flex-direction:column;color:#e5e7eb">
     <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #334155"><b style="font-size:15px">🕘 Historial d'accions</b><span id="focLogSub" style="font-size:12px;color:#94a3b8;flex:1"></span><button class="btn small" id="focLogX">✕ Tancar</button></div>
@@ -964,6 +983,7 @@
             <span id="focPrevInfo" style="font-size:11px;color:#94a3b8;flex:1"></span>
           </div>
           <div id="focPrevSaved" style="margin-top:4px"></div>
+          <button class="btn small" id="focCmpBtn" style="display:none;margin-top:4px" title="Veure fins a 3 previsions costat a costat, amb taula resum i informe A4">🔀 Comparar previsions (fins a 3)</button>
           <div id="focPrevActiveInfo" style="margin-top:4px"></div>
         </div>
       </div>
@@ -975,7 +995,7 @@
           <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;font-size:11px;color:#cbd5e1">
             <label>Combustible (Anderson 13)<select id="conFuel" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"></select></label>
             <label>Vent<select id="conVentSrc" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px">
-              <option value="auto">Automàtic (WindNinja › model › estació)</option><option value="wn">WindNinja (camp fi)</option><option value="model">Model de previsió (hora de la barra)</option><option value="est">Estació més pròxima</option><option value="man">Manual</option></select></label>
+              <option value="auto">Automàtic (WindNinja › model › estació)</option><option value="wn">WindNinja (camp fi)</option><option value="cmp">Comparativa WindNinja (un con per previsió + mitjà)</option><option value="model">Model de previsió (hora de la barra)</option><option value="est">Estació més pròxima</option><option value="man">Manual</option></select></label>
             <label>Vent manual (km/h · de °)<div class="row" style="gap:4px"><input type="number" id="conVv" min="0" max="150" step="1" placeholder="km/h" style="width:50%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"><input type="number" id="conDv" min="0" max="360" step="5" placeholder="de °" style="width:50%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"></div></label>
             <label>Factor vent a mitja flama<input type="number" id="conWaf" value="0.4" min="0.1" max="1" step="0.05" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px" title="Fracció del vent a 10 m que arriba a mitja flama (0,4 obert · 0,3 matollar · 0,15 sota bosc)"></label>
             <label>FMd 1 h (%) <span style="color:#94a3b8">auto si buit</span><input type="number" id="conFmd" min="1" max="35" step="0.5" placeholder="auto" style="width:100%;background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"></label>
@@ -1329,6 +1349,7 @@ function llevaComarques(){ if(comarcaLayer){map.removeLayer(comarcaLayer);comarc
 // Aplica l'estat dels límits (casella + fons) als mapes general/combinat.
 function aplicaLimits(){
   if(limitsVisibles()){ mostraComarques(map,1); if(map2) mostraComarques(map2,2); } else llevaComarques();
+  if(typeof harCmpBase==='function') harCmpBase();
   const chk=document.getElementById('limitsChk'); if(chk){ chk.checked=limitsVisibles(); chk.disabled=(fonsActual()==='blanc'); chk.title=chk.disabled?'Al fons blanc els límits són sempre visibles':'Comarques i perfil de Catalunya'; }
 }
 function setBase(key){
@@ -5069,7 +5090,7 @@ function harFmdGrid(p,h){
 // Float32Array (ny*nx) amb els mm del mode actual per a l'hora h (amb memòria cau per passada/mode/hora)
 function harPrecipGrid(p,h){
   const f=p.fields.precip; if(!f||!f.arr) return null;
-  const [i0,i1]=harPaccRang(p,h), key=p.run+'|'+HARM.pacc+'|'+i0+'|'+i1;
+  const [i0,i1]=harPaccRang(p,h), key=p.run+'|'+(p.model||'')+'|'+HARM.pacc+'|'+i0+'|'+i1;
   if(_harPaccCache[key]) return _harPaccCache[key];
   const nx=p.nx,ny=p.ny,N=nx*ny,base=(f.lo||0),sc=f.scale,out=new Float32Array(N);
   for(let hh=i0;hh<=i1;hh++){ const off=hh*N; for(let q=0;q<N;q++) out[q]+=base+f.arr[off+q]*sc; }
@@ -5119,11 +5140,13 @@ const HarMapSurface=L.Layer.extend({
   redraw:function(){if(this._m)this._rs();},
   _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
-    const p=HARM.payload; if(!p||HARM.varK==='cap')return; const f=p.fields[HARM.varK]||(HARM.varK==='fmd'?{lo:0,scale:1,arr:null}:null); if(!f||(!f.arr&&HARM.varK!=='fmd'))return;
+    const p=this._pl?this._pl():HARM.payload; if(!p||HARM.varK==='cap')return; const f=p.fields[HARM.varK]||(HARM.varK==='fmd'?{lo:0,scale:1,arr:null}:null); if(!f||(!f.arr&&HARM.varK!=='fmd'))return;
     try{
-      const nx=p.nx,ny=p.ny,B=p.bbox,h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+      const nx=p.nx,ny=p.ny,B=p.bbox,h=this._pl?harCmpHour(p):Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+      if(h<0 && HARM.varK!=='precip') return;                 // panell de comparativa: el model no arriba a esta hora
       const meta=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(meta.thr!=null?meta.thr:-1e9);
-      const acc=(HARM.varK==='precip')?harPrecipGrid(p,h):(HARM.varK==='fmd'?harFmdGrid(p,h):null);      // pluja: acumulació del mode triat; FMd: derivada de Tª+HR
+      const acc=(HARM.varK==='precip')?(this._pl?harCmpPrecipGrid(p):harPrecipGrid(p,h)):(HARM.varK==='fmd'?harFmdGrid(p,h):null);      // pluja: acumulació del mode triat; FMd: derivada de Tª+HR
+      if(HARM.varK==='precip' && this._pl && !acc) return;
       if(HARM.varK==='fmd' && !acc) return;
       const off=document.createElement('canvas');off.width=nx;off.height=ny;
       const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
@@ -5145,8 +5168,8 @@ const HarMapArrows=L.Layer.extend({
   redraw:function(){if(this._m)this._rs();},
   _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
-    if(!HARM.arrowsOn)return; const p=HARM.payload; if(!p)return; const fd=p.fields.dir,fv=p.fields.vent; if(!fd||!fd.arr)return;
-    const nx=p.nx,ny=p.ny,B=p.bbox,h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+    if(!HARM.arrowsOn)return; const p=this._pl?this._pl():HARM.payload; if(!p)return; const fd=p.fields.dir,fv=p.fields.vent; if(!fd||!fd.arr)return;
+    const nx=p.nx,ny=p.ny,B=p.bbox,h=this._pl?harCmpHour(p):Math.max(0,Math.min(p.hores.length-1,HARM.hour)); if(h<0)return;
     const dlon=(B[1]-B[0])/nx,dlat=(B[3]-B[2])/ny, nod=(fd.nodata!=null?fd.nodata:255);
     const q0=m.latLngToContainerPoint([B[3],B[0]]),q1=m.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]);
     const cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y)), step=Math.max(1,Math.round(40/cellpx));
@@ -5193,7 +5216,7 @@ function harSyncControls(){ const mx=HARM.payload?HARM.payload.hores.length-1:47
   if($('hbHour')){ $('hbHour').max=mx; $('hbHour').value=HARM.hour; } const l3=$('hbLbl'); if(l3) l3.textContent=harHourLabel(); }
 function harRedraw(){ harSnapHour(); if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(harArr&&map.hasLayer(harArr))harArr.redraw();
   if(FD&&FD.harSurf&&FD.map&&FD.map.hasLayer(FD.harSurf))FD.harSurf.redraw(); if(FD&&FD.harArr&&FD.map&&FD.map.hasLayer(FD.harArr))FD.harArr.redraw();
-  harSyncControls(); harBottomLegend(); if(typeof pexUpdateNow==='function') pexUpdateNow(); }
+  harSyncControls(); harBottomLegend(); if(typeof pexUpdateNow==='function') pexUpdateNow(); if(typeof harCmpRedraw==='function') harCmpRedraw(); }
 function harBottomLegend(){
   const el=$('harLegend'); if(!el)return;
   const isPrev=document.querySelector('#tabs .tab.actiu')?.dataset.t==='prev';
@@ -5212,11 +5235,11 @@ function harBottomLegend(){
   el.style.display='block';
 }
 // popup amb el valor previst en clicar QUALSEVOL punt del mapa (quan el model és actiu)
-function harPointPopup(m,e){
-  const p=HARM.payload; if(!p)return;
+function harPointPopup(m,e,pl,mk){
+  const p=pl||HARM.payload; if(!p)return;
   if(typeof PEX!=='undefined'&&PEX.pick)return;                               // el mode «tria punt» de l'explorador té prioritat
   if(FD&&m===FD.map&&(FD.prevBoxDraw||FD.prevAddMode||focArrowMode))return;   // no molestar mentre es dibuixa
-  const s=harPuntSerie(p,e.latlng.lat,e.latlng.lng), h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
+  const s=harPuntSerie(p,e.latlng.lat,e.latlng.lng), h=pl?harCmpHour(p):Math.max(0,Math.min(p.hores.length-1,HARM.hour)); if(h<0)return;
   const dd=(s.dir&&s.dir[h]!=null)?('<span style="display:inline-block;transform:rotate('+((s.dir[h]+180)%360)+'deg)">↑</span> '+harDeg2Nom(s.dir[h])+' ('+Math.round(s.dir[h])+'°)'):'—';
   const t=new Date(Date.parse(p.hores[h])).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'});
   const sel=HARV[HARM.varK];
@@ -5224,7 +5247,7 @@ function harPointPopup(m,e){
   let valSel=HARM.varK==='cap'?'':(HARM.varK==='temp'?s.temp[h].toFixed(1):HARM.varK==='precip'?s.precip[h].toFixed(1):HARM.varK==='nuvol'?Math.round(s.nuvol[h]):HARM.varK==='llamps'?(s.llamps?s.llamps[h].toFixed(2):'0'):Math.round((s[HARM.varK]||[])[h]));
   if(HARM.varK==='precip' && harPaccRang(p,h)[0]!==h){ const [i0,i1]=harPaccRang(p,h); let acc=0; for(let k=i0;k<=i1;k++) acc+=s.precip[k]||0; valSel=acc.toFixed(1); selLab=harPaccTitol()+' ('+harPaccLabel(p,h)+')'; }
   const html='<div style="font:12px system-ui;min-width:158px;color:#0f172a">'
-    +'<b>🛰️ '+modelInfo().curt+' · '+t+'</b><br>'
+    +'<b>🛰️ '+(mk?((MODELS_INFO[mk]||{}).curt||mk):modelInfo().curt)+' · '+t+'</b><br>'
     +((sel&&HARM.varK!=='cap')?('<div style="color:#0369a1;font-weight:700;font-size:13px;margin:2px 0">'+selLab+': '+valSel+' '+sel.unit+'</div>'):'')
     +'Tª '+s.temp[h].toFixed(1)+'°C · Vent '+Math.round(s.vent[h])+' km/h '+dd+'<br>'
     +'Ratxa '+Math.round(s.ratxa[h])+' km/h · Pluja '+s.precip[h].toFixed(1)+' mm · Núv '+Math.round(s.nuvol[h])+'%'+(s.hr?(' · HR '+Math.round(s.hr[h])+'%'):'')+(s.fmd?(' · FMd '+s.fmd[h].toFixed(1)+'%'):'')
@@ -5432,10 +5455,7 @@ async function conPendent(lat,lon){
 }
 // Vent al punt segons la font triada → {vv (km/h a 10 m), dv (d'on ve), font}
 function conVent(src,lat,lon){
-  const tryWN=()=>{ const W=FD&&FD.runData; if(!W||!W.bbox)return null; const B=W.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3])return null;
-    const dlon=(B[1]-B[0])/(W.nx-1),dlat=(B[3]-B[2])/(W.ny-1), i=Math.round((lon-B[0])/dlon), j=Math.round((B[3]-lat)/dlat); if(i<0||j<0||i>=W.nx||j>=W.ny)return null;
-    const pos=W.landPos[j*W.nx+i]; if(pos<0)return null; const u=W.buf[pos*2]*W.esc, v=W.buf[pos*2+1]*W.esc, sp=Math.hypot(u,v);
-    return {vv:sp*3.6, dv:(Math.atan2(-u,-v)*180/Math.PI+360)%360, font:'WindNinja'}; };
+  const tryWN=()=>{ const r=ventAlPunt(FD&&FD.runData,lat,lon); return r?{vv:r.vv,dv:r.dv,font:'WindNinja'}:null; };
   const tryModel=()=>{ const p=HARM&&HARM.payload; if(!p)return null; const s=harPuntSerie(p,lat,lon), h=Math.max(0,Math.min(p.hores.length-1,HARM.hour));
     if(s.vent==null||s.dir==null||s.dir[h]==null)return null; return {vv:s.vent[h], dv:s.dir[h], font:modelInfo().curt+' '+new Date(Date.parse(p.hores[h])).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit'})+'h', serie:s, h:h}; };
   const tryEst=()=>{ if(!DATA)return null; let best=null,bd=1e9; DATA.estacions.forEach(st=>{ const a=st.actual||{}; if(st.lat==null||a.vv==null||a.dv==null)return; const d=haversineKm(L.latLng(lat,lon),L.latLng(st.lat,st.lon)); if(d<bd){bd=d;best=st;} });
@@ -5465,10 +5485,11 @@ const FocConLayer=L.Layer.extend({
       // etiqueta al cap
       const head=e.pts[0], hp=m.latLngToContainerPoint(head); ctx.font='bold 11px system-ui'; ctx.textAlign='center'; ctx.textBaseline='bottom';
       const t=e.hores+' h'; const w=ctx.measureText(t).width+8; ctx.fillStyle='rgba(15,23,42,.85)'; ctx.fillRect(hp.x-w/2,hp.y-16,w,14); ctx.fillStyle='#fde68a'; ctx.fillText(t,hp.x,hp.y-3); });
+    if(C.multi) C.multi.forEach(x=>conDibuixaLinies(ctx,(la,lo)=>m.latLngToContainerPoint([la,lo]),x.ellipses,x.col,1,x.nom));
     // fletxa de la direcció de màxima propagació
     const o=m.latLngToContainerPoint([C.lat,C.lon]); const L0=28, th=C.res.dir*Math.PI/180, tx=o.x+L0*Math.sin(th), ty=o.y-L0*Math.cos(th);
     ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(tx,ty); ctx.stroke(); ctx.strokeStyle='#dc2626'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(tx,ty); ctx.stroke();
-    ctx.font='bold 10px system-ui'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.fillText('BETA', o.x+6, o.y-8);
+    ctx.font='bold 10px system-ui'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.fillText(C.multi?'BETA · mitjana':'BETA', o.x+6, o.y-8);
   }
 });
 function conOmpleFuels(){ const s=$('conFuel'); if(!s||s.options.length)return; Object.keys(FUELS13).forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=FUELS13[k].nom; s.appendChild(o); }); s.value='6'; }
@@ -5477,25 +5498,35 @@ async function conCalcClick(){
   const inf=$('conInfo'), btn=$('conCalc'); btn.disabled=true; inf.textContent='Calculant (vent, pendent, Rothermel)…'; $('conRes').innerHTML='';
   try{
     const lat=c.lat, lon=c.lng, fuel=FUELS13[$('conFuel').value]||FUELS13[6];
-    const vent=conVent($('conVentSrc').value,lat,lon); if(!vent) throw new Error('no hi ha vent disponible per a la font triada (prova Manual)');
+    let vent=null, multiIn=null;
+    if($('conVentSrc').value==='cmp'){           // un con per previsió WindNinja de la comparativa + el con mitjà
+      const F=await focCmpFiles(); multiIn=F.filter(x=>x.flama).map(x=>({rid:x.r.rid,nom:x.nom,col:x.col,vent:{vv:x.flama.vv,dv:x.flama.dv,font:x.nom}}));
+      const R=focCmpResum(F); if(multiIn.length<2||!R) throw new Error('calen almenys dues previsions WindNinja desades que cobrisquen la flama (tria-les a «Comparar previsions»)');
+      vent={vv:R.vv, dv:R.dv, font:'mitjana de '+R.n+' previsions WindNinja', sep:R.sep};
+    } else vent=conVent($('conVentSrc').value,lat,lon);
+    if(!vent) throw new Error('no hi ha vent disponible per a la font triada (prova Manual)');
     let pend; try{ pend=await conPendent(lat,lon); }catch(e){ pend={tan:0,graus:0,aspectUp:0,z:null,err:true}; }
     const fm=$('conFmd').value?{fmd:+$('conFmd').value,font:'manual'}:conFmdAuto(lat,lon,vent);
     const m1=Math.max(0.01,Math.min(0.35,fm.fmd/100)), md=[m1,m1+0.01,m1+0.02], ml=Math.max(0.3,(+$('conLive').value||90)/100);
     const waf=Math.max(0.05,Math.min(1,+$('conWaf').value||0.4)), Umid=vent.vv/3.6*waf;
     const res=conCalcula(fuel,md,ml,Umid,vent.dv,pend.tan,pend.aspectUp); if(!res) throw new Error('model de combustible no vàlid');
     const ellipses=[1,3,6].map(h=>({hores:h, pts:conEllipse(lat,lon,res,h)}));
-    FD.con={lat:lat,lon:lon,res:res,ellipses:ellipses,vent:vent,pend:pend,fm:fm,fuel:fuel,quan:Date.now()};
+    const multi=multiIn?multiIn.map(x=>{ const r2=conCalcula(fuel,md,ml,x.vent.vv/3.6*waf,x.vent.dv,pend.tan,pend.aspectUp); return r2?Object.assign({},x,{res:r2,ellipses:[1,3,6].map(h=>({hores:h, pts:conEllipse(lat,lon,r2,h)}))}):null; }).filter(Boolean):null;
+    FD.con={lat:lat,lon:lon,res:res,ellipses:ellipses,vent:vent,pend:pend,fm:fm,fuel:fuel,quan:Date.now(),multi:multi};
     if(!FD.conLayer){ FD.conLayer=new FocConLayer(); FD.conLayer.addTo(FD.map); } else FD.conLayer.redraw();
     // enquadra el mapa perquè es veja el con de 6 h sencer (amb la flama) i redibuixa
-    try{ const b=L.latLngBounds(ellipses[2].pts); b.extend([lat,lon]); FD.map.invalidateSize({animate:false}); FD.map.fitBounds(b.pad(0.25),{animate:true,maxZoom:15}); FD.map.once('moveend',()=>{ if(FD&&FD.conLayer) FD.conLayer.redraw(); }); }catch(e){}
+    try{ const b=L.latLngBounds(ellipses[2].pts); b.extend([lat,lon]); if(multi) multi.forEach(x=>x.ellipses[2].pts.forEach(q=>b.extend(q))); FD.map.invalidateSize({animate:false}); FD.map.fitBounds(b.pad(0.25),{animate:true,maxZoom:15}); FD.map.once('moveend',()=>{ if(FD&&FD.conLayer) FD.conLayer.redraw(); }); }catch(e){}
     focAccOpen('accCon');
     const km=h=>(res.R_mmin*60*h/1000).toFixed(1);
-    focLog('Con de propagació (BETA)', fuel.nom+' · vent '+Math.round(vent.vv)+' km/h de '+Math.round(vent.dv)+'° ('+vent.font+') · FMd '+fm.fmd.toFixed(1)+' % · cap '+res.R_mmin.toFixed(1)+' m/min cap a '+Math.round(res.dir)+'°');
+    focLog('Con de propagació (BETA)'+(multi?' · comparativa de '+multi.length+' previsions':''), fuel.nom+' · vent '+Math.round(vent.vv)+' km/h de '+Math.round(vent.dv)+'° ('+vent.font+') · FMd '+fm.fmd.toFixed(1)+' % · cap '+res.R_mmin.toFixed(1)+' m/min cap a '+Math.round(res.dir)+'°');
     inf.innerHTML='<b style="color:#fbbf24">BETA</b> · vent <b>'+Math.round(vent.vv)+' km/h</b> de '+Math.round(vent.dv)+'° ('+vent.font+') · a mitja flama ×'+waf+' · pendent <b>'+pend.graus.toFixed(0)+'°</b>'+(pend.err?' (sense DEM!)':(' cap a '+Math.round(pend.aspectUp)+'°'))+' · FMd <b>'+fm.fmd.toFixed(1)+' %</b> ('+fm.font+') · viu '+Math.round(ml*100)+' % · '+fuel.nom;
     $('conRes').innerHTML='<table style="width:100%;border-collapse:collapse;font-size:11px"><tr style="color:#94a3b8"><th style="text-align:left">Cap</th><th>Veloc.</th><th>1 h</th><th>3 h</th><th>6 h</th></tr>'
       +'<tr><td>Direcció <b>'+Math.round(res.dir)+'°</b> · L/A '+res.LB.toFixed(1)+'</td><td style="text-align:center"><b>'+res.R_mmin.toFixed(1)+'</b> m/min<br>('+(res.R_mmin*0.06).toFixed(2)+' km/h)</td><td style="text-align:center">'+km(1)+' km</td><td style="text-align:center">'+km(3)+' km</td><td style="text-align:center">'+km(6)+' km</td></tr></table>'
       +'<div style="font-size:11px;color:#cbd5e1;margin-top:4px">Intensitat lineal <b>'+Math.round(res.I_kWm)+' kW/m</b> · longitud de flama <b>'+res.flama_m.toFixed(1)+' m</b> · cua '+res.Rb_mmin.toFixed(1)+' · flanc '+res.Rf_mmin.toFixed(1)+' m/min · sense vent ni pendent '+res.R0_mmin.toFixed(1)+' m/min'
-      +(res.I_kWm>4000?' · <span style="color:#f87171">intensitat molt alta: possible foc de capçades, fora de l\'abast del model</span>':'')+'</div>';
+      +(res.I_kWm>4000?' · <span style="color:#f87171">intensitat molt alta: possible foc de capçades, fora de l\'abast del model</span>':'')+'</div>'
+      +(multi?('<div style="font-size:11px;color:#fde68a;margin-top:6px">Con ple = <b>mitjana</b> de les previsions. Línies de color = con de cada previsió:</div><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:2px"><tr style="color:#94a3b8"><th style="text-align:left">Previsió</th><th>Vent</th><th>Cap</th><th>1 h</th><th>3 h</th><th>6 h</th></tr>'
+        +multi.map(x=>'<tr><td><i style="width:9px;height:9px;border-radius:50%;background:'+x.col+';display:inline-block;margin-right:5px"></i>'+_cmpEsc(x.nom)+'</td><td style="text-align:center">'+Math.round(x.vent.vv)+' km/h · '+Math.round(x.vent.dv)+'°</td><td style="text-align:center">'+x.res.R_mmin.toFixed(1)+' m/min → '+Math.round(x.res.dir)+'°</td>'+[1,3,6].map(h=>'<td style="text-align:center">'+(x.res.R_mmin*60*h/1000).toFixed(1)+' km</td>').join('')+'</tr>').join('')+'</table>'
+        +(vent.sep>=45?'<div style="font-size:11px;color:#f87171;margin-top:3px">Les previsions discrepen ±'+Math.round(vent.sep)+'° en la direcció del vent: el con mitjà és poc representatiu; mira els cons individuals.</div>':'')):'');
   }catch(e){ inf.textContent='No s\'ha pogut calcular: '+(e&&e.message||e); }
   btn.disabled=false;
 }
@@ -5505,6 +5536,300 @@ if($('conCalc')) $('conCalc').onclick=conCalcClick;
 if($('conClear')) $('conClear').onclick=conEsborra;
 if($('conVentSrc')) $('conVentSrc').onchange=()=>{ const man=$('conVentSrc').value==='man'; $('conVv').disabled=!man; $('conDv').disabled=!man; };
 initFocAccordion();
+// ====================== COMPARATIVA DE MODELS a la pestanya Previsió (fins a 3 panells) ======================
+// El mapa general es parteix en 2 o 3 mapes sincronitzats (mateix enquadrament, variable i HORA VÀLIDA); cada panell
+// pinta la passada més recent del seu model. En pluja acumulada, tots sumen la MATEIXA finestra horària que el model principal.
+var HCMP={models:[null,null], pl:[null,null], maps:[null,null], surf:[null,null], arr:[null,null], base:[null,null], lim:[null,null], sy:false, tok:0};
+function harCmpHour(p){ const main=HARM.payload; if(!main||!p) return -1;
+  const t=Date.parse(main.hores[Math.max(0,Math.min(main.hores.length-1,HARM.hour))]); let bi=-1,bd=1e15;
+  for(let i=0;i<p.hores.length;i++){ const d=Math.abs(Date.parse(p.hores[i])-t); if(d<bd){bd=d;bi=i;} }
+  return bd<=1800000?bi:-1; }
+const _harCmpPcache={};
+function harCmpPrecipGrid(p){ const main=HARM.payload, f=p&&p.fields.precip; if(!main||!f||!f.arr) return null;
+  const h=Math.max(0,Math.min(main.hores.length-1,HARM.hour)), r=harPaccRang(main,h), ta=Date.parse(main.hores[r[0]]), tb=Date.parse(main.hores[r[1]]);
+  const key=p.model+'|'+p.run+'|'+ta+'|'+tb; if(_harCmpPcache[key]){ p.$parcial=_harCmpPcache[key].parcial; return _harCmpPcache[key].g; }
+  const idx=[]; for(let i=0;i<p.hores.length;i++){ const t=Date.parse(p.hores[i]); if(t>=ta-60000&&t<=tb+60000) idx.push(i); }
+  if(!idx.length){ p.$parcial=true; return null; }
+  const N=p.nx*p.ny, base=(f.lo||0), sc=f.scale, out=new Float32Array(N);
+  idx.forEach(hh=>{ const off=hh*N; for(let q=0;q<N;q++) out[q]+=base+f.arr[off+q]*sc; });
+  if(Object.keys(_harCmpPcache).length>12){ for(const k in _harCmpPcache) delete _harCmpPcache[k]; }
+  const parcial=idx.length<(r[1]-r[0]+1); _harCmpPcache[key]={g:out,parcial:parcial}; p.$parcial=parcial; return out; }
+function harCmpActiu(){ const app=document.getElementById('app'); return !!(app&&app.classList.contains('prevtab')&&!ES_MOBIL()&&(HCMP.pl[0]||HCMP.pl[1])); }
+function harCmpPanells(){ const out=[{slot:-1,model:HARM.model,p:HARM.payload,el:$('map'),m:map}];
+  [0,1].forEach(k=>{ if(HCMP.pl[k]&&HCMP.maps[k]) out.push({slot:k,model:HCMP.models[k],p:HCMP.pl[k],el:$('mapC'+(k+1)),m:HCMP.maps[k]}); }); return out; }
+function harCmpLab(q){ const p=q.p, mi=MODELS_INFO[q.model]||{curt:q.model}; if(!p) return mi.curt;
+  let t=mi.curt+' · '+p.run.slice(8,10)+'Z '+p.run.slice(6,8)+'/'+p.run.slice(4,6), vk=HARM.varK;
+  if(q.slot>=0){ const te=!!(p.fields[vk]||(vk==='fmd'&&p.fields.temp&&p.fields.hr));
+    if(vk!=='cap'&&!te) t+=' · sense '+((HARV[vk]&&HARV[vk].lab)||vk).toLowerCase();
+    else if(vk==='precip'){ if(!harCmpPrecipGrid(p)) t+=' · fora d\'abast'; else if(p.$parcial) t+=' · tram incomplet'; }
+    else if(harCmpHour(p)<0) t+=' · sense dada per a esta hora'; }
+  return t; }
+function harCmpLayout(){
+  const app=document.getElementById('app'), m0=$('map'), act=harCmpActiu(), els=[$('mapC1'),$('mapC2')];
+  if(!m0||!els[0]) return;
+  const l0=$('cmpLab0');
+  if(!act){ const era=m0.style.width!==''; m0.style.left=''; m0.style.width=''; els.forEach(e=>{e.style.display='none';}); if(l0) l0.style.display='none';
+    if(era){ try{ map.invalidateSize({animate:false}); }catch(e){} } return; }
+  const W=app.clientWidth, L0=app.classList.contains('collapsed')?0:Math.min(340,W*0.85), R0=app.classList.contains('prevopen')?460:0;
+  const vis=[m0].concat([0,1].filter(k=>HCMP.pl[k]).map(k=>els[k])), w=Math.max(120,(W-L0-R0)/vis.length);
+  els.forEach(e=>{ if(vis.indexOf(e)<0) e.style.display='none'; });
+  vis.forEach((e,i)=>{ e.style.left=(L0+i*w)+'px'; e.style.width=w+'px'; if(e!==m0) e.style.display='block'; });
+  try{ map.invalidateSize({animate:false}); }catch(e){}
+  [0,1].forEach(k=>{ if(HCMP.maps[k]&&HCMP.pl[k]){ try{ HCMP.maps[k].invalidateSize({animate:false}); HCMP.maps[k].setView(map.getCenter(),map.getZoom(),{animate:false}); }catch(e){} } });
+}
+function harCmpSync(m){ m.on('move',()=>{ if(HCMP.sy||!harCmpActiu()) return; HCMP.sy=true;
+  try{ const c=m.getCenter(), z=m.getZoom(); [map,HCMP.maps[0],HCMP.maps[1]].forEach(o=>{ if(o&&o!==m&&(o===map||HCMP.pl[HCMP.maps.indexOf(o)])) o.setView(c,z,{animate:false}); }); }catch(e){}
+  HCMP.sy=false; }); }
+function harCmpEnsureMap(k){
+  if(HCMP.maps[k]) return;
+  const el=$('mapC'+(k+1)), mk=L.map(el,{zoomControl:false,attributionControl:false,zoomSnap:0.1,zoomDelta:0.25,wheelPxPerZoomLevel:260,wheelDebounceTime:30}).setView(map.getCenter(),map.getZoom());
+  HCMP.maps[k]=mk;
+  const s=new HarMapSurface(); s._pl=()=>HCMP.pl[k]; s.addTo(mk); HCMP.surf[k]=s;
+  const a=new HarMapArrows(); a._pl=()=>HCMP.pl[k]; a.addTo(mk); HCMP.arr[k]=a;
+  mk.on('click',e=>harPointPopup(mk,e,HCMP.pl[k],HCMP.models[k]));
+  const lab=document.createElement('div'); lab.className='cmplab'; lab.id='cmpLab'+(k+1); el.appendChild(lab);
+  harCmpSync(mk);
+  if(!HCMP.mainSync){ HCMP.mainSync=true; harCmpSync(map); const l0=document.createElement('div'); l0.className='cmplab'; l0.id='cmpLab0'; l0.style.display='none'; $('map').appendChild(l0); }
+}
+function harCmpBase(){
+  if(typeof HCMP==='undefined'||typeof BASEMAPS==='undefined') return;
+  const key=fonsActual(), b=BASEMAPS[key]||BASEMAPS.dark, tok=++HCMP.tok;
+  [0,1].forEach(k=>{ const mk=HCMP.maps[k]; if(!mk) return;
+    if(HCMP.base[k]){ try{mk.removeLayer(HCMP.base[k]);}catch(e){} HCMP.base[k]=null; }
+    if(HCMP.lim[k]){ try{mk.removeLayer(HCMP.lim[k]);}catch(e){} HCMP.lim[k]=null; }
+    if(b.blanc) mk.getContainer().style.background='#ffffff';
+    else { mk.getContainer().style.background=''; HCMP.base[k]=L.tileLayer(b.u,Object.assign({crossOrigin:true},b.o)).addTo(mk); HCMP.base[k].bringToBack(); }
+    if(limitsVisibles()) creaCapaLimits(mk,key).then(g=>{ if(tok!==HCMP.tok){ try{mk.removeLayer(g);}catch(e){} return; } HCMP.lim[k]=g; });
+  });
+}
+function harCmpRedraw(){
+  if(typeof HCMP==='undefined') return;
+  const act=harCmpActiu();
+  [0,1].forEach(k=>{ if(HCMP.maps[k]&&HCMP.pl[k]&&act){ try{ HCMP.surf[k].redraw(); HCMP.arr[k].redraw(); }catch(e){} const l=$('cmpLab'+(k+1)); if(l){ l.textContent=harCmpLab({slot:k,model:HCMP.models[k],p:HCMP.pl[k]}); l.style.display='block'; } } });
+  const l0=$('cmpLab0'); if(l0){ l0.style.display=act?'block':'none'; if(act) l0.textContent=harCmpLab({slot:-1,model:HARM.model,p:HARM.payload}); }
+}
+function harCmpApply(){
+  if(typeof HCMP==='undefined') return;
+  harCmpLayout();
+  if(harCmpActiu()){ let nou=false; [0,1].forEach(k=>{ if(HCMP.pl[k]&&!HCMP.maps[k]){ harCmpEnsureMap(k); nou=true; } });
+    if(nou){ harCmpBase(); harCmpLayout(); } }
+  harCmpRedraw();
+}
+async function harCmpSet(k,model){
+  HCMP.models[k]=model||null; HCMP.pl[k]=null; const inf=$('harCmpInfo');
+  if(model){ const curt=(MODELS_INFO[model]||{}).curt||model; if(inf) inf.textContent='Carregant '+curt+'…';
+    let p=null; try{ const ix=await harIdx(model); if(harIdxOk(ix)) p=await harCarregaRun(ix.darrera||ix.runs[ix.runs.length-1], model); }catch(e){}
+    if(HCMP.models[k]!==model) return;
+    if(!p){ HCMP.models[k]=null; if($('harCmp'+(k+1))) $('harCmp'+(k+1)).value=''; if(inf) inf.textContent='Encara no hi ha cap passada publicada de '+curt+'.'; }
+    else { HCMP.pl[k]=p; if(inf) inf.textContent='Mateixa variable i hora vàlida a tots els panells. La imatge del mapa els exporta junts.'; } }
+  else if(inf&&!HCMP.pl[0]&&!HCMP.pl[1]) inf.textContent='';
+  harCmpApply();
+}
+(function(){ ['harCmp1','harCmp2'].forEach((id,k)=>{ const s=$(id); if(s) s.onchange=()=>harCmpSet(k,s.value); });
+  const app=document.getElementById('app'); let t=null; const ref=()=>{ clearTimeout(t); t=setTimeout(()=>{ if(HCMP.pl[0]||HCMP.pl[1]){ harCmpLayout(); setTimeout(harCmpLayout,300); harCmpRedraw(); } },30); };
+  if(app&&window.MutationObserver) new MutationObserver(ref).observe(app,{attributes:true,attributeFilter:['class']});
+  window.addEventListener('resize',ref); })();
+// Imatge de la comparativa: capçalera, un mapa per model (WYSIWYG), llegenda comuna i peu.
+async function prevExportaCmp(){
+  const P=harCmpPanells(), main=HARM.payload; if(!main) return;
+  const btns=[$('harExport')].filter(Boolean), olds=btns.map(b=>b.textContent); btns.forEach(b=>{b.disabled=true;b.textContent='Generant…';});
+  try{ await pyrometFontLlesta(); }catch(e){}
+  try{
+    const S=2, W=1240*S, m=14*S, gap=8*S, footH=EXPORT_PEU*S, n=P.length, mw=Math.floor((W-2*m-(n-1)*gap)/n);
+    const comps=[]; for(const q of P){ comps.push(await prevComposaMapa(S,mw,q.slot<0?undefined:{p:q.p,el:q.el,m:q.m})); }
+    const mh=Math.min.apply(null,comps.map(x=>x.mapH)), headH=58*S, stripH=24*S, legH=58*S;
+    const H=m+headH+8*S+stripH+mh+10*S+legH+footH;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,W,H);
+    const h=Math.max(0,Math.min(main.hores.length-1,HARM.hour)), esAcc=(HARM.varK==='precip'), tram=esAcc&&harPaccRang(main,h)[0]!==h;
+    const dH=new Date(Date.parse(main.hores[h])); let hlab=dH.toLocaleString('ca-ES',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'})+' · '+dH.toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+' h';
+    if(tram) hlab=harPaccLabel(main,h).replace(/^Σ\s*/,''); hlab=hlab.charAt(0).toUpperCase()+hlab.slice(1);
+    // capçalera
+    const pmH=34*S, pmW=amplePyromet(c,pmH); dibuixaLogoPyromet(c, m, m+(headH-pmH)/2, pmH, true);
+    c.strokeStyle='rgba(0,0,0,.18)'; c.lineWidth=S; c.beginPath(); c.moveTo(m+pmW+12*S, m+8*S); c.lineTo(m+pmW+12*S, m+headH-8*S); c.stroke();
+    c.textAlign='left'; c.textBaseline='middle'; c.fillStyle='#111'; c.font='bold '+(20*S)+'px Arial'; c.fillText('PREVISIÓ METEOROLÒGICA · COMPARATIVA DE MODELS', m+pmW+26*S, m+headH/2-11*S);
+    c.fillStyle='#0369a1'; c.font='bold '+(15*S)+'px Arial'; c.fillText(hlab, m+pmW+26*S, m+headH/2+12*S);
+    if((typeof LOGO_BOMBERS_ON==='undefined')||LOGO_BOMBERS_ON){ const lh=30*S, lw=(logoBombersImg.complete&&logoBombersImg.naturalWidth)?lh*logoBombersImg.naturalWidth/logoBombersImg.naturalHeight:lh*2.87; dibuixaLogoBombers(c, W-m-lw, m+(headH-lh)/2, lh); }
+    // panells
+    const y0=m+headH+8*S;
+    P.forEach((q,i)=>{ const x=m+i*(mw+gap), cp=comps[i];
+      c.fillStyle='#0f172a'; c.fillRect(x,y0,mw,stripH); c.fillStyle='#fff'; c.font='bold '+(12.5*S)+'px Arial'; c.textAlign='left'; c.textBaseline='middle';
+      let t=harCmpLab(q); while(c.measureText(t).width>mw-16*S&&t.length>8) t=t.slice(0,-2)+'…'; c.fillText(t, x+8*S, y0+stripH/2);
+      c.drawImage(cp.cv,0,0,cp.mapW,mh, x,y0+stripH,mw,mh); c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,y0,mw,stripH+mh); });
+    // llegenda comuna
+    const lw=Math.min(520*S,W-2*m); prevDibuixaLlegenda(c,(W-lw)/2,y0+stripH+mh+12*S,lw,S);
+    // peu
+    const fy=H-footH/2; c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial'; c.textAlign='left';
+    c.fillText('Models: '+P.map(q=>harCmpLab({slot:-1,model:q.model,p:q.p})).join('  |  ')+' · hores en hora local   ·   Generat: '+new Date().toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), m, fy);
+    c.textAlign='right'; c.fillText('Dades: '+P.map(q=>(MODELS_INFO[q.model]||{}).font||q.model).join(' · ')+'   ·   Eina desenvolupada per Javi Miró', W-m, fy);
+    cv.toBlob(bl=>lliuraImatge(bl,'previsio_comparativa_'+HARM.varK+'_'+main.run+'_h'+h+'.png','Previsió · comparativa de models'),'image/png');
+  }catch(e){ alert('No s\'ha pogut generar la imatge: '+(e&&e.message||e)); }
+  finally{ btns.forEach((b,i)=>{b.disabled=false;b.textContent=olds[i];}); }
+}
+// ====================== COMPARATIVA DE PREVISIONS WINDNINJA (tauler d'incendi) ======================
+// Fins a 3 previsions desades, un mapa per cadascuna amb el mateix enquadrament, taula resum i informe A4.
+// La mateixa tria alimenta el con de propagació «comparativa»: un con per previsió + el con mitjà.
+var CMP={rids:[],maps:[],sy:false,focId:null,tok:0};
+const CMP_COLS=['#38bdf8','#c084fc','#4ade80'];
+const _cmpEsc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+async function focRunData(rid){ if(!FD) return null; FD.runCache=FD.runCache||{}; if(FD.runCache[rid]) return FD.runCache[rid];
+  const d=await workerJSON({accio:'run_get',rid:rid}); if(!(d&&d.ok&&d.enc)) return null;
+  const W=decodeVentHores(await desxifra(JSON.parse(d.enc),PASS)); FD.runCache[rid]=W; return W; }
+function ventAlPunt(W,lat,lon){ if(!W||!W.bbox) return null; const B=W.bbox; if(lon<B[0]||lon>B[1]||lat<B[2]||lat>B[3]) return null;
+  const dlon=(B[1]-B[0])/(W.nx-1), dlat=(B[3]-B[2])/(W.ny-1), i=Math.round((lon-B[0])/dlon), j=Math.round((B[3]-lat)/dlat); if(i<0||j<0||i>=W.nx||j>=W.ny) return null;
+  const pos=W.landPos[j*W.nx+i]; if(pos<0) return null; const u=W.buf[pos*2]*W.esc, v=W.buf[pos*2+1]*W.esc, sp=Math.hypot(u,v);
+  return {vv:sp*3.6, dv:(Math.atan2(-u,-v)*180/Math.PI+360)%360}; }
+function ventEstad(W){ let n=0,s=0,mx=0,su=0,sv=0; const T=W.nx*W.ny;
+  for(let k=0;k<T;k++){ const pos=W.landPos[k]; if(pos<0) continue; const u=W.buf[pos*2]*W.esc, v=W.buf[pos*2+1]*W.esc, sp=Math.hypot(u,v); n++; s+=sp; su+=u; sv+=v; if(sp>mx) mx=sp; }
+  if(!n) return null; return {mitj:s/n*3.6, max:mx*3.6, dir:(Math.atan2(-su,-sv)*180/Math.PI+360)%360}; }
+// fletxes d'un camp WindNinja amb una projecció qualsevol (pantalla o imatge exportada)
+function ventDibuixaCamp(ctx,W,proj,w,h,S){ S=S||1;
+  const B=W.bbox,nx=W.nx,ny=W.ny,dlon=(B[1]-B[0])/(nx-1),dlat=(B[3]-B[2])/(ny-1), a=proj(B[3],B[0]), b=proj(B[2],B[1]);
+  ctx.save(); ctx.strokeStyle='rgba(245,158,11,.9)'; ctx.lineWidth=1.4*S; ctx.setLineDash([6*S,4*S]); ctx.strokeRect(a.x,a.y,b.x-a.x,b.y-a.y); ctx.setLineDash([]);
+  const p1=proj(B[3],B[0]+dlon), cell=Math.max(.001,Math.abs(p1.x-a.x)), step=Math.max(1,Math.round(20*S/cell)), LN=13*S, ah=5*S;
+  ctx.lineCap='round'; ctx.lineJoin='round'; ctx.shadowColor='rgba(0,0,0,.9)'; ctx.shadowBlur=3*S; ctx.shadowOffsetX=.8*S; ctx.shadowOffsetY=1*S;
+  for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){ const pos=W.landPos[j*nx+i]; if(pos<0) continue;
+    const u=W.buf[pos*2]*W.esc, v=W.buf[pos*2+1]*W.esc, sp=Math.hypot(u,v); if(sp<0.05) continue;
+    const p=proj(B[3]-j*dlat,B[0]+i*dlon); if(p.x<-20||p.y<-20||p.x>w+20||p.y>h+20) continue;
+    const sx=u/sp, sy=-v/sp, x0=p.x-sx*LN/2, y0=p.y-sy*LN/2, x1=p.x+sx*LN/2, y1=p.y+sy*LN/2, an=Math.atan2(sy,sx), col=ventColor(sp);
+    ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=1.8*S; ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x1-ah*Math.cos(an-.62),y1-ah*Math.sin(an-.62)); ctx.lineTo(x1-ah*Math.cos(an+.62),y1-ah*Math.sin(an+.62)); ctx.closePath(); ctx.fill(); }
+  ctx.restore(); }
+// contorns (1/3/6 h) del con d'UNA previsió, del seu color, amb l'etiqueta al cap del de 6 h
+function conDibuixaLinies(ctx,proj,ellipses,col,S,nom){ S=S||1; ctx.save(); ctx.lineJoin='round';
+  ellipses.forEach((e,k)=>{ const tr=()=>{ ctx.beginPath(); e.pts.forEach((q,i)=>{ const pt=proj(q[0],q[1]); i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y); }); ctx.closePath(); };
+    ctx.setLineDash(k===0?[]:[7*S,4*S]); tr(); ctx.strokeStyle='rgba(2,6,23,.75)'; ctx.lineWidth=(k===0?4:3.4)*S; ctx.stroke(); tr(); ctx.strokeStyle=col; ctx.lineWidth=(k===0?2.2:1.7)*S; ctx.stroke(); });
+  ctx.setLineDash([]);
+  if(nom&&ellipses.length){ const hd=ellipses[ellipses.length-1].pts[0], hp=proj(hd[0],hd[1]); ctx.font='bold '+(10.5*S)+'px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    const w=ctx.measureText(nom).width+10*S; ctx.fillStyle='rgba(2,6,23,.88)'; ctx.fillRect(hp.x-w/2,hp.y-30*S,w,14*S); ctx.fillStyle=col; ctx.fillText(nom,hp.x,hp.y-23*S); }
+  ctx.restore(); }
+const CmpVentLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    const proj=(la,lo)=>m.latLngToContainerPoint([la,lo]);
+    if(this._W) ventDibuixaCamp(ctx,this._W,proj,s.x,s.y,1);
+    const ce=focCmpCon(this._rid); if(ce) conDibuixaLinies(ctx,proj,ce,this._col,1,null); }
+});
+function focCmpCon(rid){ const x=FD&&FD.con&&FD.con.multi&&FD.con.multi.find(o=>o.rid===rid); return x?x.ellipses:null; }
+function focCmpPrevs(){ return ((FD&&FD.runs)||[]).filter(r=>r.tipus==='previsio').sort((a,b)=>(focRunTemps(a)-focRunTemps(b))||((a.ts||0)-(b.ts||0))); }
+function cmpCurt(r){ return (r.model&&r.model!=='punts manuals')?(r.model+(r.mrun?(' '+r.mrun.slice(8,10)+'Z'):'')):(r.nom||'Punts manuals'); }
+function cmpHora(r){ return new Date(focRunTemps(r)).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+// tria per defecte: les previsions (fins a 3) vàlides per a la mateixa hora que la que es veu al mapa (o l'última)
+function focCmpDefault(){ const P=focCmpPrevs(); if(!P.length) return [];
+  const ref=P.find(r=>r.rid===FD.prevActiveRid)||P[P.length-1], t=focRunTemps(ref);
+  let s=P.filter(r=>Math.abs(focRunTemps(r)-t)<=1800000); if(s.length<2) s=P; s=s.slice(-3);
+  if(s.indexOf(ref)<0) s=[ref].concat(s.slice(1)); return s.map(r=>r.rid); }
+function focCmpRids(){ if(!FD) return []; if(CMP.focId!==FD.foc.id){ CMP.focId=FD.foc.id; CMP.rids=[]; }
+  const ok=CMP.rids.filter(rid=>FD.runs.some(r=>r.rid===rid&&r.tipus==='previsio')); CMP.rids=ok.length>=2?ok:focCmpDefault(); return CMP.rids; }
+async function focCmpFiles(){ const c=FD.centre, out=[]; const rids=focCmpRids();
+  for(let i=0;i<rids.length;i++){ const r=FD.runs.find(x=>x.rid===rids[i]); if(!r) continue; let W=null; try{ W=await focRunData(r.rid); }catch(e){}
+    out.push({r:r, W:W, col:CMP_COLS[i%3], nom:cmpCurt(r), hora:cmpHora(r), flama:(W&&c)?ventAlPunt(W,c.lat,c.lng):null, est:W?ventEstad(W):null}); }
+  return out; }
+function focCmpResum(F){ const v=F.map(f=>f.flama).filter(Boolean); if(v.length<2) return null;
+  let x=0,y=0,s=0,mn=1e9,mx=0; v.forEach(a=>{ x+=a.vv*Math.sin(a.dv*Math.PI/180); y+=a.vv*Math.cos(a.dv*Math.PI/180); s+=a.vv; mn=Math.min(mn,a.vv); mx=Math.max(mx,a.vv); });
+  const dv=Math.hypot(x,y)>1e-6?((Math.atan2(x,y)*180/Math.PI)+360)%360:v[0].dv; let sep=0; v.forEach(a=>{ const d=Math.abs(((a.dv-dv+540)%360)-180); if(d>sep) sep=d; });
+  return {vv:s/v.length, dv:dv, mn:mn, mx:mx, sep:sep, n:v.length}; }
+function focCmpTanca(){ CMP.tok++; CMP.maps.forEach(o=>{ try{o.m.remove();}catch(e){} }); CMP.maps=[]; $('cmpModal').style.display='none'; }
+async function focCmpObre(){ if(!FD) return; if(focCmpPrevs().length<2){ alert('Calen almenys dues previsions WindNinja desades per a comparar-les.'); return; }
+  focCmpRids(); $('cmpModal').style.display='flex'; await focCmpRender(); }
+async function focCmpRender(){
+  const tok=++CMP.tok, P=focCmpPrevs(), rids=focCmpRids();
+  $('cmpSub').textContent=(FD.foc.nom||'Incendi')+' · tria fins a 3 previsions';
+  $('cmpPick').innerHTML=P.map(r=>{ const k=rids.indexOf(r.rid), on=k>=0, col=on?CMP_COLS[k%3]:'#334155';
+    return '<span class="cmpChip" data-rid="'+r.rid+'" style="display:inline-flex;align-items:center;gap:5px;margin:2px 6px 2px 0;padding:3px 10px;border-radius:12px;cursor:pointer;font-size:12px;border:1.5px solid '+col+';background:'+(on?'#0f2233':'#0b1220')+';color:'+(on?'#e5e7eb':'#94a3b8')+'">'
+      +(on?'<i style="width:9px;height:9px;border-radius:50%;background:'+col+';display:inline-block"></i>':'')+_cmpEsc(cmpCurt(r))+' · '+cmpHora(r)+(r.nom&&r.model&&r.model!=='punts manuals'?(' · <i>'+_cmpEsc(r.nom)+'</i>'):'')+'</span>'; }).join('');
+  CMP.maps.forEach(o=>{ try{o.m.remove();}catch(e){} }); CMP.maps=[];
+  const box=$('cmpMaps'); box.innerHTML=''; $('cmpTaula').innerHTML='<span style="font-size:12px;color:#94a3b8">Carregant els camps de vent…</span>';
+  const F=await focCmpFiles(); if(tok!==CMP.tok) return;
+  const bk=BASEMAPS[FD.fonsKey]||BASEMAPS.satellite; let bounds=null;
+  F.forEach((f,i)=>{ const pan=document.createElement('div'); pan.style.cssText='flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid #334155;border-radius:10px;overflow:hidden;background:#0b1220';
+    pan.innerHTML='<div style="padding:5px 9px;font-size:12px;border-bottom:3px solid '+f.col+'"><b style="color:'+f.col+'">'+_cmpEsc(f.nom)+'</b> <span style="color:#94a3b8">· vàlida '+f.hora+(f.r.nom&&f.nom!==f.r.nom?(' · '+_cmpEsc(f.r.nom)):'')+(f.W?'':' · sense camp de vent')+'</span></div><div class="cmpMap" style="flex:1;min-height:160px"></div>';
+    box.appendChild(pan);
+    const m=L.map(pan.querySelector('.cmpMap'),{zoomControl:false,attributionControl:false,zoomSnap:0.1,zoomDelta:0.25,wheelPxPerZoomLevel:260,wheelDebounceTime:30}).setView(FD.map.getCenter(),FD.map.getZoom());
+    if(bk.blanc) m.getContainer().style.background='#ffffff'; else L.tileLayer(bk.u,Object.assign({crossOrigin:true},bk.o)).addTo(m);
+    const ly=new CmpVentLayer(); ly._W=f.W; ly._col=f.col; ly._rid=f.r.rid; ly.addTo(m);
+    if(f.W){ const B=f.W.bbox, b=L.latLngBounds([[B[2],B[0]],[B[3],B[1]]]); bounds=bounds?bounds.extend(b):b; }
+    const pv=focPerimVigent(); if(pv&&pv.pts&&pv.pts.length>2) L.polygon(pv.pts.map(p=>[p.lat,p.lng]),{color:'#ef4444',weight:2.6,fill:false,interactive:false}).addTo(m);
+    if(FD.foc.flama) L.marker([FD.foc.flama.lat,FD.foc.flama.lng],{interactive:false,icon:L.divIcon({className:'foc-flama-m',html:FLAMA_SVG,iconSize:[52,64],iconAnchor:[26,62]})}).addTo(m);
+    CMP.maps.push({m:m,f:f,layer:ly}); });
+  setTimeout(()=>{ if(tok!==CMP.tok) return;
+    CMP.maps.forEach(o=>{ try{ o.m.invalidateSize({animate:false}); if(bounds) o.m.fitBounds(bounds.pad(0.04),{animate:false}); }catch(e){} });
+    CMP.maps.forEach(o=>{ o.m.on('move',()=>{ if(CMP.sy) return; CMP.sy=true; try{ const c=o.m.getCenter(), z=o.m.getZoom(); CMP.maps.forEach(q=>{ if(q.m!==o.m) q.m.setView(c,z,{animate:false}); }); }catch(e){} CMP.sy=false; }); });
+  },60);
+  // taula resum
+  const R=focCmpResum(F), dn=d=>harDeg2Nom(d)+' ('+Math.round(d)+'°)';
+  let h='<table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:#94a3b8;text-align:left"><th style="padding:2px 6px">Previsió</th><th>Vàlida</th><th>Origen</th><th>Vent a la flama</th><th>Mitjana de la caixa</th><th>Màxim de la caixa</th></tr>';
+  F.forEach(f=>{ h+='<tr style="border-top:1px solid #1e293b"><td style="padding:3px 6px"><i style="width:10px;height:10px;border-radius:50%;background:'+f.col+';display:inline-block;margin-right:6px"></i><b>'+_cmpEsc(f.nom)+'</b>'+(f.r.nom&&f.nom!==f.r.nom?(' <span style="color:#94a3b8">'+_cmpEsc(f.r.nom)+'</span>'):'')+'</td><td>'+f.hora+'</td><td style="color:#94a3b8">'+_cmpEsc(focRunOrigen(f.r)||'—')+'</td>'
+    +'<td>'+(f.flama?('<b>'+Math.round(f.flama.vv)+' km/h</b> de '+dn(f.flama.dv)):'—')+'</td><td>'+(f.est?(Math.round(f.est.mitj)+' km/h de '+dn(f.est.dir)):'—')+'</td><td>'+(f.est?(Math.round(f.est.max)+' km/h'):'—')+'</td></tr>'; });
+  if(R) h+='<tr style="border-top:2px solid #334155;color:#fde68a"><td style="padding:3px 6px"><b>Mitjana de les '+R.n+'</b></td><td></td><td></td><td><b>'+Math.round(R.vv)+' km/h</b> de '+dn(R.dv)+'</td><td colspan="2" style="color:#cbd5e1">Dispersió a la flama: '+Math.round(R.mn)+'–'+Math.round(R.mx)+' km/h · direcció ±'+Math.round(R.sep)+'°'+(R.sep>=45?' · <span style="color:#f87171">els models discrepen en la direcció: la mitjana és poc representativa</span>':'')+'</td></tr>';
+  h+='</table><div style="font-size:11px;color:#94a3b8;margin-top:5px">El con de propagació pot fer servir esta tria: al panell «Con de propagació», font de vent «Comparativa WindNinja».</div>';
+  $('cmpTaula').innerHTML=h;
+}
+async function focCmpExporta(){
+  if(typeof html2canvas!=='function'){ alert('Falta la llibreria de captura.'); return; } if(!CMP.maps.length) return;
+  const btn=$('cmpExport'), old=btn.textContent; btn.disabled=true; btn.textContent='Generant…';
+  try{ await pyrometFontLlesta(); }catch(e){}
+  try{
+    const S=2, W=1240*S, H=877*S, m=14*S, gap=8*S, footH=EXPORT_PEU*S, n=CMP.maps.length, F=CMP.maps.map(o=>o.f), R=focCmpResum(F);
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,W,H);
+    const q=ms=>new Date(ms).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    // capçalera
+    const headH=58*S, pmH=34*S, pmW=amplePyromet(c,pmH), nom=FD.foc.nom||'Incendi'; dibuixaLogoPyromet(c, m, m+(headH-pmH)/2, pmH, true);
+    c.strokeStyle='rgba(0,0,0,.18)'; c.lineWidth=S; c.beginPath(); c.moveTo(m+pmW+12*S, m+8*S); c.lineTo(m+pmW+12*S, m+headH-8*S); c.stroke();
+    c.textAlign='left'; c.textBaseline='middle'; c.fillStyle='#b00000'; c.font='bold '+(20*S)+'px Arial'; c.fillText('INCENDI · '+nom.toUpperCase()+' · COMPARATIVA WINDNINJA', m+pmW+26*S, m+headH/2-11*S);
+    const hs=F.map(f=>f.hora).filter((x,i,a)=>a.indexOf(x)===i);
+    c.fillStyle='#334155'; c.font='bold '+(12.5*S)+'px Arial'; c.fillText('Previsió de vent d\'alta resolució · vàlida '+hs.join(' / ')+(FD.foc.inici?('  ·  Inici '+q(FD.foc.inici)):''), m+pmW+26*S, m+headH/2+12*S);
+    if((typeof LOGO_BOMBERS_ON==='undefined')||LOGO_BOMBERS_ON){ const lh=30*S, lw=(logoBombersImg.complete&&logoBombersImg.naturalWidth)?lh*logoBombersImg.naturalWidth/logoBombersImg.naturalHeight:lh*2.87; dibuixaLogoBombers(c, W-m-lw, m+(headH-lh)/2, lh); }
+    // cos
+    const y0=m+headH+8*S, stripH=24*S, rowH=17*S, tabH=(n+1+(R?1:0))*rowH+12*S, conT=!!(FD.con&&FD.con.multi), noteH=conT?16*S:0;
+    const mapsH=H-footH-8*S-y0-stripH-tabH-noteH-10*S, bw=Math.floor((W-2*m-(n-1)*gap)/n);
+    const flama=new Image(); flama.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(FLAMA_SVG.replace(/ style="[^"]*"/,'').replace('<svg ','<svg xmlns="http://www.w3.org/2000/svg" ')); await new Promise(r=>{ flama.onload=r; flama.onerror=r; });
+    const pv=focPerimVigent();
+    for(let i=0;i<n;i++){ const o=CMP.maps[i], el=o.m.getContainer(), x=m+i*(bw+gap);
+      const shot=await html2canvas(el,{useCORS:true,backgroundColor:(FD.fonsKey==='blanc'?'#ffffff':'#0b1220'),scale:S,logging:false,
+        ignoreElements:z=>z.classList&&(z.classList.contains('leaflet-control-container')||z.classList.contains('leaflet-overlay-pane')||z.classList.contains('leaflet-marker-pane'))});
+      const c2=shot.getContext('2d'); c2.setTransform(1,0,0,1,0,0); const sx=shot.width/el.clientWidth, proj=(la,lo)=>{ const p=o.m.latLngToContainerPoint([la,lo]); return {x:p.x*sx,y:p.y*sx}; };
+      if(o.f.W) ventDibuixaCamp(c2,o.f.W,proj,shot.width,shot.height,sx);
+      if(pv&&pv.pts&&pv.pts.length>2){ c2.save(); c2.beginPath(); pv.pts.forEach((p,k)=>{ const t=proj(p.lat,p.lng); k?c2.lineTo(t.x,t.y):c2.moveTo(t.x,t.y); }); c2.closePath(); c2.strokeStyle='#ef4444'; c2.lineWidth=2.6*sx; c2.stroke(); c2.restore(); }
+      const ce=focCmpCon(o.f.r.rid); if(ce) conDibuixaLinies(c2,proj,ce,o.f.col,sx,null);
+      if(FD.foc.flama){ const t=proj(FD.foc.flama.lat,FD.foc.flama.lng), fw=40*sx, fh=49*sx; try{ c2.drawImage(flama,t.x-fw/2,t.y-fh*62/64,fw,fh); }catch(e){} }
+      // retall centrat (cobreix tota la casella sense deformar)
+      const ar=bw/mapsH, sw=Math.min(shot.width,shot.height*ar), sh=sw/ar, sx0=(shot.width-sw)/2, sy0=(shot.height-sh)/2;
+      c.fillStyle='#0f172a'; c.fillRect(x,y0,bw,stripH); c.fillStyle=o.f.col; c.fillRect(x,y0+stripH-3*S,bw,3*S);
+      c.fillStyle='#fff'; c.font='bold '+(12.5*S)+'px Arial'; c.textAlign='left'; c.textBaseline='middle';
+      let t=o.f.nom+' · vàlida '+o.f.hora+(o.f.r.nom&&o.f.nom!==o.f.r.nom?(' · '+o.f.r.nom):''); while(c.measureText(t).width>bw-16*S&&t.length>8) t=t.slice(0,-2)+'…'; c.fillText(t,x+8*S,y0+stripH/2-1*S);
+      c.drawImage(shot,sx0,sy0,sw,sh, x,y0+stripH,bw,mapsH); c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,y0,bw,stripH+mapsH); }
+    dibuixaLlegendaVentBox(c, m+8*S, y0+stripH+mapsH-52*S, S, 'Vent WindNinja (km/h)');
+    // taula
+    let ty=y0+stripH+mapsH+10*S; const cx=[m, m+0.26*(W-2*m), m+0.40*(W-2*m), m+0.60*(W-2*m), m+0.80*(W-2*m)], dn=d=>harDeg2Nom(d)+' ('+Math.round(d)+'°)';
+    c.textBaseline='middle'; c.textAlign='left'; c.font='bold '+(11*S)+'px Arial'; c.fillStyle='#64748b';
+    ['Previsió','Vàlida','Vent a la flama','Mitjana de la caixa','Màxim de la caixa'].forEach((t,k)=>c.fillText(t,cx[k]+(k?0:16*S),ty+rowH/2)); ty+=rowH;
+    F.forEach(f=>{ c.strokeStyle='#e2e8f0'; c.lineWidth=S; c.beginPath(); c.moveTo(m,ty); c.lineTo(W-m,ty); c.stroke();
+      c.fillStyle=f.col; c.beginPath(); c.arc(m+6*S,ty+rowH/2,4.5*S,0,7); c.fill();
+      c.fillStyle='#111'; c.font='bold '+(11.5*S)+'px Arial'; c.fillText(f.nom+(f.r.nom&&f.nom!==f.r.nom?('  ·  '+f.r.nom):''),cx[0]+16*S,ty+rowH/2);
+      c.font=(11.5*S)+'px Arial'; c.fillStyle='#334155'; c.fillText(f.hora,cx[1],ty+rowH/2);
+      c.fillText(f.flama?(Math.round(f.flama.vv)+' km/h de '+dn(f.flama.dv)):'—',cx[2],ty+rowH/2);
+      c.fillText(f.est?(Math.round(f.est.mitj)+' km/h de '+dn(f.est.dir)):'—',cx[3],ty+rowH/2); c.fillText(f.est?(Math.round(f.est.max)+' km/h'):'—',cx[4],ty+rowH/2); ty+=rowH; });
+    if(R){ c.strokeStyle='#94a3b8'; c.lineWidth=1.5*S; c.beginPath(); c.moveTo(m,ty); c.lineTo(W-m,ty); c.stroke();
+      c.fillStyle='#b45309'; c.font='bold '+(11.5*S)+'px Arial'; c.fillText('Mitjana de les '+R.n,cx[0]+16*S,ty+rowH/2); c.fillText(Math.round(R.vv)+' km/h de '+dn(R.dv),cx[2],ty+rowH/2);
+      c.fillStyle='#334155'; c.font=(11.5*S)+'px Arial'; c.fillText('Dispersió a la flama: '+Math.round(R.mn)+'–'+Math.round(R.mx)+' km/h · direcció ±'+Math.round(R.sep)+'°'+(R.sep>=45?' · els models discrepen en la direcció':''),cx[3],ty+rowH/2); ty+=rowH; }
+    if(conT){ c.fillStyle='#b45309'; c.font=(10.5*S)+'px Arial'; c.fillText('Línies de color: con de propagació BETA (1 · 3 · 6 h) calculat amb el vent de cada previsió · '+FD.con.fuel.nom+' · FMd '+FD.con.fm.fmd.toFixed(1)+' %', m, ty+10*S); }
+    const fy=H-footH/2; c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial'; c.textAlign='left';
+    c.fillText('Comparativa de previsions WindNinja · generat '+q(Date.now())+' (hora local)', m, fy);
+    c.textAlign='right'; c.fillText('Vent d\'alta resolució WindNinja a partir de: '+F.map(f=>f.nom).join(' · ')+'   ·   Eina desenvolupada per Javi Miró', W-m, fy);
+    cv.toBlob(bl=>lliuraImatge(bl,'comparativa_windninja_'+nom.replace(/[^\w]+/g,'_')+'.png','Comparativa WindNinja · '+nom),'image/png');
+    focLog('Comparativa WindNinja exportada', F.map(f=>f.nom+' ('+f.hora+')').join(' · '));
+  }catch(e){ alert('No s\'ha pogut exportar: '+(e&&e.message||e)); }
+  btn.disabled=false; btn.textContent=old;
+}
+(function(){ if($('focCmpBtn')) $('focCmpBtn').onclick=focCmpObre; if($('cmpX')) $('cmpX').onclick=focCmpTanca; if($('cmpExport')) $('cmpExport').onclick=focCmpExporta;
+  if($('cmpPick')) $('cmpPick').onclick=e=>{ const ch=e.target.closest('.cmpChip'); if(!ch) return; const rid=ch.dataset.rid, k=CMP.rids.indexOf(rid);
+    if(k>=0){ if(CMP.rids.length<=2) return; CMP.rids.splice(k,1); } else { CMP.rids.push(rid); if(CMP.rids.length>3) CMP.rids.shift(); }
+    focCmpRender(); }; })();
 // ====== EXPLORADOR DE PREVISIÓ (pestanya Previsió): clic al mapa -> meteograma + acumulats + taula ======
 const PEX={lat:null,lon:null,chart:null,marker:null,pick:false,_s:null};
 function pexHourOpts(s){ return s.hores.map((ms,i)=>'<option value="'+i+'">'+new Date(ms).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',hour:'2-digit'})+'</option>').join(''); }
@@ -5628,40 +5953,41 @@ function prevDibuixaLlegenda(c,x,y,w,S){
 // Compon el MAPA de previsió tal com es veu (WYSIWYG) en un canvas: fons capturat + superfície del model
 // (amb l'acumulació triada) + fletxes + límits + punt marcat. Torna {cv, mapW, mapH}. El reusen la imatge
 // del mapa (prevExporta) i la imatge del punt (pexExportaPunt, com a miniatura).
-async function prevComposaMapa(S, mapW){
-  const p=HARM.payload; if(!p) return null;
+async function prevComposaMapa(S, mapW, o){     // o={p,el,m}: panell de comparativa (un altre model en un altre mapa)
+  const p=(o&&o.p)||HARM.payload; if(!p) return null; const el0=(o&&o.el)||$('map'), mp=(o&&o.m)||map;
   const esBlanc=limitsVisibles();          // límits (comarques + perfil) per projecció, sobre qualsevol fons
   const opts={useCORS:true,backgroundColor:'#e8e8e8',scale:2,logging:false,
-    ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-control-attribution')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane'))||el.classList.contains('leaflet-marker-pane'))};
-  const shot=await html2canvas($('map'),opts);
+    ignoreElements:el=>el.classList&&(el.classList.contains('leaflet-control-zoom')||el.classList.contains('leaflet-control-attribution')||el.classList.contains('leaflet-overlay-pane')||(esBlanc&&el.classList.contains('leaflet-comarques-pane'))||el.classList.contains('leaflet-marker-pane')||el.classList.contains('cmplab'))};
+  const shot=await html2canvas(el0,opts);
   const mapH=Math.round(mapW*shot.height/shot.width);
   const cv=document.createElement('canvas'); cv.width=mapW; cv.height=mapH; const c=cv.getContext('2d');
-  const h=Math.max(0,Math.min(p.hores.length-1,HARM.hour)), esAcc=(HARM.varK==='precip');
+  const h=o?harCmpHour(p):Math.max(0,Math.min(p.hores.length-1,HARM.hour)), esAcc=(HARM.varK==='precip');
   const mapY=0, x=0;
   c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();
   c.drawImage(shot,0,0,shot.width,shot.height,x,mapY,mapW,mapH);
-  const el=$('map'), sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
-  if(HARM.varK!=='cap'){ const f=p.fields[HARM.varK]||(HARM.varK==='fmd'&&harFmdGrid(p,h)?{lo:0,scale:1,arr:null}:null); if(f&&(f.arr||HARM.varK==='fmd')){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
+  const el=el0, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
+  if(HARM.varK!=='cap' && (h>=0||esAcc)){ const f=p.fields[HARM.varK]||(HARM.varK==='fmd'&&harFmdGrid(p,h)?{lo:0,scale:1,arr:null}:null); if(f&&(f.arr||HARM.varK==='fmd')){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
     const off=document.createElement('canvas'); off.width=nx; off.height=ny; const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
-    const acc=esAcc?harPrecipGrid(p,h):(HARM.varK==='fmd'?harFmdGrid(p,h):null);   // mateixa acumulació que a pantalla
-    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){ const v=acc?acc[j*nx+i]:(base+f.arr[((h*ny)+j)*nx+i]*sc), q=(j*nx+i)*4; if(!mm.alwaysDraw&&v<thr){d[q+3]=0;continue;} const cc=harColor(HARM.varK,v); d[q]=cc[0];d[q+1]=cc[1];d[q+2]=cc[2];d[q+3]=255; }
+    const acc=esAcc?(o?harCmpPrecipGrid(p):harPrecipGrid(p,h)):(HARM.varK==='fmd'?harFmdGrid(p,h):null);   // mateixa acumulació que a pantalla
+    if(!(esAcc&&o&&!acc)) for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){ const v=acc?acc[j*nx+i]:(base+f.arr[((h*ny)+j)*nx+i]*sc), q=(j*nx+i)*4; if(!mm.alwaysDraw&&v<thr){d[q+3]=0;continue;} const cc=harColor(HARM.varK,v); d[q]=cc[0];d[q+1]=cc[1];d[q+2]=cc[2];d[q+3]=255; }
     oc.putImageData(im,0,0);
-    const pNW=map.latLngToContainerPoint([B[3],B[0]]),pSE=map.latLngToContainerPoint([B[2],B[1]]);
+    const pNW=mp.latLngToContainerPoint([B[3],B[0]]),pSE=mp.latLngToContainerPoint([B[2],B[1]]);
     c.save(); c.imageSmoothingEnabled=true; c.imageSmoothingQuality='high'; c.globalAlpha=HARM.opac;
     c.drawImage(off, x+pNW.x*sxp, mapY+pNW.y*syp, (pSE.x-pNW.x)*sxp, (pSE.y-pNW.y)*syp); c.restore(); } }
-  if(HARM.arrowsOn){ const fd=p.fields.dir,fv=p.fields.vent; if(fd&&fd.arr){ const nx=p.nx,ny=p.ny,B=p.bbox,dlon=(B[1]-B[0])/nx,dlat=(B[3]-B[2])/ny,nod=(fd.nodata!=null?fd.nodata:255);
-    const q0=map.latLngToContainerPoint([B[3],B[0]]),q1=map.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]),cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y))*sxp,step=Math.max(1,Math.round(42/cellpx));
+  if(HARM.arrowsOn && h>=0){ const fd=p.fields.dir,fv=p.fields.vent; if(fd&&fd.arr){ const nx=p.nx,ny=p.ny,B=p.bbox,dlon=(B[1]-B[0])/nx,dlat=(B[3]-B[2])/ny,nod=(fd.nodata!=null?fd.nodata:255);
+    const q0=mp.latLngToContainerPoint([B[3],B[0]]),q1=mp.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]),cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y))*sxp,step=Math.max(1,Math.round(42/cellpx));
     for(let j=(step>>1);j<ny;j+=step)for(let i=(step>>1);i<nx;i+=step){ const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue; const deg=((bd*fd.scale)+180)%360,spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;
-      const lat=B[3]-(j+0.5)*dlat,lon=B[0]+(i+0.5)*dlon,pt=map.latLngToContainerPoint([lat,lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X<x||Y<mapY||X>x+mapW||Y>mapY+mapH)continue; harDrawArrow(c,X,Y,deg,spd); } } }
+      const lat=B[3]-(j+0.5)*dlat,lon=B[0]+(i+0.5)*dlon,pt=mp.latLngToContainerPoint([lat,lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X<x||Y<mapY||X>x+mapW||Y>mapY+mapH)continue; harDrawArrow(c,X,Y,deg,spd); } } }
   // límits per DAMUNT de la superfície/fletxes del model i per DAVALL del punt marcat
-  if(esBlanc && (comarcaGeo||catGeo)) dibuixaLimitsCanvas(c, map, x, mapY, sxp, syp, S, fonsActual());
-  if(PEX.lat!=null){ const pt=map.latLngToContainerPoint([PEX.lat,PEX.lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X>=x&&Y>=mapY&&X<=x+mapW&&Y<=mapY+mapH){ c.save(); c.fillStyle='#111'; c.strokeStyle='#fff'; c.lineWidth=2.4*S; c.beginPath(); c.arc(X,Y,6*S,0,7); c.fill(); c.stroke(); c.restore(); } }
+  if(esBlanc && (comarcaGeo||catGeo)) dibuixaLimitsCanvas(c, mp, x, mapY, sxp, syp, S, fonsActual());
+  if(PEX.lat!=null){ const pt=mp.latLngToContainerPoint([PEX.lat,PEX.lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X>=x&&Y>=mapY&&X<=x+mapW&&Y<=mapY+mapH){ c.save(); c.fillStyle='#111'; c.strokeStyle='#fff'; c.lineWidth=2.4*S; c.beginPath(); c.arc(X,Y,6*S,0,7); c.fill(); c.stroke(); c.restore(); } }
   c.restore();
   return {cv:cv,mapW:mapW,mapH:mapH};
 }
 async function prevExporta(){
   if(typeof html2canvas!=='function'){ alert('No s\'ha pogut carregar la llibreria de captura.'); return; }
   await pexInit(); const p=HARM.payload; if(!p){ alert('Primer carrega la previsió (activa el model o prem «⌖ Centre»).'); return; }
+  if(harCmpActiu()) return prevExportaCmp();      // comparativa de models: tots els panells en una sola imatge
   const btns=[$('pexExport'),$('harExport')].filter(Boolean), olds=btns.map(b=>b.textContent); btns.forEach(b=>{b.disabled=true;b.textContent='Generant…';});
   try{ await pyrometFontLlesta(); }catch(e){}
   try{
@@ -5988,7 +6314,8 @@ async function focComposaMapa(S){
   // la FLAMA i els marcadors es dibuixen/capturen a part: html2canvas els desplaça a zoom fraccionari
   const base=await html2canvas(el,{useCORS:true, backgroundColor:(FD.fonsKey==='blanc'?'#ffffff':'#0b1220'), scale:S, logging:false,
     ignoreElements:x=>x.classList&&(x.classList.contains('leaflet-control-container')||x.classList.contains('leaflet-comarques-pane')||x.classList.contains('leaflet-marker-pane')||x.classList.contains('leaflet-tooltip-pane'))});
-  const c=base.getContext('2d'), sx=base.width/el.clientWidth, sy=base.height/el.clientHeight;
+  const c=base.getContext('2d'); c.setTransform(1,0,0,1,0,0);      // html2canvas deixa el context escalat/desplaçat: tot el que es dibuixa després va en píxels del canvas
+  const sx=base.width/el.clientWidth, sy=base.height/el.clientHeight;
   if(ambLimits) dibuixaLimitsCanvas(c, FD.map, 0, 0, sx, sy, S, FD.fonsKey||'satellite');
   try{   // marcadors (estacions, punts de previsió…) sense la flama
     const mk=await html2canvas(el,{useCORS:true, backgroundColor:null, scale:S, logging:false,
@@ -5999,7 +6326,7 @@ async function focComposaMapa(S){
   // FLAMA per PROJECCIÓ (sempre al lloc exacte)
   if(FD.foc&&FD.foc.flama){ try{
     const pt=FD.map.latLngToContainerPoint([FD.foc.flama.lat,FD.foc.flama.lng]);
-    const img=new Image(); img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(FLAMA_SVG.replace(/ style="[^"]*"/,''));
+    const img=new Image(); img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(FLAMA_SVG.replace(/ style="[^"]*"/,'').replace('<svg ','<svg xmlns="http://www.w3.org/2000/svg" '));
     await new Promise(r=>{ img.onload=r; img.onerror=r; });
     const w=52*S, h=64*S; c.drawImage(img, pt.x*sx-w/2, pt.y*sy-h*62/64, w, h);
   }catch(e){} }
@@ -6067,7 +6394,7 @@ async function focExportImatge(){
     // ---- COS: mapa (esquerra) + panell (dreta) ----
     const y0=top+Math.max(tbh,lbh)+12*S, bodyH=H-footH-10*S-y0;
     const ps=focPerimsList(), cols=focPerimColors(ps.length);
-    const legH=ps.length?(16*S+ps.length*15*S):0, conH=FD.con?44*S:0;
+    const legH=ps.length?(16*S+ps.length*15*S):0, conH=FD.con?(44*S+(FD.con.multi?FD.con.multi.length*14*S:0)):0;
     const panW=chartsC?Math.min(0.42*(W-2*m), chartsC.width*((bodyH)/chartsC.height)):0;   // el panell cap sencer d'alt
     const mapBoxW=W-2*m-(chartsC?panW+12*S:0), mapBoxH=bodyH-legH-conH;
     const sc=Math.min(mapBoxW/mapC.width, mapBoxH/mapC.height), mw=Math.round(mapC.width*sc), mh=Math.round(mapC.height*sc);
@@ -6080,7 +6407,9 @@ async function focExportImatge(){
       c.fillStyle='#b45309'; c.font='bold '+(11.5*S)+'px Arial'; c.fillText('Con de propagació (BETA · Rothermel, combustible homogeni, sense focus secundaris ni capçades)', m, ly+6*S); ly+=16*S;
       c.fillStyle='#334155'; c.font=(11*S)+'px Arial';
       c.fillText('Cap '+r.R_mmin.toFixed(1)+' m/min cap a '+Math.round(r.dir)+'° · 1 h '+(r.R_mmin*60/1000).toFixed(1)+' km · 3 h '+(r.R_mmin*180/1000).toFixed(1)+' km · 6 h '+(r.R_mmin*360/1000).toFixed(1)+' km · '+Math.round(r.I_kWm)+' kW/m · flama '+r.flama_m.toFixed(1)+' m', m, ly); ly+=14*S;
-      c.fillStyle='#64748b'; c.fillText(FD.con.fuel.nom+' · vent '+Math.round(FD.con.vent.vv)+' km/h de '+Math.round(FD.con.vent.dv)+'° ('+FD.con.vent.font+') · pendent '+FD.con.pend.graus.toFixed(0)+'° · FMd '+FD.con.fm.fmd.toFixed(1)+' % ('+FD.con.fm.font+')', m, ly); }
+      c.fillStyle='#64748b'; c.fillText(FD.con.fuel.nom+' · vent '+Math.round(FD.con.vent.vv)+' km/h de '+Math.round(FD.con.vent.dv)+'° ('+FD.con.vent.font+') · pendent '+FD.con.pend.graus.toFixed(0)+'° · FMd '+FD.con.fm.fmd.toFixed(1)+' % ('+FD.con.fm.font+')', m, ly);
+      if(FD.con.multi) FD.con.multi.forEach(x=>{ ly+=14*S; c.fillStyle=x.col; c.fillRect(m,ly-4*S,12*S,8*S); c.strokeStyle='#333'; c.lineWidth=S; c.strokeRect(m,ly-4*S,12*S,8*S); c.fillStyle='#334155';
+        c.fillText(x.nom+': vent '+Math.round(x.vent.vv)+' km/h de '+Math.round(x.vent.dv)+'° · cap '+x.res.R_mmin.toFixed(1)+' m/min cap a '+Math.round(x.res.dir)+'° · 6 h '+(x.res.R_mmin*360/1000).toFixed(1)+' km', m+18*S, ly); }); }
     if(chartsC){ const px=W-m-panW, psc=Math.min(panW/chartsC.width, bodyH/chartsC.height), pw=Math.round(chartsC.width*psc), ph=Math.round(chartsC.height*psc);
       c.save(); c.beginPath(); c.roundRect?c.roundRect(px,y0,pw,ph,8*S):c.rect(px,y0,pw,ph); c.clip(); c.drawImage(chartsC,0,0,chartsC.width,chartsC.height, px,y0,pw,ph); c.restore();
       c.strokeStyle='#999'; c.lineWidth=S; c.beginPath(); c.roundRect?c.roundRect(px,y0,pw,ph,8*S):c.rect(px,y0,pw,ph); c.stroke(); }
@@ -6341,6 +6670,7 @@ function focRunOrigen(r){ if(!r||!r.model) return ''; if(r.model==='punts manual
 function focPrevRenderSaved(){
   const box=$('focPrevSaved'); if(!box||!FD)return;
   const prevs=(FD.runs||[]).filter(r=>r.tipus==='previsio').sort((a,b)=>focRunTemps(a)-focRunTemps(b));
+  const cb=$('focCmpBtn'); if(cb) cb.style.display=(prevs.length>=2)?'':'none';
   if(!prevs.length){ box.innerHTML=''; return; }
   box.innerHTML='<div style="font-size:11px;color:#94a3b8;margin:4px 0 2px">Previsions desades (clica per veure-la al mapa; torna a clicar per amagar):</div>'
     +prevs.map(r=>{ const act=(r.rid===FD.prevActiveRid),
@@ -6606,6 +6936,7 @@ async function desaCorreguda(){
     else if(PEX.chart){ setTimeout(()=>{try{PEX.chart.resize();}catch(e){}},60); }
     document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('actiu', b.dataset.t===t));
     const app0=document.getElementById('app'); if(app0) app0.classList.toggle('prevtab', t==='prev');   // amaga la línia de temps meteo
+    if(typeof harCmpApply==='function') harCmpApply();          // comparativa de models: només a Previsió
     if(t==='prev'){ if(typeof harBottomLegend==='function') harBottomLegend(); } else { const hl=$('harLegend'); if(hl) hl.style.display='none'; }
     try{ panel.scrollTop=0; }catch(e){}
   }
