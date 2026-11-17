@@ -3172,10 +3172,17 @@ function focsLocal(){ try{ return JSON.parse(localStorage.getItem(FOC_KEY)||'[]'
 function focsLocalDesa(a){ try{ localStorage.setItem(FOC_KEY, JSON.stringify(a.slice(0,20))); }catch(e){} }
 let focsCache=focsLocal();
 
+// CLAU INTERNA dels incendis/actualització: MAI es demana a l'usuari. La dona el servidor d'accés en entrar amb usuari
+// (clausApp → localStorage 'app_pass'). Si no hi és, s'explica què cal fer en lloc de preguntar cap contrasenya.
+let _avisClauFet=false;
+function avisClauInterna(motiu){
+  if(_avisClauFet) return; _avisClauFet=true; setTimeout(()=>{_avisClauFet=false;},15000);     // un sol avís cada 15 s
+  if(!SESSIO) alert('Per a declarar o modificar incendis (i actualitzar dades) cal entrar amb el teu usuari: tanca i torna a entrar amb correu i contrasenya.');
+  else alert((motiu==='incorrecta'?'El servidor d\'incendis ha rebutjat la clau interna.':'No s\'ha rebut la clau interna d\'incendis.')+' No és cosa teua: avisa l\'administrador (cal revisar el secret APP_PASS_'+REGIO.toUpperCase()+' del servidor d\'accés). Mentrestant els canvis es guarden només en este dispositiu.');
+}
 function passEquip(dem){
   let p=null; try{ p=localStorage.getItem('app_pass'); }catch(e){}
-  if(!p && dem){ const t=prompt('Contrasenya de l\'equip (la mateixa que per actualitzar dades):');
-    if(!t) return null; p=t.trim(); try{ localStorage.setItem('app_pass',p); }catch(e){} }
+  if(!p && dem) avisClauInterna('falta');
   return p;
 }
 async function focsAPI(accio,extra,dem){
@@ -3185,8 +3192,7 @@ async function focsAPI(accio,extra,dem){
       body:JSON.stringify(Object.assign({pass:p,accio:accio},extra||{}))});
     const d=await r.json().catch(()=>({}));
     if(d && d.ok && Array.isArray(d.focs)) return d.focs;
-    if(d && d.error==='password'){ try{localStorage.removeItem('app_pass');}catch(e){}
-      alert('Contrasenya de l\'equip incorrecta.'); }
+    if(d && d.error==='password'){ if(dem!==false) avisClauInterna('incorrecta'); }
     else if(d && d.error==='kv') alert('Al Worker li falta el magatzem KV (binding «FOCS»).');
   }catch(e){}
   return null;
@@ -4359,14 +4365,14 @@ function mostraEspera(mins){          // compte enrere visible sota els botons
 async function actualitzar(){
   if(!WORKER_URL){ alert('Cal configurar WORKER_URL al codi (la URL del teu Worker de Cloudflare).'); return; }
   let p=appPass();
-  if(!p){ const t=prompt('Contrasenya per actualitzar les dades:'); if(!t) return; p=t.trim(); try{localStorage.setItem('app_pass',p);}catch(e){} }
+  if(!p){ avisClauInterna('falta'); return; }
   const b=$('actualitzar'), old=b.textContent; b.disabled=true;
   try{
     b.textContent='Llançant…';
     let d={};
     const r=await fetch(WORKER_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pass:p})});
     try{ d=await r.json(); }catch(e){}
-    if(r.status===403||d.error==='password'){ try{localStorage.removeItem('app_pass');}catch(e){} alert('Contrasenya incorrecta.'); b.disabled=false;b.textContent=old; return; }
+    if(r.status===403||d.error==='password'){ avisClauInterna('incorrecta'); b.disabled=false;b.textContent=old; return; }
     if(d.error==='rate'){
       mostraEspera(d.wait);
       alert('No fa falta actualitzar ara mateix.\n\n'
