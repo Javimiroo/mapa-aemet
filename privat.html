@@ -294,6 +294,14 @@
       .leaflet-top.leaflet-left .leaflet-control-zoom{margin:0!important}
       @media(max-width:720px){ #floatTop{left:10px;right:10px} #floatTop #cercaWrap{width:auto;flex:1} }
       #harBarMob{display:none}
+      /* a l'ordinador, la barra d'hores del model també va sobre el mapa (amb el menú tancat es pot continuar movent l'hora) */
+      @media(min-width:761px){
+        #app.prevtab #harBarMob{display:flex;position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:1150;align-items:center;gap:10px;width:min(720px,58vw);
+          background:rgba(15,23,42,.92);border:1px solid #33415a;border-radius:12px;padding:7px 12px;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+        #harBarMob #hbHour{flex:1;min-width:0;accent-color:var(--accent)}
+        #harBarMob #hbLbl{font-size:12px;font-weight:600;color:#7dd3fc;white-space:nowrap;min-width:150px;text-align:right}
+        #app.prevtab #harLegend{bottom:72px}
+      }
       #offPill{position:absolute;top:56px;left:50%;transform:translateX(-50%);z-index:1250;display:none;background:#7c2d12;color:#fed7aa;border:1px solid #c2410c;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.5)}
       /* ====================== MÒBIL (≤ 760 px): mapa complet + menú com a full inferior ====================== */
       @media (max-width:760px){
