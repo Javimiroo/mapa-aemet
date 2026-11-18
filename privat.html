@@ -533,7 +533,9 @@
             <option value="tot">Total acumulat des de l'inici (mm)</option>
           </select>
         </div>
-        <label class="switch" style="margin-top:8px;font-size:12px"><input type="checkbox" id="harArrows" checked> Fletxes de direcció del vent</label>
+        <label class="switch" style="margin-top:8px;font-size:12px"><input type="checkbox" id="harArrows" checked> Vent al mapa</label>
+        <label class="switch" style="margin-top:4px;font-size:12px" title="Barbes meteorològiques: mitja barba 5 kt, barba 10 kt, banderola 50 kt. Desmarcat: fletxes de color"><input type="checkbox" id="harBarbes" checked> Barbes de vent (en lloc de fletxes)</label>
+        <label class="switch" style="margin-top:4px;font-size:12px" title="Pinta el camp per intervals amb llegenda discreta. Desmarcat: degradat continu"><input type="checkbox" id="harClas" checked> Colors per classes</label>
         <div class="row" style="gap:6px;align-items:center;margin-top:8px">
           <button class="btn small" id="harPrev" title="Hora anterior">◀</button>
           <input type="range" id="harHour" min="0" max="47" value="0" style="flex:1;accent-color:var(--accent)">
@@ -5186,7 +5188,7 @@ async function focHarmonieRender(runId){
   tw.innerHTML=h;
 }
 // ====== HARMONIE sobre el MAPA: superfície de color + fletxes de vent (mapa general i tauler) ======
-const HARM={payload:null, varK:'temp', hour:0, arrowsOn:true, opac:0.7, pacc:1, model:'harmonie'};   // pacc: 1|3|6|12|24 (trams) | 'tot'; model: harmonie|icon|arome
+const HARM={payload:null, varK:'temp', hour:0, arrowsOn:true, opac:0.7, pacc:1, model:'harmonie', clas:true, barbes:true};   // pacc: 1|3|6|12|24 (trams) | 'tot'; model: harmonie|icon|arome
 // ---- ACUMULACIÓ DE PLUJA del model (com harmoniearome.es / AEMET): trams alineats des de l'eixida ----
 // pacc=1 → pluja horària; pacc=n → suma del tram de n h que conté l'hora triada (trams 0–n, n–2n, …
 // comptats des de la primera hora de la passada); pacc='tot' → suma des de l'inici fins a l'hora triada.
@@ -5241,6 +5243,50 @@ const HARWIND=[[0,[220,250,248]],[10,[175,249,246]],[20,[102,246,236]],[30,[80,2
 function harLerp(stops,v){ const n=stops.length; if(v<=stops[0][0])return stops[0][1]; if(v>=stops[n-1][0])return stops[n-1][1];
   for(let i=0;i<n-1;i++){const a=stops[i],b=stops[i+1]; if(v>=a[0]&&v<=b[0]){const t=(v-a[0])/(b[0]-a[0]||1); return [0,1,2].map(k=>Math.round(a[1][k]+(b[1][k]-a[1][k])*t));}} return stops[n-1][1]; }
 function harColor(varK,v){ const m=HARV[varK]; if(!m)return[120,120,120]; if(m.pacum)return colorRGB('pacum',v); if(m.wind)return harLerp(HARWIND,v); return harLerp(m.stops,v); }
+// ---- COLORS PER CLASSES (llegenda discreta) i BARBES de vent a la previsió ----
+// HARM.clas: el camp es pinta per intervals (isolínies netes): els valors s'interpolen primer i després es classifiquen.
+// HARM.barbes: el vent es dibuixa amb barbes meteorològiques (mitja barba 5 kt, barba 10 kt, banderola 50 kt) en lloc de fletxes.
+const HARCLS={ temp:(()=>{ const a=[]; for(let v=-10;v<=44;v+=2) a.push(v); return a; })(), vent:[0,10,20,30,40,50,60,70,80,90,105,120], ratxa:[0,10,20,30,40,50,60,70,80,90,105,120],
+  hr:[0,10,20,30,40,50,60,70,80,90,100], fmd:[0,4,6,8,10,12,15,20,25,35], nuvol:[0,20,40,60,80,100], llamps:[0,0.01,0.05,0.1,0.2,1], precip:[0,0.1,1,2,5,10,15,20,30,40,60,80,100,150,200,500] };
+function harQuant(varK,v){ const b=HARCLS[varK]; if(!b) return v; const n=b.length; if(v<b[0]) return b[0]; if(v>=b[n-1]) return b[n-1];
+  let k=0; while(k<n-2&&v>=b[k+1]) k++; return (b[k]+b[k+1])/2; }
+function harColorQ(varK,v){ return harColor(varK, HARM.clas?harQuant(varK,v):v); }
+// canvas amb el camp pintat: valAt(q) dona el valor de la cel·la q=j*nx+i; 'up' = factor de sobremostreig (interpolació bilineal de VALORS)
+function harPintaCamp(valAt,nx,ny,varK,meta,up){
+  const thr=(meta.thr!=null?meta.thr:-1e9); up=HARM.clas?Math.max(1,Math.min(8,Math.round(up||1))):1;
+  const W=nx*up, H=ny*up, off=document.createElement('canvas'); off.width=W; off.height=H; const oc=off.getContext('2d'), im=oc.createImageData(W,H), d=im.data;
+  let V=null; if(up>1){ V=new Float32Array(nx*ny); for(let q=0;q<nx*ny;q++) V[q]=valAt(q); }
+  const cache={};
+  for(let y=0;y<H;y++){ let fy=0,j0=y,j1=y; if(up>1){ const gy=Math.max(0,Math.min(ny-1,(y+0.5)/up-0.5)); j0=Math.floor(gy); j1=Math.min(ny-1,j0+1); fy=gy-j0; }
+    for(let x=0;x<W;x++){ let v;
+      if(up>1){ const gx=Math.max(0,Math.min(nx-1,(x+0.5)/up-0.5)), i0=Math.floor(gx), i1=Math.min(nx-1,i0+1), fx=gx-i0;
+        v=(V[j0*nx+i0]*(1-fx)+V[j0*nx+i1]*fx)*(1-fy)+(V[j1*nx+i0]*(1-fx)+V[j1*nx+i1]*fx)*fy; }
+      else v=valAt(y*nx+x);
+      const q=(y*W+x)*4; if(!meta.alwaysDraw && v<thr){ d[q+3]=0; continue; }
+      let c; if(HARM.clas){ const k=harQuant(varK,v); c=cache[k]||(cache[k]=harColor(varK,k)); } else c=harColor(varK,v);
+      d[q]=c[0]; d[q+1]=c[1]; d[q+2]=c[2]; d[q+3]=255; } }
+  oc.putImageData(im,0,0); return off;
+}
+// trams [a,b,color] de la llegenda entre lo i hi (classes si HARM.clas; si no, degradat fi)
+function harLlegendaTrams(varK,lo,hi){ const out=[];
+  if(HARM.clas&&HARCLS[varK]){ const b=HARCLS[varK]; for(let k=0;k<b.length-1;k++){ const a=Math.max(lo,b[k]), z=Math.min(hi,b[k+1]); if(z<=a) continue; out.push([a,z,harColor(varK,(b[k]+b[k+1])/2)]); } }
+  if(!out.length){ const n=24; for(let k=0;k<n;k++){ const a=lo+(hi-lo)*k/n, z=lo+(hi-lo)*(k+1)/n; out.push([a,z,harColor(varK,(a+z)/2)]); } }
+  return out; }
+function harLlegendaCSS(varK,lo,hi){ return harLlegendaTrams(varK,lo,hi).map(t=>{ const c='rgb('+t[2].join(',')+')'; return c+' '+(100*(t[0]-lo)/(hi-lo)).toFixed(2)+'%, '+c+' '+(100*(t[1]-lo)/(hi-lo)).toFixed(2)+'%'; }).join(','); }
+function harLlegendaTicks(varK,lo,hi,maxN){ if(!(HARM.clas&&HARCLS[varK])) return [0,.25,.5,.75,1].map(t=>lo+(hi-lo)*t);
+  let b=HARCLS[varK].filter(v=>v>=lo&&v<=hi); const pas=Math.ceil(b.length/(maxN||9)); b=b.filter((v,i)=>i%pas===0);
+  const out=[]; b.forEach(v=>{ if(!out.length||(v-out[out.length-1])/(hi-lo)>=0.055) out.push(v); }); return out; }
+function harDrawBarb(ctx,x,y,degFrom,kmh,k){
+  const kt=(kmh||0)/1.852; let s=Math.round(kt/5)*5; const L=21, bl=9.5, sp=3.6;
+  const traca=()=>{ if(s<3){ ctx.beginPath(); ctx.arc(0,0,3.4,0,2*Math.PI); ctx.stroke(); return; }
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-L); ctx.stroke(); let pos=-L, rem=s;
+    while(rem>=50){ ctx.beginPath(); ctx.moveTo(0,pos); ctx.lineTo(bl,pos+2.5); ctx.lineTo(0,pos+6); ctx.closePath(); ctx.fill(); ctx.stroke(); pos+=7.5; rem-=50; }
+    while(rem>=10){ ctx.beginPath(); ctx.moveTo(0,pos); ctx.lineTo(bl,pos-3.5); ctx.stroke(); pos+=sp; rem-=10; }
+    if(rem>=5){ if(pos===-L) pos+=sp; ctx.beginPath(); ctx.moveTo(0,pos); ctx.lineTo(bl*0.55,pos-2); ctx.stroke(); } };
+  ctx.save(); ctx.translate(x,y); ctx.rotate(degFrom*Math.PI/180); if(k&&k!==1) ctx.scale(k,k); ctx.lineCap='butt'; ctx.lineJoin='miter';
+  ctx.strokeStyle='#111'; ctx.fillStyle='#111'; ctx.lineWidth=1.15; traca(); ctx.restore();      // traç fi i negre, sense vora (estil de carta sinòptica)
+}
+function harDrawVent(ctx,x,y,degFrom,spd,k){ if(HARM.barbes) harDrawBarb(ctx,x,y,degFrom,spd,k); else harDrawArrow(ctx,x,y,degFrom,spd); }
 function harDrawArrow(ctx,x,y,degFrom,spd){
   const ang=((degFrom+180)%360)*Math.PI/180, L=8+Math.min(15,spd*0.26), col='rgb('+harColor('vent',spd).join(',')+')';
   const dx=Math.sin(ang),dy=-Math.cos(ang), x2=x+dx*L,y2=y+dy*L, x1=x-dx*L*0.55,y1=y-dy*L*0.55;
@@ -5270,13 +5316,8 @@ const HarMapSurface=L.Layer.extend({
       const acc=(HARM.varK==='precip')?(this._pl?harCmpPrecipGrid(p):harPrecipGrid(p,h)):(HARM.varK==='fmd'?harFmdGrid(p,h):null);      // pluja: acumulació del mode triat; FMd: derivada de Tª+HR
       if(HARM.varK==='precip' && this._pl && !acc) return;
       if(HARM.varK==='fmd' && !acc) return;
-      const off=document.createElement('canvas');off.width=nx;off.height=ny;
-      const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
-      for(let j=0;j<ny;j++){ for(let i=0;i<nx;i++){ const v=acc?acc[j*nx+i]:(base+f.arr[((h*ny)+j)*nx+i]*sc); const q=(j*nx+i)*4;
-        if(!meta.alwaysDraw && v<thr){ d[q+3]=0; continue; }
-        const c=harColor(HARM.varK,v); d[q]=c[0];d[q+1]=c[1];d[q+2]=c[2];d[q+3]=255; } }
-      oc.putImageData(im,0,0);
-      const pNW=m.latLngToContainerPoint([B[3],B[0]]),pSE=m.latLngToContainerPoint([B[2],B[1]]);
+      const pNW=m.latLngToContainerPoint([B[3],B[0]]),pSE=m.latLngToContainerPoint([B[2],B[1]]), N0=nx*ny;
+      const off=harPintaCamp(q=>acc?acc[q]:(base+f.arr[h*N0+q]*sc), nx, ny, HARM.varK, meta, Math.min(s.x*1.2,(pSE.x-pNW.x))/nx/1.3);
       ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.globalAlpha=HARM.opac;
       ctx.drawImage(off,pNW.x,pNW.y,pSE.x-pNW.x,pSE.y-pNW.y);ctx.globalAlpha=1;
     }catch(e){ ctx.globalAlpha=1; }
@@ -5294,13 +5335,13 @@ const HarMapArrows=L.Layer.extend({
     const nx=p.nx,ny=p.ny,B=p.bbox,h=this._pl?harCmpHour(p):Math.max(0,Math.min(p.hores.length-1,HARM.hour)); if(h<0)return;
     const dlon=(B[1]-B[0])/nx,dlat=(B[3]-B[2])/ny, nod=(fd.nodata!=null?fd.nodata:255);
     const q0=m.latLngToContainerPoint([B[3],B[0]]),q1=m.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]);
-    const cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y)), step=Math.max(1,Math.round(40/cellpx));
+    const cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y)), step=Math.max(1,Math.round((HARM.barbes?54:40)/cellpx));
     for(let j=(step>>1);j<ny;j+=step){ for(let i=(step>>1);i<nx;i+=step){
       const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue;
       const deg=((bd*fd.scale)+180)%360, spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;   // +180: ang_viento (cap on bufa) -> d'on ve
       const lat=B[3]-(j+0.5)*dlat, lon=B[0]+(i+0.5)*dlon, pt=m.latLngToContainerPoint([lat,lon]);
       if(pt.x<-12||pt.y<-12||pt.x>s.x+12||pt.y>s.y+12)continue;
-      harDrawArrow(ctx,pt.x,pt.y,deg,spd);
+      harDrawVent(ctx,pt.x,pt.y,deg,spd);
     }}
   }
 });
@@ -5348,12 +5389,12 @@ function harBottomLegend(){
   let lo=0,hi=1,unit=meta.unit||'',lab=meta.lab;
   if(meta.pacum){lo=0;hi=harPaccHi();lab=harPaccTitol();} else if(meta.wind){lo=0;hi=120;} else {const st=meta.stops;lo=st[0][0];hi=st[st.length-1][0];}
   if(HARM.varK==='temp'){lo=-5;hi=42;} if(HARM.varK==='nuvol'){lo=0;hi=100;} if(HARM.varK==='hr'){lo=0;hi=100;} if(HARM.varK==='fmd'){lo=4;hi=25;} if(HARM.varK==='llamps'){lo=0;hi=0.2;}
-  let g=[]; for(let t=0;t<=1.001;t+=1/16){const v=lo+(hi-lo)*t,cc=harColor(HARM.varK,v); g.push('rgb('+cc[0]+','+cc[1]+','+cc[2]+') '+Math.round(t*100)+'%');}
-  const ticks=[0,.25,.5,.75,1].map(t=>'<span>'+(Math.round((lo+(hi-lo)*t)*100)/100)+'</span>').join('');
+  const g=[harLlegendaCSS(HARM.varK,lo,hi)];
+  const ticks=harLlegendaTicks(HARM.varK,lo,hi,10).map(v=>'<span style="position:absolute;left:'+(100*(v-lo)/(hi-lo)).toFixed(1)+'%;transform:translateX(-50%)">'+(Math.round(v*100)/100)+'</span>').join('');
   const hlab=(meta.pacum)?harPaccLabel(HARM.payload,HARM.hour):(new Date(Date.parse(HARM.payload.hores[Math.max(0,Math.min(HARM.payload.hores.length-1,HARM.hour))])).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'})+' h');
   el.innerHTML='<div style="font-size:12px;font-weight:700;color:#e5e7eb;margin-bottom:4px;text-align:center">'+lab+(unit?(' ('+unit+')'):'')+' · '+hlab+'</div>'
     +'<div style="width:min(340px,70vw);height:14px;border-radius:4px;border:1px solid #33415a;background:linear-gradient(to right,'+g.join(',')+')"></div>'
-    +'<div style="display:flex;justify-content:space-between;font-size:10px;color:#cbd5e1;margin-top:2px">'+ticks+'</div>';
+    +'<div style="position:relative;height:13px;font-size:10px;color:#cbd5e1;margin-top:2px">'+ticks+'</div>';
   el.style.display='block';
 }
 // popup amb el valor previst en clicar QUALSEVOL punt del mapa (quan el model és actiu)
@@ -5415,6 +5456,8 @@ function harWire(){
   ['harModel','focHarModel','focHarModel2'].forEach(id=>{ const s=$(id); if(s) s.onchange=()=>harSetModel(s.value); });
   if($('harPacc')) $('harPacc').onchange=()=>{ const v=$('harPacc').value; HARM.pacc=(v==='tot')?'tot':(+v||1); harRedraw(); };
   $('harArrows').onchange=()=>{HARM.arrowsOn=$('harArrows').checked; harRedraw();};
+  if($('harBarbes')) $('harBarbes').onchange=()=>{HARM.barbes=$('harBarbes').checked; harRedraw();};
+  if($('harClas')) $('harClas').onchange=()=>{HARM.clas=$('harClas').checked; harRedraw();};
   $('harOpac').oninput=()=>{HARM.opac=(+$('harOpac').value)/100; if(harSurf&&map.hasLayer(harSurf))harSurf.redraw(); if(FD&&FD.harSurf&&FD.map&&FD.map.hasLayer(FD.harSurf))FD.harSurf.redraw();};
   $('harHour').oninput=()=>{HARM.hour=+$('harHour').value; harRedraw();};
   $('harPrev').onclick=()=>{HARM.hour=Math.max(0,HARM.hour-harPasHora()); harRedraw();};
@@ -6212,11 +6255,10 @@ function prevDibuixaLlegenda(c,x,y,w,S){
   while(c.measureText(titol).width>w && titol.length>10) titol=titol.slice(0,-2)+'…';
   c.fillText(titol, x, y);
   const barW=w, barH=13*S, bx=x, by=y+22*S;
-  const g=c.createLinearGradient(bx,0,bx+barW,0);
-  for(let t=0;t<=1.0001;t+=1/24){ const v=lo+(hi-lo)*t, cc=harColor(HARM.varK,v); g.addColorStop(Math.min(1,t),'rgb('+cc[0]+','+cc[1]+','+cc[2]+')'); }
-  c.fillStyle=g; c.fillRect(bx,by,barW,barH); c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=1; c.strokeRect(bx,by,barW,barH);
+  harLlegendaTrams(HARM.varK,lo,hi).forEach(t=>{ const x0=bx+barW*(t[0]-lo)/(hi-lo), x1=bx+barW*(t[1]-lo)/(hi-lo); c.fillStyle='rgb('+t[2].join(',')+')'; c.fillRect(x0,by,x1-x0+0.6,barH); });
+  c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=1; c.strokeRect(bx,by,barW,barH);
   c.fillStyle='#334155'; c.font=(11*S)+'px Arial'; c.textBaseline='top';
-  for(let k=0;k<=5;k++){ const t=k/5,v=lo+(hi-lo)*t,X=bx+barW*t; c.textAlign=(k===0?'left':(k===5?'right':'center')); c.fillText((Math.round(v*100)/100)+'',X,by+barH+4*S); }
+  const tk=harLlegendaTicks(HARM.varK,lo,hi,10); tk.forEach((v,k)=>{ const X=bx+barW*(v-lo)/(hi-lo); c.textAlign=(X-bx<6*S?'left':(bx+barW-X<6*S?'right':'center')); c.fillText((Math.round(v*100)/100)+'',X,by+barH+4*S); });
 }
 // Compon el MAPA de previsió tal com es veu (WYSIWYG) en un canvas: fons capturat + superfície del model
 // (amb l'acumulació triada) + fletxes + límits + punt marcat. Torna {cv, mapW, mapH}. El reusen la imatge
@@ -6235,17 +6277,15 @@ async function prevComposaMapa(S, mapW, o){     // o={p,el,m}: panell de compara
   c.drawImage(shot,0,0,shot.width,shot.height,x,mapY,mapW,mapH);
   const el=el0, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
   if(o && harDifActiu()){ try{ harDifDibuixa(c,mp,p,x,mapY,sxp,syp); }catch(e){} } else if(HARM.varK!=='cap' && (h>=0||esAcc)){ const f=p.fields[HARM.varK]||(HARM.varK==='fmd'&&harFmdGrid(p,h)?{lo:0,scale:1,arr:null}:null); if(f&&(f.arr||HARM.varK==='fmd')){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
-    const off=document.createElement('canvas'); off.width=nx; off.height=ny; const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
     const acc=esAcc?(o?harCmpPrecipGrid(p):harPrecipGrid(p,h)):(HARM.varK==='fmd'?harFmdGrid(p,h):null);   // mateixa acumulació que a pantalla
-    if(!(esAcc&&o&&!acc)) for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){ const v=acc?acc[j*nx+i]:(base+f.arr[((h*ny)+j)*nx+i]*sc), q=(j*nx+i)*4; if(!mm.alwaysDraw&&v<thr){d[q+3]=0;continue;} const cc=harColor(HARM.varK,v); d[q]=cc[0];d[q+1]=cc[1];d[q+2]=cc[2];d[q+3]=255; }
-    oc.putImageData(im,0,0);
-    const pNW=mp.latLngToContainerPoint([B[3],B[0]]),pSE=mp.latLngToContainerPoint([B[2],B[1]]);
+    const pNW=mp.latLngToContainerPoint([B[3],B[0]]),pSE=mp.latLngToContainerPoint([B[2],B[1]]), N0=nx*ny;
+    const off=(esAcc&&o&&!acc)?document.createElement('canvas'):harPintaCamp(q=>acc?acc[q]:(base+f.arr[h*N0+q]*sc), nx, ny, HARM.varK, mm, Math.min(mapW*1.2,(pSE.x-pNW.x)*sxp)/nx/1.3);
     c.save(); c.imageSmoothingEnabled=true; c.imageSmoothingQuality='high'; c.globalAlpha=HARM.opac;
     c.drawImage(off, x+pNW.x*sxp, mapY+pNW.y*syp, (pSE.x-pNW.x)*sxp, (pSE.y-pNW.y)*syp); c.restore(); } }
   if(HARM.arrowsOn && h>=0){ const fd=p.fields.dir,fv=p.fields.vent; if(fd&&fd.arr){ const nx=p.nx,ny=p.ny,B=p.bbox,dlon=(B[1]-B[0])/nx,dlat=(B[3]-B[2])/ny,nod=(fd.nodata!=null?fd.nodata:255);
-    const q0=mp.latLngToContainerPoint([B[3],B[0]]),q1=mp.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]),cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y))*sxp,step=Math.max(1,Math.round(42/cellpx));
+    const q0=mp.latLngToContainerPoint([B[3],B[0]]),q1=mp.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]),cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y))*sxp,step=Math.max(1,Math.round((HARM.barbes?54*sxp:42)/cellpx));
     for(let j=(step>>1);j<ny;j+=step)for(let i=(step>>1);i<nx;i+=step){ const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue; const deg=((bd*fd.scale)+180)%360,spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;
-      const lat=B[3]-(j+0.5)*dlat,lon=B[0]+(i+0.5)*dlon,pt=mp.latLngToContainerPoint([lat,lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X<x||Y<mapY||X>x+mapW||Y>mapY+mapH)continue; harDrawArrow(c,X,Y,deg,spd); } } }
+      const lat=B[3]-(j+0.5)*dlat,lon=B[0]+(i+0.5)*dlon,pt=mp.latLngToContainerPoint([lat,lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X<x||Y<mapY||X>x+mapW||Y>mapY+mapH)continue; harDrawVent(c,X,Y,deg,spd,sxp); } } }
   // límits per DAMUNT de la superfície/fletxes del model i per DAVALL del punt marcat
   if(esBlanc && (comarcaGeo||catGeo)) dibuixaLimitsCanvas(c, mp, x, mapY, sxp, syp, S, fonsActual());
   if(PEX.lat!=null){ const pt=mp.latLngToContainerPoint([PEX.lat,PEX.lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X>=x&&Y>=mapY&&X<=x+mapW&&Y<=mapY+mapH){ c.save(); c.fillStyle='#111'; c.strokeStyle='#fff'; c.lineWidth=2.4*S; c.beginPath(); c.arc(X,Y,6*S,0,7); c.fill(); c.stroke(); c.restore(); } }
