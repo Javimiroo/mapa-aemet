@@ -1281,6 +1281,19 @@ function horaLoc(iso){const d=toDate(iso);return d?d.toLocaleTimeString('ca-ES',
 function dataLoc(iso){const d=toDate(iso);return d?d.toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';}
 // temps de referència: l'hora triada a la màquina del temps, o "ara" (generació)
 function refNow(){ return (typeof timeT!=='undefined' && timeT!=null) ? new Date(timeT) : toDate(DATA&&DATA.generat); }
+// ---- ESTACIONS CADUCADES: sense cap observació a l'última hora → fora de tot (mapa, tauler d'incendi, meteogrames,
+//      validació de models). L'hora es compta respecte de l'observació més recent de la SEUA xarxa (cada xarxa publica
+//      amb un retard propi; comptar-ho respecte del rellotge buidaria xarxes senceres). A més, qualsevol estació a més
+//      de 3 h de la dada més recent de totes queda fora. Només en directe; l'arxiu històric no es toca.
+const CADUC_MIN=60, CADUC_ABS_MIN=180;
+function filtraCaducades(){
+  if(!DATA||!DATA.estacions) return;
+  const t=st=>{ const d=toDate(st.actual&&st.actual.fint); return d?d.getTime():0; }, ref={}; let glob=0;
+  DATA.estacions.forEach(st=>{ const x=t(st), f=st.font||'?'; if(x>(ref[f]||0)) ref[f]=x; if(x>glob) glob=x; });
+  const viu=[], cad=[];
+  DATA.estacions.forEach(st=>{ const x=t(st), f=st.font||'?'; ((x && ref[f]-x<=CADUC_MIN*60000 && glob-x<=CADUC_ABS_MIN*60000)?viu:cad).push(st); });
+  DATA.estacions=viu; DATA.caducades=cad;
+}
 function horesDesdeObs(st){
   if(!DATA) return null;
   const g=refNow(), f=toDate(st.actual&&st.actual.fint);
@@ -2923,7 +2936,7 @@ function setUpdated(){
   if(!DATA)return;
   $('updated').textContent = reviewMode
     ? ('📅 Arxiu històric · '+diaLabelLlarg(reviewMode)+'  ·  '+(DATA.n_estacions||0)+' estacions')
-    : ('Baixat: '+dataLoc(DATA.generat)+' (hora local)  ·  '+(DATA.n_estacions||0)+' estacions');
+    : ('Baixat: '+dataLoc(DATA.generat)+' (hora local)  ·  '+(DATA.caducades?DATA.estacions.length:(DATA.n_estacions||0))+' estacions'+((DATA.caducades&&DATA.caducades.length)?(' · '+DATA.caducades.length+' amagades (sense dada a l\'última hora)'):''));
   $('fontline').textContent=DATA.font||'Observació en temps real';
   const ia=$('infoAemet'), im=$('infoMeteocat'), icv=$('infoAemetCV'), ice=$('infoAemetCentre');
   if(ia) ia.textContent=infoXarxa('AEMET');
@@ -2956,7 +2969,7 @@ async function carregar(pass){
   if(!r||!r.ok) r=await fetch('dades_privat.enc?_='+Date.now(),{cache:'no-store'}).catch(()=>null);
   if(!r||!r.ok) throw new Error('no-data');
   const blob=await r.json();
-  DATA=await desxifra(blob,pass);
+  DATA=await desxifra(blob,pass); filtraCaducades();
   reviewMode=null; timeT=null; ventArxiu=null; ventArxiuDia=null; // tornar sempre a directe
   const rb=$('reviewBar'); if(rb) rb.style.display='none';
   if(calMes) renderCalArxiu();
@@ -4397,7 +4410,7 @@ async function autoRefresc(){
     if(!r || !r.ok) return;
     const nou=await desxifra(await r.json(), PASS);
     if(nou && nou.generat && DATA && nou.generat!==DATA.generat){         // NOMÉS si són noves
-      DATA=nou; ventArxiu=null; ventArxiuDia=null;
+      DATA=nou; filtraCaducades(); ventArxiu=null; ventArxiuDia=null;
       if(calMes) renderCalArxiu();
       setUpdated(); setTimeT(null);
       if(typeof carregaVent==='function') await carregaVent();
