@@ -555,15 +555,12 @@
             <select id="harCmp2" style="flex:1;min-width:0;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px"><option value="">— cap —</option><option value="harmonie">HARMONIE</option><option value="icon">ICON-EU</option><option value="arome">AROME</option></select>
           </div>
           <div id="harCmpInfo" class="muted" style="font-size:11px;margin-top:4px"></div>
-          <label style="font-size:12px;display:block;margin:8px 0 4px" title="Ratlla sobre tots els panells les zones on els models carregats no coincideixen">Marcar zones de discrepància entre models</label>
-          <select id="harDisc" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px">
-            <option value="">— no marcar —</option><option value="vent">Vent mitjà (≥ 10 km/h)</option><option value="dir">Direcció del vent (≥ 45°)</option><option value="ratxa">Ratxa (≥ 15 km/h)</option><option value="temp">Temperatura (≥ 3 °C)</option><option value="hr">Humitat relativa (≥ 15 %)</option>
-          </select>
-          <div id="harDiscInfo" class="muted" style="font-size:11px;margin-top:4px"></div>
+          <label class="switch" style="margin-top:8px;font-size:12px" title="El primer panell mostra el model de referència; els altres, quant se n'aparten (model − referència) per classes de color"><input type="checkbox" id="harDif"> Mostrar la diferència respecte al model principal</label>
         </div>
         <label style="font-size:12px;display:block;margin:12px 0 4px">Passada del model</label>
         <select id="harRun" style="width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:13px"></select>
         <button class="btn" id="harExport" style="width:100%;margin-top:10px" title="Exportar una imatge del mapa tal com el veus (variable/acumulació, hora, fletxes i llegenda)">📷 Imatge del mapa de previsió</button>
+        <button class="btn" id="verBtn" style="width:100%;margin-top:8px" title="Compara cada model amb totes les estacions: última hora i des de mitjanit">📊 Quin model va millor hui?</button>
       </div>
     </div>
 
@@ -880,6 +877,12 @@
   <div id="cmpPick" style="padding:6px 14px"></div>
   <div id="cmpMaps" style="flex:1;min-height:0;display:flex;gap:8px;padding:0 14px"></div>
   <div id="cmpTaula" style="padding:8px 14px 12px;overflow:auto;max-height:34dvh"></div>
+</div>
+<div id="verModal" style="display:none;position:fixed;inset:0;z-index:6000;background:rgba(2,6,23,.8);align-items:center;justify-content:center;padding:14px">
+  <div style="background:#0f172a;border:1px solid #334155;border-radius:14px;width:920px;max-width:100%;max-height:90dvh;display:flex;flex-direction:column;color:#e5e7eb">
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #334155"><b style="font-size:15px;flex:1">📊 Quin model va millor hui?</b><button class="btn small" id="verX">✕ Tancar</button></div>
+    <div id="verCos" style="overflow:auto;padding:10px 16px 14px"></div>
+  </div>
 </div>
 <div id="focLogModal" style="display:none;position:fixed;inset:0;z-index:6000;background:rgba(2,6,23,.8);align-items:center;justify-content:center;padding:14px">
   <div style="background:#0f172a;border:1px solid #334155;border-radius:14px;width:680px;max-width:100%;max-height:86dvh;display:flex;flex-direction:column;color:#e5e7eb">
@@ -4521,7 +4524,7 @@ function activeVars(){ const o={}; document.querySelectorAll('#chVars input').fo
 // l'observat; amb 2-3 models, banda de dispersió (mín–màx) i mitjana. «Ajustar a l'estació» corregeix cada model amb
 // les hores ja passades (passada actual + anterior, fins a 36 h): biaix de Tª i HR per franja del dia i factor de
 // velocitat per al vent i la ratxa. La direcció no es corregeix. També mostra l'error recent de cada model.
-const MOD_COLS={harmonie:'#7c3aed',arome:'#db2777',icon:'#0d9488'};
+const MOD_COLS={harmonie:'#111827',arome:'#92400e',icon:'#84cc16'};     // negre / marró / llima: fora de la paleta de les estacions (GCOLORS)
 let gPrevOn=false, gPrev=null, gXMax=23;
 const gMod={pl:{},carregant:{},err:{}};      // model -> [payload de l'última passada, payload de l'anterior | null]
 function dirLabel(deg){ const d=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO']; return d[Math.round((((deg%360)+360)%360)/22.5)%16]; }
@@ -4617,7 +4620,7 @@ function previsioBanner(){
     h+='</table>';
     const V=p.M.filter(r=>r.ver.n>=4&&r.ver.vv!=null); if(V.length>1){ const b=V.slice().sort((x,y)=>x.ver.vv-y.ver.vv)[0], bd=V.filter(r=>r.ver.dv!=null).sort((x,y)=>x.ver.dv-y.ver.dv)[0];
       h+='<div style="margin-top:3px">Ara mateix, en esta estació: millor en <b>velocitat</b> del vent <b>'+curt(b.m)+'</b>'+(bd?(' · millor en <b>direcció</b> <b>'+curt(bd.m)+'</b>'):'')+'.</div>'; }
-    h+='<div style="color:#8b8fa3;margin-top:3px">Línies discontínues = models'+(p.bi?' ajustats a l\'estació':'')+(p.M.length>1?'; banda = dispersió entre models; línia negra = mitjana':'')+'. L\'ajust es basa en poques hores: orientatiu.</div>';
+    h+='<div style="color:#8b8fa3;margin-top:3px">Línies fines = models'+(p.bi?' ajustats a l\'estació':'')+(p.M.length>1?' (contínua Tª i vent, discontínua HR, punts ratxa); banda grisa = dispersió; gris discontinu = mitjana':'')+'. L\'ajust es basa en poques hores: orientatiu.</div>';
   }
   el.innerHTML=h;
 }
@@ -4646,17 +4649,17 @@ function previsioDatasets(vars){
   const curt=m=>(MODELS_INFO[m]||{}).curt||m, multi=gPrev.M.length>1, E=gPrev.ens;
   const banda=(arr,vk,yid,col)=>{ arr.push({label:'_min'+vk, data:E[vk].mn, yAxisID:yid, borderWidth:0, pointRadius:0, tension:.3, spanGaps:true, order:9});
     arr.push({label:'dispersió '+({ta:'T',hr:'H',vv:'vent'})[vk], data:E[vk].mx, yAxisID:yid, borderWidth:0, pointRadius:0, tension:.3, spanGaps:true, fill:'-1', backgroundColor:col, order:9}); };
-  if(multi){ if(vars.ta) banda(T,'ta','yT','rgba(220,38,38,.13)'); if(vars.hr) banda(T,'hr','yH','rgba(37,99,235,.11)'); if(vars.vv) banda(W,'vv','yW','rgba(5,150,105,.14)'); }
+  if(multi){ const g='rgba(100,116,139,.13)'; if(vars.ta) banda(T,'ta','yT',g); if(vars.hr) banda(T,'hr','yH',g); if(vars.vv) banda(W,'vv','yW',g); }
   gPrev.M.forEach(r=>{ const c=MOD_COLS[r.m], n=curt(r.m);
-    if(vars.ta) T.push({label:n+' T', data:r.out.ta, borderColor:c, backgroundColor:c, yAxisID:'yT', borderDash:[5,3], borderWidth:1.8, pointRadius:0, tension:.3, spanGaps:true, order:2});
-    if(vars.hr&&r.teHr) T.push({label:n+' H', data:r.out.hr, borderColor:c, backgroundColor:c, yAxisID:'yH', borderDash:[2,3], borderWidth:1.4, pointRadius:0, tension:.3, spanGaps:true, order:2});
-    if(vars.vv) W.push({label:n+' vent', data:r.out.vv, borderColor:c, backgroundColor:c, yAxisID:'yW', borderDash:[5,3], borderWidth:1.8, pointRadius:0, tension:.3, spanGaps:true, order:2});
-    if(vars.vmax) W.push({label:n+' ratxa', data:r.out.vmax, borderColor:c, backgroundColor:c, yAxisID:'yW', borderDash:[1,3], borderWidth:1.2, pointRadius:0, tension:.3, spanGaps:true, order:2});
+    if(vars.ta) T.push({label:n+' T', data:r.out.ta, borderColor:c, backgroundColor:c, yAxisID:'yT', borderWidth:1.1, pointRadius:0, tension:.3, spanGaps:true, order:2});
+    if(vars.hr&&r.teHr) T.push({label:n+' H', data:r.out.hr, borderColor:c, backgroundColor:c, yAxisID:'yH', borderDash:[4,3], borderWidth:1, pointRadius:0, tension:.3, spanGaps:true, order:2});
+    if(vars.vv) W.push({label:n+' vent', data:r.out.vv, borderColor:c, backgroundColor:c, yAxisID:'yW', borderWidth:1.1, pointRadius:0, tension:.3, spanGaps:true, order:2});
+    if(vars.vmax) W.push({label:n+' ratxa', data:r.out.vmax, borderColor:c, backgroundColor:c, yAxisID:'yW', borderDash:[1,3], borderWidth:0.9, pointRadius:0, tension:.3, spanGaps:true, order:2});
     if(vars.dv) D.push({dir:r.out.dv, color:c}); });
-  if(multi){ const k='#111827';
-    if(vars.ta) T.push({label:'mitjana models T', data:E.ta.mean, borderColor:k, backgroundColor:k, yAxisID:'yT', borderWidth:2.4, pointRadius:0, tension:.3, spanGaps:true, order:1});
-    if(vars.hr) T.push({label:'mitjana models H', data:E.hr.mean, borderColor:k, backgroundColor:k, yAxisID:'yH', borderDash:[6,3], borderWidth:1.6, pointRadius:0, tension:.3, spanGaps:true, order:1});
-    if(vars.vv) W.push({label:'mitjana models vent', data:E.vv.mean, borderColor:k, backgroundColor:k, yAxisID:'yW', borderWidth:2.4, pointRadius:0, tension:.3, spanGaps:true, order:1}); }
+  if(multi){ const k='#64748b';
+    if(vars.ta) T.push({label:'mitjana models T', data:E.ta.mean, borderColor:k, backgroundColor:k, yAxisID:'yT', borderDash:[8,4], borderWidth:1.5, pointRadius:0, tension:.3, spanGaps:true, order:1});
+    if(vars.hr) T.push({label:'mitjana models H', data:E.hr.mean, borderColor:k, backgroundColor:k, yAxisID:'yH', borderDash:[8,4], borderWidth:1, pointRadius:0, tension:.3, spanGaps:true, order:1});
+    if(vars.vv) W.push({label:'mitjana models vent', data:E.vv.mean, borderColor:k, backgroundColor:k, yAxisID:'yW', borderDash:[8,4], borderWidth:1.5, pointRadius:0, tension:.3, spanGaps:true, order:1}); }
   return {T:T,W:W,D:D};
 }
 function drawArrow(ctx,cx,cy,bearingDeg,color){
@@ -5244,7 +5247,9 @@ const HarMapSurface=L.Layer.extend({
   redraw:function(){if(this._m)this._rs();},
   _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
-    const p=this._pl?this._pl():HARM.payload; if(!p||HARM.varK==='cap')return; const f=p.fields[HARM.varK]||(HARM.varK==='fmd'?{lo:0,scale:1,arr:null}:null); if(!f||(!f.arr&&HARM.varK!=='fmd'))return;
+    const p=this._pl?this._pl():HARM.payload; if(!p||HARM.varK==='cap')return;
+    if(this._pl && harDifActiu()){ try{ harDifDibuixa(ctx,m,p,0,0,1,1); }catch(e){} return; }      // panell de comparació en mode diferència
+    const f=p.fields[HARM.varK]||(HARM.varK==='fmd'?{lo:0,scale:1,arr:null}:null); if(!f||(!f.arr&&HARM.varK!=='fmd'))return;
     try{
       const nx=p.nx,ny=p.ny,B=p.bbox,h=this._pl?harCmpHour(p):Math.max(0,Math.min(p.hores.length-1,HARM.hour));
       if(h<0 && HARM.varK!=='precip') return;                 // panell de comparativa: el model no arriba a esta hora
@@ -5643,7 +5648,7 @@ initFocAccordion();
 // ====================== COMPARATIVA DE MODELS a la pestanya Previsió (fins a 3 panells) ======================
 // El mapa general es parteix en 2 o 3 mapes sincronitzats (mateix enquadrament, variable i HORA VÀLIDA); cada panell
 // pinta la passada més recent del seu model. En pluja acumulada, tots sumen la MATEIXA finestra horària que el model principal.
-var HCMP={disc:'', models:[null,null], pl:[null,null], maps:[null,null], surf:[null,null], arr:[null,null], base:[null,null], lim:[null,null], sy:false, tok:0};
+var HCMP={dif:false, models:[null,null], pl:[null,null], maps:[null,null], surf:[null,null], arr:[null,null], base:[null,null], lim:[null,null], sy:false, tok:0};
 function harCmpHour(p){ const main=HARM.payload; if(!main||!p) return -1;
   const t=Date.parse(main.hores[Math.max(0,Math.min(main.hores.length-1,HARM.hour))]); let bi=-1,bd=1e15;
   for(let i=0;i<p.hores.length;i++){ const d=Math.abs(Date.parse(p.hores[i])-t); if(d<bd){bd=d;bi=i;} }
@@ -5663,6 +5668,7 @@ function harCmpPanells(){ const out=[{slot:-1,model:HARM.model,p:HARM.payload,el
   [0,1].forEach(k=>{ if(HCMP.pl[k]&&HCMP.maps[k]) out.push({slot:k,model:HCMP.models[k],p:HCMP.pl[k],el:$('mapC'+(k+1)),m:HCMP.maps[k]}); }); return out; }
 function harCmpLab(q){ const p=q.p, mi=MODELS_INFO[q.model]||{curt:q.model}; if(!p) return mi.curt;
   let t=mi.curt+' · '+p.run.slice(8,10)+'Z '+p.run.slice(6,8)+'/'+p.run.slice(4,6), vk=HARM.varK;
+  if(q.slot>=0 && harDifActiu()){ const D=harDifGrid(p), C=DIFC[HARM.varK], sg=v=>(v<0?'−':'+')+Math.abs(v).toFixed(1); return mi.curt+' − '+modelInfo().curt+(D&&D.n?(' · de '+sg(D.min)+' a '+sg(D.max)+' '+C.u):' · sense dada per a esta hora'); }
   if(q.slot>=0){ const te=!!(p.fields[vk]||(vk==='fmd'&&p.fields.temp&&p.fields.hr));
     if(vk!=='cap'&&!te) t+=' · sense '+((HARV[vk]&&HARV[vk].lab)||vk).toLowerCase();
     else if(vk==='precip'){ if(!harCmpPrecipGrid(p)) t+=' · fora d\'abast'; else if(p.$parcial) t+=' · tram incomplet'; }
@@ -5711,7 +5717,6 @@ function harCmpRedraw(){
   const act=harCmpActiu();
   [0,1].forEach(k=>{ if(HCMP.maps[k]&&HCMP.pl[k]&&act){ try{ HCMP.surf[k].redraw(); HCMP.arr[k].redraw(); }catch(e){} const l=$('cmpLab'+(k+1)); if(l){ l.textContent=harCmpLab({slot:k,model:HCMP.models[k],p:HCMP.pl[k]}); l.style.display='block'; } } });
   const l0=$('cmpLab0'); if(l0){ l0.style.display=act?'block':'none'; if(act) l0.textContent=harCmpLab({slot:-1,model:HARM.model,p:HARM.payload}); }
-  if(typeof harDiscAplica==='function') harDiscAplica();
 }
 function harCmpApply(){
   if(typeof HCMP==='undefined') return;
@@ -5762,7 +5767,7 @@ async function prevExportaCmp(){
       c.drawImage(cp.cv,0,0,cp.mapW,mh, x,y0+stripH,mw,mh); c.strokeStyle='#999'; c.lineWidth=S; c.strokeRect(x,y0,mw,stripH+mh); });
     // llegenda comuna
     const lw=Math.min(520*S,W-2*m); prevDibuixaLlegenda(c,(W-lw)/2,y0+stripH+mh+12*S,lw,S);
-    { const dt=harDiscText(); if(dt){ c.save(); c.font='bold '+(11*S)+'px Arial'; c.fillStyle='#9d174d'; c.textAlign='left'; c.textBaseline='top'; const maxw=(W-lw)/2-m-10*S; let t='▨ '+dt; const ws=t.split(' '); let ln='', yy=y0+stripH+mh+12*S; ws.forEach(w=>{ if(c.measureText(ln+w).width>maxw&&ln){ c.fillText(ln,m,yy); yy+=14*S; ln=''; } ln+=w+' '; }); c.fillText(ln,m,yy); c.restore(); } }
+    harDifLlegendaCanvas(c, m, y0+stripH+mh+10*S, S);
     // peu
     const fy=H-footH/2; c.textBaseline='middle'; c.fillStyle='#777'; c.font=(10.5*S)+'px Arial'; c.textAlign='left';
     c.fillText('Models: '+P.map(q=>harCmpLab({slot:-1,model:q.model,p:q.p})).join('  |  ')+' · hores en hora local   ·   Generat: '+new Date().toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}), m, fy);
@@ -5981,64 +5986,105 @@ function critHTML(s,nomModel){
     +(s.hr?'':'<br><span style="color:#94a3b8">Este model no porta humitat relativa: només es detecten girs de vent. Tria AROME o ICON-EU per a 30-30-30, FMd i marinada.</span>')+'</div></div>';
   return h;
 }
-// ====================== ZONES DE DISCREPÀNCIA entre els models carregats (pestanya Previsió) ======================
-// Diferència màxima entre models (el principal + els de «Comparar amb») a cada punt i a la mateixa hora vàlida.
-// Es marca amb un ratllat magenta sobre tots els panells allà on supera el llindar.
-const DISC={vent:{thr:10,u:'km/h',lab:'vent mitjà'},dir:{thr:45,u:'°',lab:'direcció del vent'},ratxa:{thr:15,u:'km/h',lab:'ratxa'},temp:{thr:3,u:'°C',lab:'temperatura'},hr:{thr:15,u:'%',lab:'humitat relativa'}};
-function harDiscGrid(){
-  const vk=HCMP.disc, main=HARM.payload; if(!vk||!DISC[vk]||!main) return null;
-  const pls=[main].concat(HCMP.pl.filter(Boolean)); if(pls.length<2) return null;
-  const h0=Math.max(0,Math.min(main.hores.length-1,HARM.hour)), key=vk+'|'+pls.map(p=>p.model+p.run).join(',')+'|'+main.hores[h0];
-  if(HCMP._dk===key) return HCMP._dg;
-  HCMP._dk=key; HCMP._dg=null;
-  const src=[]; pls.forEach((p,k)=>{ const h=k===0?h0:harCmpHour(p); if(h<0) return; const f=p.fields[vk], fv=p.fields.vent; if(!f||!f.arr) return; src.push({p:p,h:h,f:f,fv:fv}); });
-  if(src.length<2) return null;
-  const nx=main.nx, ny=main.ny, B=main.bbox, out=new Float32Array(nx*ny), dlon=(B[1]-B[0])/nx, dlat=(B[3]-B[2])/ny; let mx=0;
-  for(let j=0;j<ny;j++){ const lat=B[3]-(j+0.5)*dlat; for(let i=0;i<nx;i++){ const lon=B[0]+(i+0.5)*dlon, vals=[]; let ws=0;
-    for(let k=0;k<src.length;k++){ const s=src[k], q=s.p, b=q.bbox, c=Math.floor((lon-b[0])/(b[1]-b[0])*q.nx), r=Math.floor((b[3]-lat)/(b[3]-b[2])*q.ny); if(c<0||r<0||c>=q.nx||r>=q.ny) continue;
-      const ix=((s.h*q.ny)+r)*q.nx+c, raw=s.f.arr[ix];
-      if(vk==='dir'){ if(raw===(s.f.nodata!=null?s.f.nodata:255)) continue; vals.push(raw*s.f.scale); ws+=s.fv?((s.fv.lo||0)+s.fv.arr[ix]*s.fv.scale):99; }
-      else vals.push((s.f.lo||0)+raw*s.f.scale); }
-    let d=0; if(vals.length>=2){ if(vk==='dir'){ if(ws/vals.length>=10){ for(let a=0;a<vals.length;a++)for(let b2=a+1;b2<vals.length;b2++){ const x=angDif(vals[a],vals[b2]); if(x>d) d=x; } } }
-      else d=Math.max.apply(null,vals)-Math.min.apply(null,vals); }
-    out[j*nx+i]=d; if(d>mx) mx=d; } }
-  HCMP._dg={g:out,nx:nx,ny:ny,B:B,max:mx,n:src.length}; return HCMP._dg;
+// ====================== MAPA DE DIFERÈNCIES respecte al model de referència (pestanya Previsió) ======================
+// Amb «Mostrar la diferència» activat, el panell principal continua mostrant el model de referència i cada panell de
+// comparació pinta (el seu model − la referència) per classes de color: p. ex. Tª ±1/±3/±5/±7 °C. On la diferència
+// no arriba a la primera classe no es pinta res (acord). Mateixa hora vàlida; en pluja, mateix interval acumulat.
+const DIFP={ tr:[['#d6e6f5','#8fbfe0','#3b82c4','#0b3d91'],['#fde0c8','#fb9a6a','#e34a33','#99000d']],     // [negatiu, positiu]
+             hb:[['#f3e2c2','#dfb777','#b9772a','#6b3d0c'],['#d1f0e5','#7fd1b9','#1f9e89','#00594c']],
+             w: [['#d9f2d0','#9dd98a','#3fa34d','#14532d'],['#eadcf7','#c39be8','#8b4fd0','#4c1d95']] };
+const DIFC={ temp:{cls:[1,3,5,7],u:'°C',pal:'tr',lab:'temperatura'}, hr:{cls:[5,10,20,30],u:'%',pal:'hb',lab:'humitat relativa'}, vent:{cls:[5,10,20,30],u:'km/h',pal:'w',lab:'vent mitjà'},
+             ratxa:{cls:[10,20,30,40],u:'km/h',pal:'w',lab:'ratxa'}, precip:{cls:[1,5,10,20],u:'mm',pal:'hb',lab:'pluja'}, fmd:{cls:[1,2,4,6],u:'%',pal:'hb',lab:'FMd'}, nuvol:{cls:[20,40,60,80],u:'%',pal:'hb',lab:'núvols'} };
+function _hexRGB(h){ const n=parseInt(h.slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+function harDifActiu(){ return !!(HCMP.dif && DIFC[HARM.varK] && harCmpActiu()); }
+const _harDifCache={};
+function harDifGrid(p){
+  const vk=HARM.varK, C=DIFC[vk], main=HARM.payload; if(!C||!main||!p) return null;
+  const h0=Math.max(0,Math.min(main.hores.length-1,HARM.hour)), key=p.model+p.run+'|'+main.model+main.run+'|'+vk+'|'+main.hores[h0]+'|'+HARM.pacc;
+  if(key in _harDifCache) return _harDifCache[key];
+  if(Object.keys(_harDifCache).length>10){ for(const k in _harDifCache) delete _harDifCache[k]; }
+  _harDifCache[key]=null;
+  const h=harCmpHour(p), nx=main.nx, ny=main.ny, N=nx*ny; let A=null, Bq=null, fa=null, fb=null;
+  if(vk==='precip'){ A=harPrecipGrid(main,h0); Bq=harCmpPrecipGrid(p); if(!A||!Bq) return null; }
+  else { if(h<0) return null;
+    if(vk==='fmd'){ A=harFmdGrid(main,h0); Bq=harFmdGrid(p,h); if(!A||!Bq) return null; }
+    else { fa=main.fields[vk]; fb=p.fields[vk]; if(!fa||!fa.arr||!fb||!fb.arr) return null; } }
+  const B=main.bbox, b=p.bbox, dlon=(B[1]-B[0])/nx, dlat=(B[3]-B[2])/ny, off=document.createElement('canvas'); off.width=nx; off.height=ny;
+  const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data, pal=DIFP[C.pal].map(a=>a.map(_hexRGB)); let mx=-1e9, mn=1e9, n=0;
+  for(let j=0;j<ny;j++){ const lat=B[3]-(j+0.5)*dlat, r=Math.floor((b[3]-lat)/(b[3]-b[2])*p.ny); if(r<0||r>=p.ny) continue;
+    for(let i=0;i<nx;i++){ const lon=B[0]+(i+0.5)*dlon, c=Math.floor((lon-b[0])/(b[1]-b[0])*p.nx); if(c<0||c>=p.nx) continue;
+      const qa=j*nx+i, qb=r*p.nx+c;
+      const va=A?A[qa]:((fa.lo||0)+fa.arr[h0*N+qa]*fa.scale), vb=Bq?Bq[qb]:((fb.lo||0)+fb.arr[h*p.nx*p.ny+qb]*fb.scale), df=vb-va;
+      if(df>mx) mx=df; if(df<mn) mn=df; n++;
+      const ad=Math.abs(df); if(ad<C.cls[0]) continue; let k=0; while(k<3&&ad>=C.cls[k+1]) k++;
+      const col=pal[df>0?1:0][k], q=qa*4; d[q]=col[0]; d[q+1]=col[1]; d[q+2]=col[2]; d[q+3]=255; } }
+  oc.putImageData(im,0,0);
+  _harDifCache[key]={off:off,B:B,max:n?mx:0,min:n?mn:0,n:n}; return _harDifCache[key];
 }
-function harDiscDibuixa(ctx,mp,ox,oy,sx,sy,W,H){
-  const D=harDiscGrid(); if(!D) return; const thr=DISC[HCMP.disc].thr, nx=D.nx, ny=D.ny;
-  const off=document.createElement('canvas'); off.width=nx; off.height=ny; const oc=off.getContext('2d'), im=oc.createImageData(nx,ny), d=im.data; let n=0;
-  for(let q=0;q<nx*ny;q++){ const v=D.g[q]; if(v<thr) continue; d[q*4]=190; d[q*4+1]=24; d[q*4+2]=93; d[q*4+3]=Math.round(255*Math.min(1,0.55+0.45*(v-thr)/thr)); n++; }
-  if(!n) return; oc.putImageData(im,0,0);
+function harDifDibuixa(ctx,mp,p,ox,oy,sx,sy){ const D=harDifGrid(p); if(!D) return false;
   const a=mp.latLngToContainerPoint([D.B[3],D.B[0]]), b=mp.latLngToContainerPoint([D.B[2],D.B[1]]);
-  const tmp=document.createElement('canvas'); tmp.width=Math.max(1,Math.round(W)); tmp.height=Math.max(1,Math.round(H)); const t=tmp.getContext('2d');
-  t.imageSmoothingEnabled=true; t.drawImage(off,a.x*sx,a.y*sy,(b.x-a.x)*sx,(b.y-a.y)*sy);
-  const k=Math.max(1,sx), pc=document.createElement('canvas'); pc.width=pc.height=Math.round(9*k); const pg=pc.getContext('2d');
-  pg.fillStyle='rgba(190,24,93,.22)'; pg.fillRect(0,0,pc.width,pc.height); pg.strokeStyle='rgba(131,24,67,.95)'; pg.lineWidth=2*k; pg.lineCap='square';
-  pg.beginPath(); pg.moveTo(-pc.width*0.25,pc.height*0.25); pg.lineTo(pc.width*0.25,-pc.height*0.25); pg.moveTo(0,pc.height); pg.lineTo(pc.width,0); pg.moveTo(pc.width*0.75,pc.height*1.25); pg.lineTo(pc.width*1.25,pc.height*0.75); pg.stroke();
-  t.globalCompositeOperation='source-in'; t.fillStyle=t.createPattern(pc,'repeat'); t.fillRect(0,0,tmp.width,tmp.height);
-  ctx.drawImage(tmp,ox,oy);
+  ctx.save(); ctx.imageSmoothingEnabled=false; ctx.globalAlpha=Math.max(0.75,HARM.opac); ctx.drawImage(D.off,ox+a.x*sx,oy+a.y*sy,(b.x-a.x)*sx,(b.y-a.y)*sy); ctx.restore(); return true; }
+function harDifLlegendaHTML(){ if(!harDifActiu()) return ''; const C=DIFC[HARM.varK], P=DIFP[C.pal], ref=modelInfo().curt;
+  const sw=(col,t)=>'<span style="display:inline-flex;flex-direction:column;align-items:center;font-size:9.5px;color:#cbd5e1"><i style="width:30px;height:11px;background:'+col+';border:1px solid #33415a"></i>'+t+'</span>';
+  let h='<div style="margin-top:6px;padding-top:5px;border-top:1px solid #33415a"><div style="font-size:11px;color:#e5e7eb;text-align:center;margin-bottom:3px">Panells de comparació: <b>diferència de '+C.lab+'</b> respecte a <b>'+ref+'</b> ('+C.u+')</div><div style="display:flex;justify-content:center;gap:1px">';
+  for(let k=3;k>=0;k--) h+=sw(P[0][k],'−'+C.cls[k]); h+='<span style="width:26px;text-align:center;font-size:9.5px;color:#94a3b8;align-self:flex-end">≈</span>'; for(let k=0;k<4;k++) h+=sw(P[1][k],'+'+C.cls[k]);
+  return h+'</div></div>'; }
+function harDifLlegendaCanvas(c,x,y,S){ if(!harDifActiu()) return; const C=DIFC[HARM.varK], P=DIFP[C.pal], bw=30*S, bh=11*S;
+  c.save(); c.textAlign='left'; c.textBaseline='top'; c.fillStyle='#111'; c.font='bold '+(11.5*S)+'px Arial'; c.fillText('Diferència de '+C.lab+' respecte a '+modelInfo().curt+' ('+C.u+')', x, y);
+  let px=x; const by=y+18*S; c.font=(10*S)+'px Arial'; c.textAlign='center';
+  const sw=(col,t)=>{ c.fillStyle=col; c.fillRect(px,by,bw,bh); c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=1; c.strokeRect(px,by,bw,bh); c.fillStyle='#334155'; c.fillText(t,px+bw/2,by+bh+3*S); px+=bw; };
+  for(let k=3;k>=0;k--) sw(P[0][k],'−'+C.cls[k]); c.fillStyle='#64748b'; c.fillText('≈',px+10*S,by+bh+3*S); px+=20*S; for(let k=0;k<4;k++) sw(P[1][k],'+'+C.cls[k]); c.restore(); }
+(function(){ const s=$('harDif'); if(s) s.onchange=()=>{ HCMP.dif=s.checked; harRedraw(); };
+  const base=harBottomLegend; harBottomLegend=function(){ base(); const el=$('harLegend'), t=harDifLlegendaHTML(); if(el&&t&&el.style.display!=='none') el.insertAdjacentHTML('beforeend',t); }; })();
+// ====================== QUIN MODEL VA MILLOR HUI: verificació contra TOTES les estacions ======================
+// Per a cada model, compara l'observat de cada estació amb el previst al seu punt (passada més recent que cobrisca
+// l'hora; si no, l'anterior): última hora completa i des de mitjanit. «Encert» = % de comparacions dins de la tolerància.
+const VER_TOL={ta:2,hr:10,vv:5,vmax:10,dv:45}, VER_VARS=[['ta','Temperatura','°C','temp'],['hr','Humitat','%','hr'],['vv','Vent mitjà','km/h','vent'],['vmax','Ratxa','km/h','ratxa'],['dv','Direcció','°','dir']];
+async function verifCalcula(){
+  const mods=['harmonie','arome','icon']; await Promise.all(mods.map(m=>gMod.pl[m]?null:modelPrevCarrega(m)));
+  const H=3600000, todayK=diaKey(new Date()), pp=todayK.split('-'), t0=new Date(+pp[0],+pp[1]-1,+pp[2]).getTime();
+  const ests=(DATA?DATA.estacions:[]).filter(e=>e.lat!=null&&e.lon!=null), O=[]; const cnt=new Array(24).fill(0);
+  ests.forEach(st=>{ const o={st:st}; ['ta','hr','vv','vmax'].forEach(vk=>{ o[vk]=serieHoraria(st,todayK,vk); }); o.dv=serieDir(st,todayK); for(let h=0;h<24;h++) if(o.ta[h]!=null||o.vv[h]!=null) cnt[h]++; O.push(o); });
+  const mxc=Math.max.apply(null,cnt), hNow=new Date().getHours(); let hEnd=-1; for(let h=Math.min(23,hNow);h>=0;h--){ if(mxc>0&&cnt[h]>=0.3*mxc){ hEnd=h; break; } }
+  const res={todayK:todayK,hEnd:hEnd,nEst:ests.length,M:[]}; if(hEnd<0) return res;
+  mods.forEach(m=>{ const pl=gMod.pl[m]; if(!pl){ res.M.push({m:m,err:gMod.err[m]||'sense dades'}); return; }
+    const A={}; ['hora','dia'].forEach(sc=>{ A[sc]={}; VER_VARS.forEach(v=>{ A[sc][v[0]]={n:0,abs:0,bias:0,hit:0}; }); });
+    const idx=pl.map(p=>{ if(!p) return null; const mp={}; p.hores.forEach((s,i)=>{ mp[Date.parse(s)]=i; }); return mp; });
+    O.forEach(o=>{ const S=pl.map(p=>p?harPuntSerie(p,o.st.lat,o.st.lon):null);
+      for(let h=0;h<=hEnd;h++){ const ms=t0+h*H; let k=-1,i=-1; for(let q=0;q<S.length;q++){ if(S[q]&&idx[q][ms]!=null){ k=q; i=idx[q][ms]; break; } } if(k<0) continue;
+        VER_VARS.forEach(v=>{ const vk=v[0], fa=S[k][v[3]], ob=o[vk][h]; if(!fa||fa[i]==null||ob==null) return; let e;
+          if(vk==='dv'){ if((o.vv[h]||0)<8) return; e=angDif(ob,fa[i]); } else e=fa[i]-ob;
+          const scs=(h===hEnd)?['hora','dia']:['dia']; scs.forEach(sc=>{ const a=A[sc][vk]; a.n++; a.abs+=Math.abs(e); a.bias+=e; if(Math.abs(e)<=VER_TOL[vk]) a.hit++; }); }); } });
+    res.M.push({m:m,run:pl[0].run,run0:pl[1]?pl[1].run:null,A:A}); });
+  return res;
 }
-const HarDiscLayer=L.Layer.extend({
-  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
-    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
-    m.on('moveend zoomend resize',this._rs,this);this._rs();},
-  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
-  redraw:function(){if(this._m)this._rs();},
-  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
-  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y); try{ harDiscDibuixa(ctx,m,0,0,1,1,s.x,s.y); }catch(e){} }
-});
-function harDiscText(){ const vk=HCMP.disc; if(!vk||!DISC[vk]||!harCmpActiu()) return ''; const D=harDiscGrid(), c=DISC[vk];
-  if(!D) return 'Discrepància: cal un altre model amb '+c.lab+' per a esta hora';
-  return 'Zones ratllades: '+c.lab+' amb ≥ '+c.thr+' '+c.u+' de diferència entre '+D.n+' models (màxim '+Math.round(D.max)+' '+c.u+')'; }
-function harDiscAplica(){
-  HCMP.discL=HCMP.discL||[null,null,null]; const on=!!(HCMP.disc&&harCmpActiu()), ms=[map,HCMP.maps[0],HCMP.maps[1]];
-  ms.forEach((m,k)=>{ if(!m) return; const vis=on&&(k===0||HCMP.pl[k-1]);
-    if(vis){ if(!HCMP.discL[k]) HCMP.discL[k]=new HarDiscLayer(); if(!m.hasLayer(HCMP.discL[k])) HCMP.discL[k].addTo(m); else HCMP.discL[k].redraw(); }
-    else if(HCMP.discL[k]&&m.hasLayer(HCMP.discL[k])) m.removeLayer(HCMP.discL[k]); });
-  const inf=$('harDiscInfo'); if(inf) inf.textContent=HCMP.disc?(harCmpActiu()?harDiscText():'Carrega almenys un altre model a «Comparar amb».'):'';
+function verifTaula(res,sc){
+  const curt=m=>(MODELS_INFO[m]||{}).curt||m, ok=res.M.filter(r=>r.A);
+  const best={}; VER_VARS.forEach(v=>{ let b=null; ok.forEach(r=>{ const a=r.A[sc][v[0]]; if(a.n>=5){ const pc=a.hit/a.n; if(!b||pc>b.pc||(pc===b.pc&&a.abs/a.n<b.mae)) b={m:r.m,pc:pc,mae:a.abs/a.n}; } }); best[v[0]]=b; });
+  let h='<table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:#94a3b8"><th style="text-align:left;padding:3px 6px">Model</th>'+VER_VARS.map(v=>'<th style="padding:3px 6px">'+v[1]+'<br><span style="font-weight:400;font-size:10px">±'+VER_TOL[v[0]]+' '+v[2]+'</span></th>').join('')+'<th style="padding:3px 6px">Global</th></tr>';
+  const glob=r=>{ let s=0,c=0; VER_VARS.forEach(v=>{ const a=r.A[sc][v[0]]; if(a.n>=5){ s+=a.hit/a.n; c++; } }); return c?s/c:null; };
+  let bg=null; ok.forEach(r=>{ const g=glob(r); if(g!=null&&(!bg||g>bg.g)) bg={m:r.m,g:g}; });
+  res.M.forEach(r=>{ h+='<tr style="border-top:1px solid #1e293b"><td style="padding:4px 6px"><b>'+curt(r.m)+'</b>'+(r.run?(' <span style="color:#94a3b8">'+r.run.slice(8,10)+'Z</span>'):'')+'</td>';
+    if(!r.A){ h+='<td colspan="'+(VER_VARS.length+1)+'" style="color:#94a3b8;padding:4px 6px">'+(r.err||'sense dades')+'</td></tr>'; return; }
+    VER_VARS.forEach(v=>{ const a=r.A[sc][v[0]]; if(a.n<5){ h+='<td style="text-align:center;color:#64748b">—</td>'; return; }
+      const pc=Math.round(100*a.hit/a.n), es=best[v[0]]&&best[v[0]].m===r.m&&ok.length>1, b=a.bias/a.n;
+      h+='<td style="text-align:center;padding:4px 6px;'+(es?'background:#14532d;color:#bbf7d0;':'')+'"><b style="font-size:14px">'+pc+' %</b><br><span style="font-size:10px;color:'+(es?'#bbf7d0':'#94a3b8')+'">error '+(a.abs/a.n).toFixed(1)+(v[0]==='dv'?'°':(' · biaix '+(b>=0?'+':'−')+Math.abs(b).toFixed(1)))+' · n='+a.n+'</span></td>'; });
+    const g=glob(r); h+='<td style="text-align:center;padding:4px 6px;'+(bg&&bg.m===r.m&&ok.length>1?'background:#1e3a8a;color:#dbeafe;':'')+'"><b style="font-size:14px">'+(g==null?'—':Math.round(100*g)+' %')+'</b></td></tr>'; });
+  return {html:h+'</table>',best:best,bg:bg};
 }
-(function(){ const s=$('harDisc'); if(s) s.onchange=()=>{ HCMP.disc=s.value; HCMP._dk=null; harDiscAplica(); harBottomLegend(); };
-  const base=harBottomLegend; harBottomLegend=function(){ base(); const el=$('harLegend'), t=harDiscText(); if(el&&t&&el.style.display!=='none'){ const d=document.createElement('div'); d.style.cssText='font-size:11px;color:#f9a8d4;margin-top:4px;text-align:center;max-width:min(340px,70vw)'; d.textContent='▨ '+t; el.appendChild(d); } }; })();
+async function verifObre(){
+  const md=$('verModal'), box=$('verCos'); md.style.display='flex'; box.innerHTML='<div style="color:#94a3b8;font-size:13px;padding:10px 0">Carregant les últimes passades dels tres models i comparant-les amb les estacions…</div>';
+  if(!DATA||!PASS){ box.innerHTML='<div style="color:#fca5a5">Cal tindre les dades de les estacions carregades.</div>'; return; }
+  let res; try{ res=await verifCalcula(); }catch(e){ box.innerHTML='<div style="color:#fca5a5">No s\'ha pogut calcular: '+(e&&e.message||e)+'</div>'; return; }
+  if(res.hEnd<0){ box.innerHTML='<div style="color:#fca5a5">Encara no hi ha observacions de hui per a comparar.</div>'; return; }
+  const curt=m=>(MODELS_INFO[m]||{}).curt||m, T1=verifTaula(res,'hora'), T2=verifTaula(res,'dia');
+  const rec=VER_VARS.map(v=>{ const b=T2.best[v[0]]; return b?(v[1].toLowerCase()+': <b>'+curt(b.m)+'</b>'):null; }).filter(Boolean);
+  box.innerHTML='<div style="font-size:13px;margin-bottom:8px">'+(T2.bg?('Des de mitjanit, el model que millor s\'ajusta a les estacions és <b style="color:#93c5fd">'+curt(T2.bg.m)+'</b> ('+Math.round(100*T2.bg.g)+' % d\'encert global).'):'')+(rec.length?('<br><span style="color:#cbd5e1">Per variable — '+rec.join(' · ')+'</span>'):'')+'</div>'
+    +'<div style="font-weight:700;font-size:13px;margin:10px 0 4px;color:#fde68a">Des de mitjanit (00 h → '+res.hEnd+' h)</div>'+T2.html
+    +'<div style="font-weight:700;font-size:13px;margin:14px 0 4px;color:#fde68a">Última hora ('+res.hEnd+' h)</div>'+T1.html
+    +'<div style="font-size:11px;color:#94a3b8;margin-top:10px;line-height:1.45">% = comparacions estació-hora en què el model cau dins de la tolerància indicada a cada columna. «error» = error absolut mitjà; «biaix» = model − observat (positiu: el model es passa). Direcció: només amb vent observat ≥ 8 km/h. '+res.nEst+' estacions amb coordenades; cada hora es compara amb la passada més recent que la cobreix. HARMONIE no porta humitat relativa. La Tª en estacions de muntanya penalitza els models de malla més grossa (ICON-EU, 7 km) per la diferència d\'altitud entre l\'estació i la cel·la.</div>';
+}
+(function(){ if($('verBtn')) $('verBtn').onclick=verifObre; if($('verX')) $('verX').onclick=()=>{ $('verModal').style.display='none'; }; })();
 // ====== EXPLORADOR DE PREVISIÓ (pestanya Previsió): clic al mapa -> meteograma + acumulats + taula ======
 const PEX={lat:null,lon:null,chart:null,marker:null,pick:false,_s:null};
 function pexHourOpts(s){ return s.hores.map((ms,i)=>'<option value="'+i+'">'+new Date(ms).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',hour:'2-digit'})+'</option>').join(''); }
@@ -6175,7 +6221,7 @@ async function prevComposaMapa(S, mapW, o){     // o={p,el,m}: panell de compara
   c.save(); c.beginPath(); c.rect(x,mapY,mapW,mapH); c.clip();
   c.drawImage(shot,0,0,shot.width,shot.height,x,mapY,mapW,mapH);
   const el=el0, sxp=mapW/el.clientWidth, syp=mapH/el.clientHeight;
-  if(HARM.varK!=='cap' && (h>=0||esAcc)){ const f=p.fields[HARM.varK]||(HARM.varK==='fmd'&&harFmdGrid(p,h)?{lo:0,scale:1,arr:null}:null); if(f&&(f.arr||HARM.varK==='fmd')){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
+  if(o && harDifActiu()){ try{ harDifDibuixa(c,mp,p,x,mapY,sxp,syp); }catch(e){} } else if(HARM.varK!=='cap' && (h>=0||esAcc)){ const f=p.fields[HARM.varK]||(HARM.varK==='fmd'&&harFmdGrid(p,h)?{lo:0,scale:1,arr:null}:null); if(f&&(f.arr||HARM.varK==='fmd')){ const nx=p.nx,ny=p.ny,B=p.bbox,mm=HARV[HARM.varK],base=(f.lo||0),sc=f.scale,thr=(mm.thr!=null?mm.thr:-1e9);
     const off=document.createElement('canvas'); off.width=nx; off.height=ny; const oc=off.getContext('2d'),im=oc.createImageData(nx,ny),d=im.data;
     const acc=esAcc?(o?harCmpPrecipGrid(p):harPrecipGrid(p,h)):(HARM.varK==='fmd'?harFmdGrid(p,h):null);   // mateixa acumulació que a pantalla
     if(!(esAcc&&o&&!acc)) for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){ const v=acc?acc[j*nx+i]:(base+f.arr[((h*ny)+j)*nx+i]*sc), q=(j*nx+i)*4; if(!mm.alwaysDraw&&v<thr){d[q+3]=0;continue;} const cc=harColor(HARM.varK,v); d[q]=cc[0];d[q+1]=cc[1];d[q+2]=cc[2];d[q+3]=255; }
@@ -6187,7 +6233,6 @@ async function prevComposaMapa(S, mapW, o){     // o={p,el,m}: panell de compara
     const q0=mp.latLngToContainerPoint([B[3],B[0]]),q1=mp.latLngToContainerPoint([B[3]-dlat,B[0]+dlon]),cellpx=Math.max(2,Math.hypot(q1.x-q0.x,q1.y-q0.y))*sxp,step=Math.max(1,Math.round(42/cellpx));
     for(let j=(step>>1);j<ny;j+=step)for(let i=(step>>1);i<nx;i+=step){ const bd=fd.arr[((h*ny)+j)*nx+i]; if(bd===nod)continue; const deg=((bd*fd.scale)+180)%360,spd=fv?((fv.lo||0)+fv.arr[((h*ny)+j)*nx+i]*fv.scale):0;
       const lat=B[3]-(j+0.5)*dlat,lon=B[0]+(i+0.5)*dlon,pt=mp.latLngToContainerPoint([lat,lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X<x||Y<mapY||X>x+mapW||Y>mapY+mapH)continue; harDrawArrow(c,X,Y,deg,spd); } } }
-  if(typeof harDiscDibuixa==='function' && HCMP.disc && harCmpActiu()){ try{ harDiscDibuixa(c, mp, x, mapY, sxp, syp, mapW, mapH); }catch(e){} }   // zones de discrepància entre models
   // límits per DAMUNT de la superfície/fletxes del model i per DAVALL del punt marcat
   if(esBlanc && (comarcaGeo||catGeo)) dibuixaLimitsCanvas(c, mp, x, mapY, sxp, syp, S, fonsActual());
   if(PEX.lat!=null){ const pt=mp.latLngToContainerPoint([PEX.lat,PEX.lon]),X=x+pt.x*sxp,Y=mapY+pt.y*syp; if(X>=x&&Y>=mapY&&X<=x+mapW&&Y<=mapY+mapH){ c.save(); c.fillStyle='#111'; c.strokeStyle='#fff'; c.lineWidth=2.4*S; c.beginPath(); c.arc(X,Y,6*S,0,7); c.fill(); c.stroke(); c.restore(); } }
