@@ -22,7 +22,7 @@ on:
         required: false
         default: "100"
       punts:
-        description: "PREVISIÓ: JSON [{lat,lon,vel,dir,temp,nuv}] d'estacions virtuals (buit = mode observat)"
+        description: "PREVISIÓ: JSON [{lat,lon,vel,dir,temp,nuv}] d'estacions virtuals, o sèrie {hores,punts} (buit = mode observat)"
         required: false
         default: ""
       hora:
@@ -98,6 +98,21 @@ jobs:
             docker run --rm -v "$PWD/wn/zona":/data \
               --entrypoint WindNinja_cli ekeenan/windninja-momentum:latest /data/run_sense_ajust.cfg 2>&1 | tail -15
           fi
+          # SIMULACIÓ (diverses hores): la resta d'hores, una execució per cfg run_hNN.cfg.
+          # Mateix pla B per hora, però sense esborrar els camps de les hores ja calculades.
+          for c in wn/zona/run_h*.cfg; do
+            [ -e "$c" ] || continue
+            case "$c" in *_b.cfg) continue ;; esac
+            b=$(basename "$c"); bb="${b%.cfg}_b.cfg"
+            echo "── $b"
+            if ! docker run --rm -e NINJA_POINT_MAX_MATCH_ITERS=40 -v "$PWD/wn/zona":/data \
+              --entrypoint WindNinja_cli ekeenan/windninja-momentum:latest "/data/$b" 2>&1 | tail -6; then
+              echo "⚠ $b no ha convergit: pla B"
+              touch wn/zona/PLA_B
+              docker run --rm -v "$PWD/wn/zona":/data \
+                --entrypoint WindNinja_cli ekeenan/windninja-momentum:latest "/data/$bb" 2>&1 | tail -6
+            fi
+          done
           echo "càlcul: $(( $(date +%s) - t0 )) s"
           ls -la wn/zona/*.asc
 
