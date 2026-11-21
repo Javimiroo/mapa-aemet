@@ -1041,7 +1041,26 @@
             <button class="btn small" id="simVerBtn" title="Compara els tres models amb les estacions a menys de 50 km de l'incendi: vent i direcció, des de mitjanit i última hora">📊 Quin model va millor a prop?</button>
           </div>
           <div id="simVer"></div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.35">Humitat del viu, factor de vent i FMd manual: els del panell «Con de propagació» (i el combustible, quan no hi ha mapa). Amb el mapa, la humitat del viu pesa molt en herba i matoll: 60 % = estiu sec, 90 % = primavera, 120 % = verd. Sense FMd manual, s'usa la del model hora a hora (AROME i ICON-EU; HARMONIE no porta humitat i agafa l'estació més pròxima). La caixa és la de «Previsió WindNinja» si n'hi ha; si no, uns 12 km al voltant de la flama (16 km per a 12 h). Si hi ha un perímetre vigent, la simulació en parteix.</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.35">Humitat del viu, factor de vent i FMd manual: els del panell «Con de propagació» (i el combustible, quan no hi ha mapa). Amb el mapa, la humitat del viu pesa molt en herba i matoll: 60 % = estiu sec, 90 % = primavera, 120 % = verd. Sense FMd manual, s'usa la del model hora a hora (AROME i ICON-EU; HARMONIE no porta humitat i agafa l'estació més pròxima). La caixa és la de «Previsió WindNinja» si n'hi ha; si no, uns 12 km al voltant de la flama (16 km per a 12 h). </div>
+          <div style="border:1px solid #334155;border-radius:8px;padding:7px 8px;margin-top:8px;background:#0b1626">
+            <div style="font-size:11.5px;font-weight:700;color:#e5e7eb;margin-bottom:5px">Perímetre actual i activitat</div>
+            <div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">
+              <button class="btn small" id="simPerimImp" title="KML, KMZ o GeoJSON amb el perímetre actual">📥 Importar</button>
+              <button class="btn small" id="simPerimDraw" title="Clica els punts del perímetre sobre el mapa i després tanca'l">✏ Dibuixar</button>
+              <button class="btn small" id="simPerimCancel" style="display:none">✕ Cancel·lar</button>
+              <input type="file" id="simPerimFile" accept=".kml,.kmz,.json,.geojson" style="display:none">
+            </div>
+            <div id="simPerimInfo" style="font-size:11px;color:#94a3b8;margin-top:5px;line-height:1.4"></div>
+            <div id="simActBar" class="row" style="display:none;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+              <span style="font-size:11px;color:#cbd5e1">Pinta sobre el perímetre:</span>
+              <button class="btn small" data-b="1" style="border-color:#ef4444;color:#fecaca" title="Front amb molta activitat: propaga amb normalitat">🔴 Molt actiu</button>
+              <button class="btn small" data-b="2" style="border-color:#f59e0b;color:#fde68a" title="Poca activitat: en eixir d'ací el foc avança al 35 %">🟠 Poc actiu</button>
+              <button class="btn small" data-b="3" style="border-color:#38bdf8;color:#bae6fd" title="Ancorat o treballat: no propaga i fa de barrera">🔵 Ancorat</button>
+              <button class="btn small" data-b="0" title="Lleva la marca dels trams que repasses">🧽 Esborrar</button>
+              <button class="btn small" id="simActStop" style="display:none" title="Torna a moure el mapa">✋ Deixar de pintar</button>
+            </div>
+            <div style="font-size:10.5px;color:#94a3b8;margin-top:4px;line-height:1.35">Tria un color i passa el dit o el ratolí per damunt del tram. El que no marques es considera actiu. La simulació parteix de l'últim perímetre amb este croquis; en repintar, es torna a propagar sola. El croquis es guarda en este dispositiu.</div>
+          </div>
           <div class="row" style="gap:8px;margin-top:8px;align-items:center">
             <button class="btn small" id="simCalc" style="flex:1">▶ Calcular simulació (WindNinja hora a hora)</button>
           </div>
@@ -5438,7 +5457,7 @@ function harBottomLegend(){
 function harPointPopup(m,e,pl,mk){
   const p=pl||HARM.payload; if(!p)return;
   if(typeof PEX!=='undefined'&&PEX.pick)return;                               // el mode «tria punt» de l'explorador té prioritat
-  if(FD&&m===FD.map&&(FD.prevBoxDraw||FD.prevAddMode||focArrowMode))return;   // no molestar mentre es dibuixa
+  if(FD&&m===FD.map&&(FD.prevBoxDraw||FD.prevAddMode||focArrowMode||FD.perimDraw||(FD.actBrush!==null&&FD.actBrush!==undefined)))return;   // no molestar mentre es dibuixa
   const s=harPuntSerie(p,e.latlng.lat,e.latlng.lng), h=pl?harCmpHour(p):Math.max(0,Math.min(p.hores.length-1,HARM.hour)); if(h<0)return;
   const dd=(s.dir&&s.dir[h]!=null)?('<span style="display:inline-block;transform:rotate('+((s.dir[h]+180)%360)+'deg)">↑</span> '+harDeg2Nom(s.dir[h])+' ('+Math.round(s.dir[h])+'°)'):'—';
   const t=new Date(Date.parse(p.hores[h])).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit'});
@@ -6242,6 +6261,12 @@ function focSimPropaga(W,cfg){
       if(dins){ T[j*gx+i]=0; push(0,j*gx+i); n0++; } } }
   const io=Math.max(0,Math.min(gx-1,Math.floor((0-x0)/cs))), jo=Math.max(0,Math.min(gy-1,Math.floor((y1-0)/cs)));
   if(!n0){ T[jo*gx+io]=0; push(0,jo*gx+io); n0=1; }
+  // croquis d'activitat: prop dels trams «poc actiu» el foc ix al 35 %; prop dels «ancorat» no ix i, per fora, hi ha una barrera de ~50 m
+  let fac0=null, bloc=null;
+  if(P&&cfg.act&&cfg.act.cls){ fac0=new Map(); bloc=new Set(); const A=cfg.act;
+    for(let q=0;q<A.pts.length;q++){ const k=A.cls[q]; if(k!==2&&k!==3) continue; const vx=(A.pts[q][1]-cfg.lon0)*MLON, vy=(A.pts[q][0]-cfg.lat0)*MLAT, ic=Math.floor((vx-x0)/cs), jc=Math.floor((y1-vy)/cs), rr=(k===3?2:1);
+      for(let dj=-rr;dj<=rr;dj++)for(let di=-rr;di<=rr;di++){ const i=ic+di, j=jc+dj; if(i<0||j<0||i>=gx||j>=gy) continue; const c=j*gx+i;
+        if(T[c]===0){ if(k===3) fac0.set(c,0); else if(fac0.get(c)!==0) fac0.set(c,ACT[2].f); } else if(k===3) bloc.add(c); } } }
   const NB=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1],[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]].map(d=>{ const dx=d[0]*cs, dy=-d[1]*cs; return {di:d[0],dj:d[1],dist:Math.hypot(dx,dy),bear:Math.atan2(dx,dy)}; });
   const mdH=cfg.fmdH.map(f=>{ const m1=Math.max(0.02,Math.min(0.35,f/100)); return [m1,m1+0.01,m1+0.02]; }), cache=new Map(), ambMapa=!!(cfg.mapa&&W.fuel);
   const FC=ambMapa?new Uint8Array(gx*gy).fill(255):null;      // classe de combustible de cada cel·la (255 = encara no mirada)
@@ -6251,12 +6276,14 @@ function focSimPropaga(W,cfg){
     let fu=ambMapa?simFuelDe(classe(c),cfg):cfg.fuel; if(!fu&&T[c]===0) fu=cfg.fuel;          // la ignició sempre crema (amb el combustible del panell si cau en no combustible)
     if(!fu){ cache.set(key,null); return null; }
     const pe=simPendent(W,ll[0],ll[1])||cfg.pend0, q=conCalcula(fu,mdH[k],cfg.ml,v.vv/3.6*cfg.waf,v.dv,pe.tan,pe.aspectUp);
-    r=q?{R:q.R_mmin, e:Math.sqrt(Math.max(0,1-1/(q.LB*q.LB))), d:q.dir*Math.PI/180}:null; cache.set(key,r); return r; };
+    r=q?{R:q.R_mmin, e:Math.sqrt(Math.max(0,1-1/(q.LB*q.LB))), d:q.dir*Math.PI/180}:null;
+    if(r&&fac0&&T[c]===0){ const f=fac0.get(c); if(f===0) r=null; else if(f) r.R*=f; }
+    cache.set(key,r); return r; };
   let vora=false;
   while(ht.length){ const tc=pop(), t=tc[0], c=tc[1]; if(t>T[c]) continue; if(t>=tmax) break;
     const k=Math.min(W.nt-1,Math.floor(t/60)), r=spread(c,k); if(!r||!(r.R>0)) continue; const i=c%gx, j=(c-i)/gx;
     for(let a=0;a<16;a++){ const nb=NB[a], i2=i+nb.di, j2=j+nb.dj; if(i2<0||j2<0||i2>=gx||j2>=gy){ vora=true; continue; }
-      const c2=j2*gx+i2; if(ambMapa&&!simFuelDe(classe(c2),cfg)) continue;                      // la veïna no és combustible
+      const c2=j2*gx+i2; if(bloc&&bloc.has(c2)) continue; if(ambMapa&&!simFuelDe(classe(c2),cfg)) continue;                      // la veïna no és combustible
       const sp=r.R*(1-r.e)/(1-r.e*Math.cos(nb.bear-r.d)), t2=t+nb.dist/sp; if(t2<T[c2]&&t2<=tmax){ T[c2]=t2; push(t2,c2); } } }
   // resum per hora
   const out={T:T,gx:gx,gy:gy,cs:cs,nw:LL(x0,y1),se:LL(x0+gx*cs,y1-gy*cs),files:[],vora:vora,ha0:n0*cs*cs/10000,ambMapa:ambMapa,comb:null}; let prev=null;
@@ -6343,6 +6370,7 @@ function focSimFuelVeure(on){ if(!FD) return; FD.simFuelOn=!!on; const S=FD.sim,
 function focSimRuns(){ return ((FD&&FD.runs)||[]).filter(r=>r.sim&&Array.isArray(r.sim.hores)).sort((a,b)=>(b.ts||0)-(a.ts||0)); }
 function focSimRenderSaved(){
   const box=$('simSaved'); if(!box||!FD) return; const R=focSimRuns();
+  if(typeof focActInfo==='function'){ try{ focActInfo(); focActCapa(); }catch(e){} }
   if($('simModel')&&!$('simModel').dataset.t){ $('simModel').value=HARM.model; $('simModel').dataset.t='1'; }
   if(!FD.sim){ if($('simCtl')) $('simCtl').style.display='none'; if($('simTaula')) $('simTaula').innerHTML=''; }
   box.innerHTML=R.length?('<div style="font-size:11px;color:#94a3b8;margin:6px 0 2px">Simulacions desades (clica per veure-la):</div>'+R.map(r=>{ const on=FD.sim&&FD.sim.rid===r.rid, t=new Date(r.sim.hores[0]).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit'});
@@ -6366,13 +6394,14 @@ async function focSimRecalcula(){
   const man=$('conFmd').value?+$('conFmd').value:null, fl=(S.r.sim&&S.r.sim.fl)||[], est=conFmdAuto(c.lat,c.lng,null); let font='';
   const fmdH=[]; for(let k=0;k<W.nt;k++){ let v=null; if(man!=null){ v=man; font='manual'; } else { const q=fl[k]; if(q&&q[0]!=null&&q[1]!=null){ v=fmdDe(q[0],q[1]); font='model (Tª i HR hora a hora)'; } }
     if(v==null){ v=est.fmd; font=font||('constant · '+est.font); } fmdH.push(v); }
-  const pv=focPerimVigent(), perim0=(pv&&pv.pts&&pv.pts.length>=3)?pv.pts:null;
+  const pv=focActPerim(), perim0=(pv&&pv.pts&&pv.pts.length>=3)?pv.pts:null, act=perim0?focActPrepara():null, ar=act?focActResum():null;
   const teMapa=!!W.fuel; $('simFuelCtl').style.display=teMapa?'flex':'none'; if(!teMapa){ $('simFuelLeg').style.display='none'; }
-  S.cfg={lat0:c.lat,lon0:c.lng,fuel:fuel,ml:ml,waf:waf,fmdH:fmdH,perim0:perim0,pend0:pend0,fmdFont:font,mapa:teMapa&&$('simMapa').checked,agr:$('simAgr').value};
+  S.cfg={lat0:c.lat,lon0:c.lng,fuel:fuel,ml:ml,waf:waf,fmdH:fmdH,perim0:perim0,act:act,pend0:pend0,fmdFont:font,mapa:teMapa&&$('simMapa').checked,agr:$('simAgr').value};
   S.res=focSimPropaga(W,S.cfg); S.img=null;
   if(!FD.simLayer){ FD.simLayer=new FocSimLayer(); FD.simLayer.addTo(FD.map); } else FD.simLayer.redraw();
+  if(FD.actLayer){ try{ FD.map.removeLayer(FD.actLayer); FD.actLayer.addTo(FD.map); }catch(e){} }      // el croquis, per damunt de les isòcrones
   $('simCtl').style.display='flex'; $('simHour').max=W.nt; focSimTaula();
-  inf.innerHTML='<b style="color:#fbbf24">BETA</b> · '+_cmpEsc(S.r.model||'')+(S.r.mrun?(' '+S.r.mrun.slice(8,10)+'Z'):'')+' · '+(S.res.ambMapa?('<b>combustible del mapa</b> ('+_cmpEsc((W.fuel.font||'mapa regional').replace(/\s*\(CC BY\)/,''))+'; agrícola: '+(S.cfg.agr==='gr2'?'crema com a GR2':'no crema')+'; a l\'inici: '+_cmpEsc(S.res.fuel0.codi||S.res.fuel0.nom)+')'):('combustible únic: '+fuel.nom))+' · viu '+Math.round(ml*100)+' % · vent a mitja flama ×'+waf+' · FMd: '+font+' · '+(W.dem?'pendent del relleu a cada punt del front':'<span style="color:#fca5a5">sense relleu al fitxer: pendent únic del punt d\'inici</span>')+' · inici: '+(perim0?'perímetre vigent':'punt de la flama')+(S.res.vora?' · <span style="color:#fca5a5">el foc arriba al límit de la caixa de vent: fes-la més gran per veure\'n la resta</span>':'');
+  inf.innerHTML='<b style="color:#fbbf24">BETA</b> · '+_cmpEsc(S.r.model||'')+(S.r.mrun?(' '+S.r.mrun.slice(8,10)+'Z'):'')+' · '+(S.res.ambMapa?('<b>combustible del mapa</b> ('+_cmpEsc((W.fuel.font||'mapa regional').replace(/\s*\(CC BY\)/,''))+'; agrícola: '+(S.cfg.agr==='gr2'?'crema com a GR2':'no crema')+'; a l\'inici: '+_cmpEsc(S.res.fuel0.codi||S.res.fuel0.nom)+')'):('combustible únic: '+fuel.nom))+' · viu '+Math.round(ml*100)+' % · vent a mitja flama ×'+waf+' · FMd: '+font+' · '+(W.dem?'pendent del relleu a cada punt del front':'<span style="color:#fca5a5">sense relleu al fitxer: pendent únic del punt d\'inici</span>')+' · inici: '+(perim0?('<b>perímetre de les '+new Date(pv.ts).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</b>'+(ar&&ar.algun?(' amb croquis (molt actiu '+Math.round(ar.pc[1]+ar.pc[0])+' % comptant el no marcat · poc actiu '+Math.round(ar.pc[2])+' % · ancorat '+Math.round(ar.pc[3])+' %)'):' (tot actiu)')):'punt de la flama')+(S.res.vora?' · <span style="color:#fca5a5">el foc arriba al límit de la caixa de vent: fes-la més gran per veure\'n la resta</span>':'');
 }
 function focSimTaula(){
   const S=FD&&FD.sim; if(!S||!S.res) return; const sel=FD.simHour||0, hf=ms=>new Date(ms).toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'})+' h';
@@ -6463,6 +6492,103 @@ async function focSimVerif(){
   if($('simFuelVeure')) $('simFuelVeure').onchange=()=>focSimFuelVeure($('simFuelVeure').checked);
   if($('simSaved')) $('simSaved').onclick=e=>{ const ch=e.target.closest('.simChip'); if(ch) focSimMostra(ch.dataset.rid); };
   if($('simTaula')) $('simTaula').onclick=e=>{ const tr=e.target.closest('.simFila'); if(tr) focSimHora(+tr.dataset.k); }; })();
+// ====================== PERÍMETRE REAL + CROQUIS D'ACTIVITAT per a re-simular ======================
+// Des del tauler es pot importar (KML/KMZ/GeoJSON) o dibuixar el perímetre actual, i pintar-ne trams:
+//   molt actiu (propaga normal) · poc actiu (propaga al 35 % en eixir) · ancorat (no propaga i fa de barrera).
+// El que no es marca es considera actiu. La simulació parteix de l'ÚLTIM perímetre amb este croquis.
+// El croquis es guarda en este dispositiu (per incendi i perímetre).
+const ACT={0:{nom:'sense marcar (actiu)',col:'#e5e7eb'},1:{nom:'molt actiu',col:'#ef4444',f:1},2:{nom:'poc actiu',col:'#f59e0b',f:0.35},3:{nom:'ancorat',col:'#38bdf8',f:0}};
+function focActPerim(){ const ps=focPerimsList(); return ps.length?ps[ps.length-1]:null; }
+function focActClau(ts){ return 'pyromet_act_'+FD.foc.id+'_'+ts; }
+function focActPrepara(){
+  if(!FD) return null; const pv=focActPerim(); if(!pv||!pv.pts||pv.pts.length<3){ FD.act=null; return null; }
+  if(FD.act&&FD.act.ts===pv.ts&&FD.act.n0===pv.pts.length) return FD.act;
+  const P=pv.pts, n=P.length, MLAT=111320, MLON=111320*Math.cos(P[0].lat*Math.PI/180); let tot=0; const D=[];
+  for(let i=0;i<n;i++){ const a=P[i], b=P[(i+1)%n], d=Math.hypot((b.lng-a.lng)*MLON,(b.lat-a.lat)*MLAT); D.push(d); tot+=d; }
+  const pas=Math.max(20,tot/3000), out=[];
+  for(let i=0;i<n;i++){ const a=P[i], b=P[(i+1)%n], k=Math.max(1,Math.ceil(D[i]/pas)); for(let j=0;j<k;j++) out.push([a.lat+(b.lat-a.lat)*j/k, a.lng+(b.lng-a.lng)*j/k]); }
+  const cls=new Uint8Array(out.length); try{ const s=localStorage.getItem(focActClau(pv.ts)); if(s&&s.length===out.length) for(let i=0;i<s.length;i++) cls[i]=+s[i]||0; }catch(e){}
+  FD.act={ts:pv.ts,n0:n,pts:out,cls:cls,km:tot/1000}; return FD.act;
+}
+function focActDesa(){ const A=FD&&FD.act; if(!A) return; try{ localStorage.setItem(focActClau(A.ts),Array.from(A.cls).join('')); }catch(e){} }
+function focActResum(){ const A=FD&&FD.act; if(!A) return null; const c=[0,0,0,0]; A.cls.forEach(k=>c[k]++); const n=A.cls.length||1; return {n:n,pc:c.map(x=>100*x/n),algun:(c[1]+c[2]+c[3])>0}; }
+const FocActLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    const A=FD&&FD.act; if(!A) return; const R=focActResum(); if(!FD.actBrush&&FD.actBrush!==0&&!R.algun) return;
+    const n=A.pts.length, Q=A.pts.map(q=>m.latLngToContainerPoint(q)); ctx.lineCap='round'; ctx.lineJoin='round';
+    for(const pas of [0,1]){ let i=0; while(i<n){ const k=A.cls[i]; let j=i; ctx.beginPath(); ctx.moveTo(Q[i].x,Q[i].y); while(j<n&&A.cls[j]===k){ const q=Q[(j+1)%n]; ctx.lineTo(q.x,q.y); j++; }
+        if(pas===0){ ctx.strokeStyle='rgba(2,6,23,.85)'; ctx.lineWidth=k?9:5; } else { ctx.strokeStyle=ACT[k].col; ctx.lineWidth=k?5.5:2; }
+        ctx.setLineDash(k===0&&pas===1?[5,5]:[]); ctx.stroke(); i=j; } }
+    ctx.setLineDash([]);
+    if(FD.perimDraw&&FD.perimDraw.length){ const Z=FD.perimDraw.map(q=>m.latLngToContainerPoint(q)); ctx.beginPath(); Z.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y)); ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.setLineDash([6,4]); ctx.stroke(); ctx.setLineDash([]); Z.forEach(q=>{ ctx.beginPath(); ctx.arc(q.x,q.y,4,0,7); ctx.fillStyle='#fde047'; ctx.fill(); ctx.strokeStyle='#111'; ctx.lineWidth=1; ctx.stroke(); }); }
+  }
+});
+function focActCapa(){ if(!FD||!FD.map) return; if(!FD.actLayer){ FD.actLayer=new FocActLayer(); FD.actLayer.addTo(FD.map); } else FD.actLayer.redraw(); }
+function focActInfo(){ const el=$('simPerimInfo'); if(!el||!FD) return; const A=focActPrepara();
+  if(FD.perimDraw){ el.innerHTML='Dibuixant: <b>'+FD.perimDraw.length+'</b> punts. Clica al mapa per afegir-ne; després «Tancar i desar».'; return; }
+  if(!A){ el.textContent='Este incendi encara no té perímetre: importa\'l o dibuixa\'l. Sense perímetre, la simulació ix del punt de la flama.'; $('simActBar').style.display='none'; return; }
+  const R=focActResum(), pv=focActPerim(); $('simActBar').style.display='flex';
+  el.innerHTML='Perímetre de les <b>'+new Date(pv.ts).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</b> · '+A.km.toFixed(1)+' km'
+    +(R.algun?(' · <span style="color:'+ACT[1].col+'">molt actiu '+Math.round(R.pc[1])+' %</span> · <span style="color:'+ACT[2].col+'">poc actiu '+Math.round(R.pc[2])+' %</span> · <span style="color:'+ACT[3].col+'">ancorat '+Math.round(R.pc[3])+' %</span> · sense marcar '+Math.round(R.pc[0])+' %'):' · sense croquis (tot es considera actiu)'); }
+function focActBrush(k){                       // k: 1|2|3 pinta, 0 esborra la marca, null deixa de pintar
+  if(!FD||!FD.map) return; const A=focActPrepara(); if(!A&&k!==null){ return; }
+  FD.actBrush=k; const el=FD.map.getContainer(); const on=(k!==null);
+  document.querySelectorAll('#simActBar [data-b]').forEach(b=>{ const act=on&&String(k)===b.dataset.b; b.style.outline=act?'2px solid #fff':'none'; });
+  if($('simActStop')) $('simActStop').style.display=on?'':'none';
+  if(on){ FD.map.dragging.disable(); el.style.cursor='crosshair'; el.style.touchAction='none'; } else { FD.map.dragging.enable(); el.style.cursor=''; el.style.touchAction=''; }
+  if(!FD._actWired){ FD._actWired=true; let down=false, Q=null;
+    const pinta=e=>{ const A2=FD.act; if(!A2||FD.actBrush===null||FD.actBrush===undefined) return; const r=el.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, rad=e.pointerType==='touch'?24:16; let canvi=false;
+      for(let i=0;i<Q.length;i++){ const dx=Q[i].x-x, dy=Q[i].y-y; if(dx*dx+dy*dy<=rad*rad&&A2.cls[i]!==FD.actBrush){ A2.cls[i]=FD.actBrush; canvi=true; } } if(canvi&&FD.actLayer) FD.actLayer.redraw(); };
+    el.addEventListener('pointerdown',e=>{ if(FD.actBrush===null||FD.actBrush===undefined||!FD.act) return; if(e.target.closest('.leaflet-control')) return; down=true; Q=FD.act.pts.map(q=>FD.map.latLngToContainerPoint(q)); try{ el.setPointerCapture(e.pointerId); }catch(_){} pinta(e); e.preventDefault(); });
+    el.addEventListener('pointermove',e=>{ if(down) pinta(e); });
+    const fi=async()=>{ if(!down) return; down=false; focActDesa(); focActInfo(); if(FD.sim){ await focSimRecalcula(); focSimHora(FD.simHour||1); } };
+    el.addEventListener('pointerup',fi); el.addEventListener('pointercancel',fi); }
+  focActCapa(); focActInfo();
+}
+function perimDeText(txt){ let pts=[];
+  if(/^\s*[\{\[]/.test(txt)){ const rec=o=>{ if(!o) return; if(o.type==='FeatureCollection') (o.features||[]).forEach(rec); else if(o.type==='Feature') rec(o.geometry); else if(o.type==='GeometryCollection') (o.geometries||[]).forEach(rec);
+      else if(o.type==='Polygon'){ const r=((o.coordinates||[])[0]||[]).map(c=>[c[1],c[0]]); if(r.length>pts.length) pts=r; }
+      else if(o.type==='MultiPolygon') (o.coordinates||[]).forEach(pg=>{ const r=((pg||[])[0]||[]).map(c=>[c[1],c[0]]); if(r.length>pts.length) pts=r; });
+      else if(o.type==='LineString'){ const r=(o.coordinates||[]).map(c=>[c[1],c[0]]); if(r.length>pts.length) pts=r; } }; rec(JSON.parse(txt)); }
+  else pts=parseKMLcoords(txt);
+  if(pts.length>3){ const a=pts[0], b=pts[pts.length-1]; if(Math.abs(a[0]-b[0])<1e-7&&Math.abs(a[1]-b[1])<1e-7) pts=pts.slice(0,-1); }
+  return pts; }
+async function focPerimNou(pts,origen){                   // desa un perímetre nou (ara) a l'incendi obert
+  if(!FD||pts.length<3) return false; const f=FD.foc, perims=focPerimsDe(f).slice(); perims.push({ts:Date.now(),pts:pts.map(p=>({lat:+p[0].toFixed(6),lng:+p[1].toFixed(6)}))});
+  const foc={id:f.id,nom:f.nom,flama:f.flama,perims:perims,inici:(f.inici!==undefined?f.inici:null),fi:(f.fi!==undefined?f.fi:null)};
+  const a=await focsAPI('guarda',{foc}); if(!a) return false;
+  focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id)); if(g){ FD.foc=g; } focsRender();
+  FD.act=null; try{ focRecalculaTimeline(true); focMarks(); }catch(e){} focDrawPerims(); try{ focRenderPerims(); }catch(e){}
+  focActPrepara(); focActCapa(); focActInfo();
+  try{ FD.map.fitBounds(L.latLngBounds(pts).pad(0.4),{maxZoom:16}); }catch(e){}
+  if(typeof focLog==='function') focLog('Perímetre nou per a simular', origen+' · '+pts.length+' punts');
+  return true; }
+function focPerimDibuixa(){
+  if(!FD||!FD.map) return; const b=$('simPerimDraw');
+  if(!FD.perimDraw){ focActBrush(null); FD.perimDraw=[]; FD._pdClick=e=>{ FD.perimDraw.push([e.latlng.lat,e.latlng.lng]); focActCapa(); focActInfo(); b.textContent='✔ Tancar i desar ('+FD.perimDraw.length+')'; };
+    FD.map.on('click',FD._pdClick); FD.map.getContainer().style.cursor='crosshair'; b.textContent='✔ Tancar i desar (0)'; $('simPerimCancel').style.display=''; focActCapa(); focActInfo(); return; }
+  const pts=FD.perimDraw; if(pts.length<3){ alert('Calen almenys 3 punts.'); return; }
+  focPerimDibuixaFi(); focPerimNou(pts,'dibuixat al tauler').then(ok=>{ if(!ok) alert('No s\'ha pogut desar el perímetre.'); });
+}
+function focPerimDibuixaFi(){ if(!FD) return; if(FD._pdClick){ FD.map.off('click',FD._pdClick); FD._pdClick=null; } FD.perimDraw=null; FD.map.getContainer().style.cursor='';
+  if($('simPerimDraw')) $('simPerimDraw').textContent='✏ Dibuixar'; if($('simPerimCancel')) $('simPerimCancel').style.display='none'; focActCapa(); focActInfo(); }
+(function(){ if($('simPerimImp')) $('simPerimImp').onclick=()=>$('simPerimFile').click();
+  if($('simPerimFile')) $('simPerimFile').addEventListener('change',async e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; e.target.value='';
+    try{ const buf=await f.arrayBuffer(), u8=new Uint8Array(buf); let txt;
+      if(u8[0]===0x50&&u8[1]===0x4b){ if(typeof JSZip==='undefined') throw new Error('cal la llibreria ZIP per llegir KMZ'); const zip=await JSZip.loadAsync(buf), nom=Object.keys(zip.files).find(n=>/\.kml$/i.test(n)&&!zip.files[n].dir); if(!nom) throw new Error('el KMZ no conté cap .kml'); txt=await zip.files[nom].async('string'); }
+      else txt=new TextDecoder('utf-8').decode(buf);
+      const pts=perimDeText(txt); if(pts.length<3) throw new Error('no s\'ha trobat cap perímetre al fitxer');
+      if(!(await focPerimNou(pts,'importat de '+f.name))) throw new Error('no s\'ha pogut desar');
+    }catch(ex){ alert('No s\'ha pogut importar: '+(ex.message||ex)); } });
+  if($('simPerimDraw')) $('simPerimDraw').onclick=focPerimDibuixa; if($('simPerimCancel')) $('simPerimCancel').onclick=focPerimDibuixaFi;
+  document.querySelectorAll('#simActBar [data-b]').forEach(b=>{ b.onclick=()=>focActBrush(FD&&FD.actBrush===+b.dataset.b?null:+b.dataset.b); });
+  if($('simActStop')) $('simActStop').onclick=()=>focActBrush(null); })();
 // ====== EXPLORADOR DE PREVISIÓ (pestanya Previsió): clic al mapa -> meteograma + acumulats + taula ======
 const PEX={lat:null,lon:null,chart:null,marker:null,pick:false,_s:null};
 function pexHourOpts(s){ return s.hores.map((ms,i)=>'<option value="'+i+'">'+new Date(ms).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',hour:'2-digit'})+'</option>').join(''); }
