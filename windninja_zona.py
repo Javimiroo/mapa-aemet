@@ -56,6 +56,40 @@ def troba_parell(dirpath):
     return vel[-1], ang[-1]
 
 
+def troba_parells(dirpath):
+    """Tots els parells (vel, ang) de la carpeta, ordenats per l'hora del nom.
+    Una execució normal en deixa un; una SIMULACIÓ, un per hora."""
+    out = []
+    for fvel in glob.glob(os.path.join(dirpath, "*_vel.asc")):
+        fang = fvel[:-8] + "_ang.asc"
+        if os.path.exists(fang):
+            out.append((hora_del_nom(fvel), fvel, fang))
+    out.sort()
+    # una hora = un parell (si n'hi ha de repetits, l'últim escrit)
+    uniq = {}
+    for t, fv, fa in out:
+        uniq[t] = (fv, fa)
+    return [(t,) + uniq[t] for t in sorted(uniq)]
+
+
+def mostreja_dem(dem_path, fwd, LON, LAT):
+    """Elevació (m, int16) del DEM de WindNinja mostrejada a la graella lat/lon de sortida.
+    Serveix al navegador per a calcular pendent i orientació a cada punt del front."""
+    try:
+        import rasterio
+        with rasterio.open(dem_path) as ds:
+            z = ds.read(1)
+            X, Y = fwd.transform(LON, LAT)
+            cols = np.clip(np.floor((X - ds.transform.c) / ds.transform.a).astype(int), 0, ds.width - 1)
+            rows = np.clip(np.floor((Y - ds.transform.f) / ds.transform.e).astype(int), 0, ds.height - 1)
+            e = z[rows, cols]
+            e = np.where(e < -500, 0, e)
+            return np.clip(np.round(e), -32000, 32000).astype("<i2")
+    except Exception as ex:
+        print("  avis: no s'ha pogut afegir el relleu al payload (%s)" % ex)
+        return None
+
+
 def hora_del_nom(path):
     """dem_point_07-22-2026_1330_100m_vel.asc -> epoch ms (UTC)."""
     m = re.search(r"(\d{2})-(\d{2})-(\d{4})_(\d{2})(\d{2})", os.path.basename(path))
@@ -70,8 +104,15 @@ def utm_epsg(lon, lat):
     return (32600 if lat >= 0 else 32700) + z
 
 
-def converteix(dirpath, bbox, nx=220, ny=220, estacions=None):
-    fvel, fang = troba_parell(dirpath)
+def converteix(dirpath, bbox, nx=None, ny=None, estacions=None, dem=None):
+    parells = troba_parells(dirpath)
+    if not parells:
+        raise SystemExit("No trobe *_vel.asc i *_ang.asc a %s" % dirpath)
+    serie = len(parells) > 1
+    # una simulació porta diverses hores: graella una mica més grossa perquè el fitxer no passe d'1 MB
+    nx = nx or (160 if serie else 220)
+    ny = ny or (160 if serie else 220)
+    _t0, fvel, fang = parells[0]
     hv, vel = llig_asc(fvel)
     ha, ang = llig_asc(fang)
     if vel.shape != ang.shape:
@@ -108,18 +149,39 @@ def converteix(dirpath, bbox, nx=220, ny=220, estacions=None):
               "camp APROXIMAT d'una sola passada.")
         avis = pb + (" " + avis if avis else "")
 
+    # la resta d'hores (simulació): mateixa graella; la màscara és la comuna a totes
+    camps = [(u, v)]
+    temps = [parells[0][0]]
+    vmin, vmax = float(sp[val].min()), float(sp[val].max())
+    for tk, fv, fa in parells[1:]:
+        hk, velk = llig_asc(fv)
+        _ha, angk = llig_asc(fa)
+        if velk.shape != vel.shape or angk.shape != vel.shape:
+            print("  avis: l'hora %s té una altra graella; es descarta" % os.path.basename(fv))
+            continue
+        Vk = velk[Rc, Cc]; Ak = angk[Rc, Cc]
+        valk = dins & (Vk != nod) & (Ak != nod)
+        val = val & valk
+        spk = np.where(valk, Vk * MPH, 0.0)
+        radk = np.radians(np.where(valk, Ak, 0.0))
+        camps.append((-spk * np.sin(radk), -spk * np.cos(radk)))
+        temps.append(tk)
+        if valk.any():
+            vmin = min(vmin, float(spk[valk].min())); vmax = max(vmax, float(spk[valk].max()))
+
     idx = np.nonzero(val.ravel())[0]
     n = int(idx.size)
     if not n:
         raise SystemExit("cap cel·la vàlida dins del bbox")
-    buf = np.zeros((1, n, 2), dtype=np.int8)
-    buf[0, :, 0] = np.clip(np.round(u.ravel()[idx] / ESC), -127, 127)
-    buf[0, :, 1] = np.clip(np.round(v.ravel()[idx] / ESC), -127, 127)
+    buf = np.zeros((len(camps), n, 2), dtype=np.int8)
+    for k, (uk, vk) in enumerate(camps):
+        buf[k, :, 0] = np.clip(np.round(uk.ravel()[idx] / ESC), -127, 127)
+        buf[k, :, 1] = np.clip(np.round(vk.ravel()[idx] / ESC), -127, 127)
 
     payload = {
         "bbox": [lon0, lon1, lat0, lat1], "nx": nx, "ny": ny, "esc": ESC,
         "mask": base64.b64encode(np.packbits(val.ravel().astype(np.uint8)).tobytes()).decode(),
-        "t": [hora_del_nom(fvel)], "n": n,
+        "t": temps, "n": n,
         "d": base64.b64encode(buf.tobytes()).decode(),
         "font": "WindNinja (massa + estacions)",
         "malla_m": cs,
@@ -129,8 +191,14 @@ def converteix(dirpath, bbox, nx=220, ny=220, estacions=None):
         payload["avis"] = avis
     if ajust:
         payload["ajust"] = ajust
-    print("  camp: %dx%d (%d cel·les vàlides) · malla WindNinja %g m · vent %.1f-%.1f km/h"
-          % (nx, ny, n, cs, sp[val].min() * 3.6, sp[val].max() * 3.6))
+    dem_path = dem or os.path.join(dirpath, "dem.tif")
+    if os.path.exists(dem_path):
+        z = mostreja_dem(dem_path, fwd, LON, LAT)
+        if z is not None:
+            payload["dem"] = base64.b64encode(z.tobytes()).decode()     # int16 LE, metres, ny*nx, nord primer
+            print("  relleu afegit: %d..%d m" % (int(z.min()), int(z.max())))
+    print("  camp: %dx%d (%d cel·les vàlides) · %d hora/es · malla WindNinja %g m · vent %.1f-%.1f km/h"
+          % (nx, ny, n, len(camps), cs, vmin * 3.6, vmax * 3.6))
     return payload
 
 
@@ -206,12 +274,13 @@ def main():
     ap.add_argument("--dir", required=True, help="carpeta amb els *_vel.asc / *_ang.asc")
     ap.add_argument("--bbox", required=True, help="lon0,lat0,lon1,lat1")
     ap.add_argument("--estacions", default=None, help="carpeta dels CSV (per a la comprovació)")
-    ap.add_argument("--nx", type=int, default=220)
-    ap.add_argument("--ny", type=int, default=220)
+    ap.add_argument("--nx", type=int, default=None, help="per defecte 220 (160 si hi ha diverses hores)")
+    ap.add_argument("--ny", type=int, default=None)
+    ap.add_argument("--dem", default=None, help="DEM de WindNinja (per defecte <dir>/dem.tif) per afegir el relleu")
     ap.add_argument("--out", default="vent_zona.enc")
     a = ap.parse_args()
     bbox = tuple(float(x) for x in a.bbox.split(","))
-    p = converteix(a.dir, bbox, a.nx, a.ny, a.estacions)
+    p = converteix(a.dir, bbox, a.nx, a.ny, a.estacions, a.dem)
     pwd = os.environ.get("MAPA_PASS")
     if not pwd:
         raise SystemExit("Falta la variable d'entorn MAPA_PASS")

@@ -256,16 +256,16 @@ def escriu_proves(out, mesh, dem_src, n_est, dtiso):
     return proves
 
 
-def cfg_punts(dtiso=None, match=True):
+def cfg_punts(dtiso=None, match=True, estdir="estacions"):
     """Inicialització per estacions via MANIFEST (llista.csv): és l'única via
     d'esta versió de WindNinja per usar TOTES les estacions alhora (verificat
     amb el binari: les 8 del Saler ixen al 'Stations matching check').
     dtiso=None -> mode dades actuals (sense finestra temporal);
     dtiso donat -> mode sèrie temporal (previsió): start=stop=dtiso, 1 pas."""
     cfg = ("initialization_method = pointInitialization\n"
-           "wx_station_filename = /data/estacions/llista.csv\n"
+           "wx_station_filename = /data/%s/llista.csv\n"
            "match_points = %s\n"
-           "time_zone = UTC\n" % ("true" if match else "false"))
+           "time_zone = UTC\n" % (estdir, "true" if match else "false"))
     if dtiso:
         d = datetime.strptime(dtiso[:16], "%Y-%m-%dT%H:%M")
         t = (d.year, d.month, d.day, d.hour, d.minute)
@@ -578,6 +578,61 @@ def escriu_previsio(out, mesh, dem_src, punts, hora_iso, diurn=False):
     return d
 
 
+def escriu_previsio_serie(out, mesh, dem_src, serie, diurn=False):
+    """Mode SIMULACIÓ: la mateixa caixa i els mateixos punts virtuals per a DIVERSES hores
+    consecutives (típicament les 6 següents). Cada hora és una execució independent de
+    WindNinja (start=stop, 1 pas: el mode ja provat de la previsió), amb la seua carpeta
+    d'estacions i el seu cfg:
+        hora 1 -> estacions/      run.cfg       run_sense_ajust.cfg   (com sempre)
+        hora k -> estacions_hKK/  run_hKK.cfg   run_hKK_b.cfg         (k = 2..N)
+    El workflow executa run.cfg i després tots els run_h*.cfg; windninja_zona.py ajunta
+    totes les hores en un sol payload.
+
+    serie: {"hores": [ISO UTC, ...], "punts": [{"lat","lon","h": [[vel,dir,temp,nuv], ...]}]}
+    """
+    hores = [str(h) for h in (serie.get("hores") or [])][:8]
+    punts = serie.get("punts") or []
+    if not hores or not punts:
+        raise SystemExit("la sèrie de previsió necessita 'hores' i 'punts'")
+    d = os.path.join(out, "zona")
+    os.makedirs(d, exist_ok=True)
+    shutil.copy(dem_src, os.path.join(d, "dem.tif"))
+    for k, hora_iso in enumerate(hores):
+        nomdir = "estacions" if k == 0 else "estacions_h%02d" % (k + 1)
+        est = os.path.join(d, nomdir)
+        if os.path.isdir(est):
+            shutil.rmtree(est)
+        os.makedirs(est, exist_ok=True)
+        n = 0
+        for i, p in enumerate(punts):
+            hh = p.get("h") or []
+            if k >= len(hh) or hh[k] is None:
+                continue
+            v = list(hh[k]) + [None] * 4
+            if v[0] is None or v[1] is None:
+                continue
+            ta = 20.0 if v[2] in (None, "") else float(v[2])
+            nuv = 0 if v[3] in (None, "") else float(v[3])
+            _escriu_csv_estacio(est, "P%d" % (i + 1), "prev%d" % (i + 1), float(p["lat"]), float(p["lon"]),
+                                float(v[0]) / 3.6, float(v[1]) % 360, ta, hora_iso, nuv)
+            n += 1
+        if not n:
+            raise SystemExit("l'hora %s no té cap punt amb vent" % hora_iso)
+        escriu_llista(est, serie=True)
+        cfg = BASE_CFG.format(mesh=mesh) + cfg_punts(hora_iso, estdir=nomdir)
+        cfg_b = BASE_CFG.format(mesh=mesh) + cfg_punts(hora_iso, match=False, estdir=nomdir)
+        if diurn:
+            cfg += "diurnal_winds = true\n"
+            cfg_b += "diurnal_winds = true\n"
+        fa, fb = ("run.cfg", "run_sense_ajust.cfg") if k == 0 else ("run_h%02d.cfg" % (k + 1), "run_h%02d_b.cfg" % (k + 1))
+        with open(os.path.join(d, fa), "w", encoding="utf-8") as f:
+            f.write(cfg)
+        with open(os.path.join(d, fb), "w", encoding="utf-8") as f:
+            f.write(cfg_b)
+        print("  SIMULACIÓ hora %d/%d: %s · %d punts · %s" % (k + 1, len(hores), hora_iso, n, fa))
+    return d
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", default="0.68,41.08,1.18,41.45", help="lon0,lat0,lon1,lat1")
@@ -605,7 +660,10 @@ def main():
     if a.zona and a.punts:                                     # mode PREVISIÓ: estacions virtuals del meteoròleg
         with open(a.punts, encoding="utf-8") as fp:
             punts = json.load(fp)
-        escriu_previsio(a.out, a.mesh, dem, punts, a.hora, a.diurn)
+        if isinstance(punts, dict):                            # SIMULACIÓ: diverses hores seguides
+            escriu_previsio_serie(a.out, a.mesh, dem, punts, a.diurn)
+        else:
+            escriu_previsio(a.out, a.mesh, dem, punts, a.hora, a.diurn)
     else:
         n, dtiso = estacions_csv(bbox, estdir)                  # Catalunya: Meteocat (Dades Obertes) primer
         if a.zona:

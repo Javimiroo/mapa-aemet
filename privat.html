@@ -1028,6 +1028,34 @@
           <div id="conRes" style="margin-top:6px"></div>
         </div>
       </div>
+      <!-- 2c) SIMULACIÓ 6 h (BETA) -->
+      <div class="acc collapsed" id="accSim">
+        <div class="acc-h">🧪 Simulació 6 h <span style="font-weight:700;font-size:10px;color:#0b1220;background:#fbbf24;border-radius:999px;padding:1px 7px;margin-left:4px">BETA</span> <span style="font-weight:400;font-size:11px;color:#94a3b8">· WindNinja hora a hora</span><span class="chev">▾</span></div>
+        <div class="acc-b">
+          <p style="font-size:11px;color:#fbbf24;margin:0 0 8px;line-height:1.35">⚠️ <b>Versió beta.</b> Calcula el camp de vent WindNinja de les 6 hores següents amb el model triat i avança el front hora a hora (Rothermel de superfície, relleu de la caixa, humitat del combustible de cada hora). Combustible <b>únic</b>; sense focus secundaris, capçades ni extinció. Escenari per a decidir, no predicció.</p>
+          <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:5px">Model
+              <select id="simModel" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"><option value="harmonie">HARMONIE</option><option value="arome">AROME</option><option value="icon">ICON-EU</option></select></label>
+            <button class="btn small" id="simVerBtn" title="Compara els tres models amb les estacions a menys de 50 km de l'incendi: vent i direcció, des de mitjanit i última hora">📊 Quin model va millor a prop?</button>
+          </div>
+          <div id="simVer"></div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.35">Combustible, humitat del viu, factor de vent i FMd manual: els del panell «Con de propagació». Sense FMd manual, s'usa la del model hora a hora (AROME i ICON-EU; HARMONIE no porta humitat i agafa l'estació més pròxima). La caixa és la de «Previsió WindNinja» si n'hi ha; si no, uns 12 km al voltant de la flama. Si hi ha un perímetre vigent, la simulació en parteix.</div>
+          <div class="row" style="gap:8px;margin-top:8px;align-items:center">
+            <button class="btn small" id="simCalc" style="flex:1">▶ Calcular simulació (WindNinja × 6 h)</button>
+          </div>
+          <div id="simInfo" style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4"></div>
+          <div id="simSaved"></div>
+          <div id="simCtl" class="row" style="display:none;gap:6px;align-items:center;margin-top:8px">
+            <button class="btn small" id="simPrev" title="Hora anterior">◀</button>
+            <input type="range" id="simHour" min="0" max="6" value="0" style="flex:1;accent-color:#f97316">
+            <button class="btn small" id="simNext" title="Hora següent">▶</button>
+            <span id="simLbl" style="font-size:11px;font-weight:700;color:#fdba74;min-width:92px;text-align:right">inici</span>
+            <button class="btn small" id="simRecalc" title="Torna a propagar amb el combustible i els paràmetres actuals del panell «Con» (no torna a calcular el vent)">↻</button>
+            <button class="btn small" id="simHide" title="Traure la simulació del mapa">✕</button>
+          </div>
+          <div id="simTaula"></div>
+        </div>
+      </div>
       <!-- 3) Estacions + meteogrames -->
       <div class="acc collapsed" id="accEst">
         <div class="acc-h">📡 Estacions & meteogrames <span style="font-weight:400;font-size:11px;color:#94a3b8">· clica'n fins a 3</span><span class="chev">▾</span></div>
@@ -4911,7 +4939,7 @@ const FocVentLayer=L.Layer.extend({
     const p1=m.latLngToContainerPoint([B[3],B[0]+dlon]),cell=Math.max(.001,Math.abs(p1.x-a.x)),step=Math.max(1,Math.round(20/cell)),LN=13;
     ctx.lineCap='round';ctx.lineJoin='round';ctx.shadowColor='rgba(0,0,0,.9)';ctx.shadowBlur=3;ctx.shadowOffsetX=.8;ctx.shadowOffsetY=1;
     for(let j=0;j<ny;j+=step)for(let i=0;i<nx;i+=step){const pos=W.landPos[j*nx+i];if(pos<0)continue;
-      const u=W.buf[pos*2]*W.esc,v=W.buf[pos*2+1]*W.esc,sp=Math.hypot(u,v);if(sp<0.05)continue;
+      const o2=((W.nt>1?(FD.runHour||0):0)*W.n+pos)*2, u=W.buf[o2]*W.esc,v=W.buf[o2+1]*W.esc,sp=Math.hypot(u,v);if(sp<0.05)continue;
       const p=m.latLngToContainerPoint([B[3]-j*dlat,B[0]+i*dlon]);if(p.x<-20||p.y<-20||p.x>s.x+20||p.y>s.y+20)continue;
       const sx=u/sp,sy=-v/sp,x0=p.x-sx*LN/2,y0=p.y-sy*LN/2,x1=p.x+sx*LN/2,y1=p.y+sy*LN/2,ah=5,an=Math.atan2(sy,sx),col=ventColor(sp);
       ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();
@@ -6096,10 +6124,10 @@ function harDifLlegendaCanvas(c,x,y,S){ if(!harDifActiu()) return; const C=DIFC[
 // Per a cada model, compara l'observat de cada estació amb el previst al seu punt (passada més recent que cobrisca
 // l'hora; si no, l'anterior): última hora completa i des de mitjanit. «Encert» = % de comparacions dins de la tolerància.
 const VER_TOL={ta:2,hr:10,vv:5,vmax:10,dv:45}, VER_VARS=[['ta','Temperatura','°C','temp'],['hr','Humitat','%','hr'],['vv','Vent mitjà','km/h','vent'],['vmax','Ratxa','km/h','ratxa'],['dv','Direcció','°','dir']];
-async function verifCalcula(){
+async function verifCalcula(filtre){
   const mods=['harmonie','arome','icon']; await Promise.all(mods.map(m=>gMod.pl[m]?null:modelPrevCarrega(m)));
   const H=3600000, todayK=diaKey(new Date()), pp=todayK.split('-'), t0=new Date(+pp[0],+pp[1]-1,+pp[2]).getTime();
-  const ests=(DATA?DATA.estacions:[]).filter(e=>e.lat!=null&&e.lon!=null), O=[]; const cnt=new Array(24).fill(0);
+  const ests=(DATA?DATA.estacions:[]).filter(e=>e.lat!=null&&e.lon!=null&&(!filtre||filtre(e))), O=[]; const cnt=new Array(24).fill(0);
   ests.forEach(st=>{ const o={st:st}; ['ta','hr','vv','vmax'].forEach(vk=>{ o[vk]=serieHoraria(st,todayK,vk); }); o.dv=serieDir(st,todayK); for(let h=0;h<24;h++) if(o.ta[h]!=null||o.vv[h]!=null) cnt[h]++; O.push(o); });
   const mxc=Math.max.apply(null,cnt), hNow=new Date().getHours(); let hEnd=-1; for(let h=Math.min(23,hNow);h>=0;h--){ if(mxc>0&&cnt[h]>=0.3*mxc){ hEnd=h; break; } }
   const res={todayK:todayK,hEnd:hEnd,nEst:ests.length,M:[]}; if(hEnd<0) return res;
@@ -6141,6 +6169,213 @@ async function verifObre(){
     +'<div style="font-size:11px;color:#94a3b8;margin-top:10px;line-height:1.45">% = comparacions estació-hora en què el model cau dins de la tolerància indicada a cada columna. «error» = error absolut mitjà; «biaix» = model − observat (positiu: el model es passa). Direcció: només amb vent observat ≥ 8 km/h. '+res.nEst+' estacions amb coordenades; cada hora es compara amb la passada més recent que la cobreix. HARMONIE no porta humitat relativa. La Tª en estacions de muntanya penalitza els models de malla més grossa (ICON-EU, 7 km) per la diferència d\'altitud entre l\'estació i la cel·la.</div>';
 }
 (function(){ if($('verBtn')) $('verBtn').onclick=verifObre; if($('verX')) $('verX').onclick=()=>{ $('verModal').style.display='none'; }; })();
+// ====================== SIMULACIÓ 6 h (BETA): WindNinja hora a hora + propagació per trams ======================
+// 1) Es demana UNA execució del workflow amb les 6 hores següents del model triat (graella 3x3 de punts dins la caixa);
+//    torna un sol fitxer amb 6 camps de vent i el relleu de la caixa.
+// 2) El foc es propaga per temps mínim d'arribada sobre una malla de 25 m (vegeu focSimPropaga).
+// Límits: combustible únic, foc de superfície, sense focus secundaris, capçades ni extinció. Eina d'escenaris.
+const SIMCOLS=['#ffffff','#fde047','#fbbf24','#fb923c','#f97316','#ef4444','#b91c1c','#7f1d1d','#450a0a'];
+function focSimDecode(p){ const W=decodeVentHores(p); W.nt=(p.t||[]).length||1;
+  if(p.dem){ try{ const b=_b64u8(p.dem); W.dem=new Int16Array(b.buffer,b.byteOffset,b.length>>1); if(W.dem.length!==W.nx*W.ny) W.dem=null; }catch(e){ W.dem=null; } }
+  return W; }
+function simIJ(W,lat,lon){ const B=W.bbox, i=Math.round((lon-B[0])/((B[1]-B[0])/(W.nx-1))), j=Math.round((B[3]-lat)/((B[3]-B[2])/(W.ny-1)));
+  return [Math.max(0,Math.min(W.nx-1,i)), Math.max(0,Math.min(W.ny-1,j))]; }
+function simVent(W,k,lat,lon){ const ij=simIJ(W,lat,lon), pos=W.landPos[ij[1]*W.nx+ij[0]]; if(pos<0) return null;
+  const o=(Math.max(0,Math.min(W.nt-1,k))*W.n+pos)*2, u=W.buf[o]*W.esc, v=W.buf[o+1]*W.esc;
+  return {vv:Math.hypot(u,v)*3.6, dv:(Math.atan2(-u,-v)*180/Math.PI+360)%360}; }
+function simPendent(W,lat,lon){ if(!W.dem) return null; const B=W.bbox, nx=W.nx, ny=W.ny, ij=simIJ(W,lat,lon), i=Math.max(1,Math.min(nx-2,ij[0])), j=Math.max(1,Math.min(ny-2,ij[1]));
+  const dx=(B[1]-B[0])/(nx-1)*111320*Math.cos(lat*Math.PI/180), dy=(B[3]-B[2])/(ny-1)*111320, z=W.dem;
+  const gx=(z[j*nx+i+1]-z[j*nx+i-1])/(2*dx), gy=(z[(j-1)*nx+i]-z[(j+1)*nx+i])/(2*dy), tan=Math.hypot(gx,gy);
+  return {tan:tan, graus:Math.atan(tan)*180/Math.PI, aspectUp:((Math.atan2(gx,gy)*180/Math.PI)+360)%360}; }
+// Propagació per TEMPS MÍNIM D'ARRIBADA sobre una malla de 25 m (Dijkstra amb 16 veïns): de cada cel·la cremada el foc
+// passa a les veïnes amb la velocitat de l'el·lipse de Rothermel en eixa direcció, amb el vent WindNinja de l'hora en
+// curs, el pendent del relleu i la FMd de l'hora. Dona isòcrones netes encara que el vent gire (sense plecs del front).
+// cfg: {lat0,lon0,fuel,ml,waf,fmdH:[% per hora],perim0:[{lat,lng}]|null,pend0:{tan,aspectUp}}
+const SIM_CS=25;
+function focSimPropaga(W,cfg){
+  const B=W.bbox, MLAT=111320, MLON=111320*Math.cos(cfg.lat0*Math.PI/180), cs=SIM_CS;
+  const x0=(B[0]-cfg.lon0)*MLON, y1=(B[3]-cfg.lat0)*MLAT, gx=Math.max(4,Math.min(900,Math.floor((B[1]-B[0])*MLON/cs))), gy=Math.max(4,Math.min(900,Math.floor((B[3]-B[2])*MLAT/cs)));
+  const cx=i=>x0+(i+0.5)*cs, cy=j=>y1-(j+0.5)*cs, LL=(x,y)=>[cfg.lat0+y/MLAT,cfg.lon0+x/MLON];
+  const T=new Float32Array(gx*gy).fill(Infinity), tmax=W.nt*60;
+  // binary heap (temps, cel·la)
+  const ht=[], hi=[]; const push=(t,c)=>{ let k=ht.length; ht.push(t); hi.push(c); while(k>0){ const p=(k-1)>>1; if(ht[p]<=t) break; ht[k]=ht[p]; hi[k]=hi[p]; k=p; } ht[k]=t; hi[k]=c; };
+  const pop=()=>{ const t=ht[0], c=hi[0], lt=ht.pop(), lc=hi.pop(), n=ht.length; if(n){ let k=0; for(;;){ let a=2*k+1; if(a>=n) break; if(a+1<n&&ht[a+1]<ht[a]) a++; if(ht[a]>=lt) break; ht[k]=ht[a]; hi[k]=hi[a]; k=a; } ht[k]=lt; hi[k]=lc; } return [t,c]; };
+  // ignició: cel·les dins del perímetre vigent, o la de la flama
+  let n0=0; const P=(cfg.perim0&&cfg.perim0.length>=3)?cfg.perim0.map(q=>[(q.lng-cfg.lon0)*MLON,(q.lat-cfg.lat0)*MLAT]):null;
+  if(P){ let ax=1e9,bx=-1e9,ay=1e9,by=-1e9; P.forEach(q=>{ ax=Math.min(ax,q[0]); bx=Math.max(bx,q[0]); ay=Math.min(ay,q[1]); by=Math.max(by,q[1]); });
+    const i0=Math.max(0,Math.floor((ax-x0)/cs)), i1=Math.min(gx-1,Math.ceil((bx-x0)/cs)), j0=Math.max(0,Math.floor((y1-by)/cs)), j1=Math.min(gy-1,Math.ceil((y1-ay)/cs));
+    for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){ const x=cx(i), y=cy(j); let dins=false; for(let a=0,b=P.length-1;a<P.length;b=a++){ const pa=P[a], pb=P[b]; if(((pa[1]>y)!==(pb[1]>y))&&(x<(pb[0]-pa[0])*(y-pa[1])/(pb[1]-pa[1])+pa[0])) dins=!dins; }
+      if(dins){ T[j*gx+i]=0; push(0,j*gx+i); n0++; } } }
+  const io=Math.max(0,Math.min(gx-1,Math.floor((0-x0)/cs))), jo=Math.max(0,Math.min(gy-1,Math.floor((y1-0)/cs)));
+  if(!n0){ T[jo*gx+io]=0; push(0,jo*gx+io); n0=1; }
+  const NB=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1],[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]].map(d=>{ const dx=d[0]*cs, dy=-d[1]*cs; return {di:d[0],dj:d[1],dist:Math.hypot(dx,dy),bear:Math.atan2(dx,dy)}; });
+  const mdH=cfg.fmdH.map(f=>{ const m1=Math.max(0.02,Math.min(0.35,f/100)); return [m1,m1+0.01,m1+0.02]; }), cache=new Map();
+  const spread=(c,k)=>{ const key=c*8+k; let r=cache.get(key); if(r!==undefined) return r;
+    const i=c%gx, j=(c-i)/gx, ll=LL(cx(i),cy(j)), v=simVent(W,k,ll[0],ll[1]); if(!v){ cache.set(key,null); return null; }
+    const pe=simPendent(W,ll[0],ll[1])||cfg.pend0, q=conCalcula(cfg.fuel,mdH[k],cfg.ml,v.vv/3.6*cfg.waf,v.dv,pe.tan,pe.aspectUp);
+    r=q?{R:q.R_mmin, e:Math.sqrt(Math.max(0,1-1/(q.LB*q.LB))), d:q.dir*Math.PI/180}:null; cache.set(key,r); return r; };
+  let vora=false;
+  while(ht.length){ const tc=pop(), t=tc[0], c=tc[1]; if(t>T[c]) continue; if(t>=tmax) break;
+    const k=Math.min(W.nt-1,Math.floor(t/60)), r=spread(c,k); if(!r||!(r.R>0)) continue; const i=c%gx, j=(c-i)/gx;
+    for(let a=0;a<16;a++){ const nb=NB[a], i2=i+nb.di, j2=j+nb.dj; if(i2<0||j2<0||i2>=gx||j2>=gy){ vora=true; continue; }
+      const sp=r.R*(1-r.e)/(1-r.e*Math.cos(nb.bear-r.d)), t2=t+nb.dist/sp, c2=j2*gx+i2; if(t2<T[c2]&&t2<=tmax){ T[c2]=t2; push(t2,c2); } } }
+  // resum per hora
+  const out={T:T,gx:gx,gy:gy,cs:cs,nw:LL(x0,y1),se:LL(x0+gx*cs,y1-gy*cs),files:[],vora:vora,ha0:n0*cs*cs/10000}; let prev=null;
+  const cnt=new Array(W.nt+1).fill(0), far=[]; for(let k=0;k<=W.nt;k++) far.push({d:-1,x:0,y:0});
+  for(let c=0;c<T.length;c++){ const t=T[c]; if(t===Infinity) continue; const k=Math.max(1,Math.ceil(t/60)); if(k>W.nt) continue; cnt[t===0?0:k]++; const i=c%gx, j=(c-i)/gx, x=cx(i), y=cy(j), d=Math.hypot(x,y); const kk=t===0?0:k; if(d>far[kk].d) far[kk]={d:d,x:x,y:y}; }
+  let acum=cnt[0], fm={d:far[0].d,x:far[0].x,y:far[0].y};
+  for(let k=0;k<W.nt;k++){ acum+=cnt[k+1]; if(far[k+1].d>fm.d) fm=far[k+1];
+    const v0=simVent(W,k,cfg.lat0,cfg.lon0)||{vv:0,dv:0}, p0=simPendent(W,cfg.lat0,cfg.lon0)||cfg.pend0, r0=conCalcula(cfg.fuel,mdH[k],cfg.ml,v0.vv/3.6*cfg.waf,v0.dv,p0.tan,p0.aspectUp);
+    const f={k:k+1,t:W.t[k],vv:v0.vv,dv:v0.dv,fmd:cfg.fmdH[k],R:r0?r0.R_mmin:0,dir:r0?r0.dir:null,I:r0?r0.I_kWm:0,dist:Math.max(0,fm.d),rumb:(Math.atan2(fm.x,fm.y)*180/Math.PI+360)%360,ha:acum*cs*cs/10000,capLL:LL(fm.x,fm.y)};
+    f.gir=prev?angDif(v0.dv,prev.dv):0; f.dvv=prev?(v0.vv-prev.vv):0; out.files.push(f); prev=v0; }
+  return out;
+}
+// imatge de les isòcrones: una banda de color per hora; fins a l'hora triada, opaca; les posteriors, tènues
+function focSimImatge(R,sel,nt){
+  const gx=R.gx, gy=R.gy, cv=document.createElement('canvas'); cv.width=gx; cv.height=gy; const c=cv.getContext('2d'), im=c.createImageData(gx,gy), d=im.data, cols=SIMCOLS.map(_hexRGB);
+  const K=new Uint8Array(gx*gy); for(let q=0;q<gx*gy;q++){ const t=R.T[q]; K[q]=(t===Infinity)?255:(t===0?0:Math.min(nt,Math.ceil(t/60))); }
+  for(let j=0;j<gy;j++)for(let i=0;i<gx;i++){ const q=j*gx+i, k=K[q]; if(k===255) continue; const o=q*4;
+    const vora=(i+1<gx&&K[q+1]!==k)||(j+1<gy&&K[q+gx]!==k)||(i>0&&K[q-1]===255)||(j>0&&K[q-gx]===255);
+    if(vora){ const fort=(k<=sel)||(K[q+1]<=sel)||(K[q+gx]<=sel); d[o]=2; d[o+1]=6; d[o+2]=23; d[o+3]=fort?235:110; continue; }
+    const col=cols[Math.min(k,cols.length-1)]; d[o]=col[0]; d[o+1]=col[1]; d[o+2]=col[2]; d[o+3]=(sel===0||k<=sel)?150:45; }
+  c.putImageData(im,0,0); return cv;
+}
+const FocSimLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    const S=FD&&FD.sim; if(!S||!S.res) return; const R=S.res, sel=FD.simHour||0;
+    if(!S.img||S.imgSel!==sel){ S.img=focSimImatge(R,sel,S.W.nt); S.imgSel=sel; }
+    const a=m.latLngToContainerPoint(R.nw), b=m.latLngToContainerPoint(R.se);
+    ctx.imageSmoothingEnabled=(b.x-a.x)/R.gx<1.5; ctx.drawImage(S.img,a.x,a.y,b.x-a.x,b.y-a.y);
+    ctx.font='bold 10.5px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    R.files.forEach(f=>{ if(!(f.dist>0)) return; const p=m.latLngToContainerPoint(f.capLL), t='+'+f.k+' h', w=ctx.measureText(t).width+8, on=(f.k===sel);
+      ctx.fillStyle=on?'#fde68a':'rgba(2,6,23,.85)'; ctx.fillRect(p.x-w/2,p.y-8,w,15); ctx.fillStyle=on?'#111':SIMCOLS[Math.min(f.k,SIMCOLS.length-1)]; ctx.fillText(t,p.x,p.y); });
+  }
+});
+function focSimRuns(){ return ((FD&&FD.runs)||[]).filter(r=>r.sim&&Array.isArray(r.sim.hores)).sort((a,b)=>(b.ts||0)-(a.ts||0)); }
+function focSimRenderSaved(){
+  const box=$('simSaved'); if(!box||!FD) return; const R=focSimRuns();
+  if($('simModel')&&!$('simModel').dataset.t){ $('simModel').value=HARM.model; $('simModel').dataset.t='1'; }
+  if(!FD.sim){ if($('simCtl')) $('simCtl').style.display='none'; if($('simTaula')) $('simTaula').innerHTML=''; }
+  box.innerHTML=R.length?('<div style="font-size:11px;color:#94a3b8;margin:6px 0 2px">Simulacions desades (clica per veure-la):</div>'+R.map(r=>{ const on=FD.sim&&FD.sim.rid===r.rid, t=new Date(r.sim.hores[0]).toLocaleString('ca-ES',{day:'2-digit',month:'2-digit',hour:'2-digit'});
+    return '<span class="simChip" data-rid="'+r.rid+'" style="display:inline-flex;gap:5px;align-items:center;margin:2px 5px 2px 0;padding:2px 9px;border-radius:12px;cursor:pointer;font-size:11px;border:1px solid '+(on?'#f97316':'#334155')+';background:'+(on?'#7c2d12':'#0b1220')+';color:'+(on?'#ffedd5':'#cbd5e1')+'">🧪 '+_cmpEsc(r.model||'model')+(r.mrun?(' '+r.mrun.slice(8,10)+'Z'):'')+' · des de '+t+' h · '+r.sim.hores.length+' h</span>'; }).join('')):'';
+}
+async function focSimMostra(rid){
+  if(!FD) return; const r=FD.runs.find(x=>x.rid===rid); if(!r) return; const inf=$('simInfo'); inf.textContent='Carregant els camps de vent…';
+  FD.simCache=FD.simCache||{}; let W=FD.simCache[rid];
+  if(!W){ try{ const d=await workerJSON({accio:'run_get',rid:rid}); if(!(d&&d.ok&&d.enc)) throw new Error('no s\'ha pogut llegir la correguda'); W=focSimDecode(await desxifra(JSON.parse(d.enc),PASS)); FD.simCache[rid]=W; }
+    catch(e){ inf.textContent='No s\'ha pogut carregar: '+(e&&e.message||e); return; } }
+  const c0=FD.centre; FD.sim={rid:rid,r:r,W:W,res:null}; await focSimRecalcula();
+  FD.prevActiveRid=rid; FD.runData=W; FD.runIdx=FD.runs.indexOf(r); focSimHora(1);
+  try{ const R=FD.sim.res, b=L.latLngBounds([[c0.lat,c0.lng]]); R.files.forEach(f=>{ if(f.dist>0){ const dl=f.dist/111320, dn=dl/Math.cos(c0.lat*Math.PI/180); b.extend([c0.lat+dl,c0.lng+dn]); b.extend([c0.lat-dl,c0.lng-dn]); } }); FD.map.invalidateSize({animate:false}); FD.map.fitBounds(b.pad(0.12),{animate:true,maxZoom:15.5}); FD.map.once("moveend",()=>{ if(FD&&FD.simLayer) FD.simLayer.redraw(); }); }catch(e){}
+  focSimRenderSaved(); if(typeof focPrevRenderSaved==='function') focPrevRenderSaved(); focVentLegShow();
+}
+async function focSimRecalcula(){
+  const S=FD&&FD.sim; if(!S) return; const W=S.W, c=FD.centre, inf=$('simInfo');
+  const fuel=FUELS13[$('conFuel').value]||FUELS13[6], ml=Math.max(0.3,(+$('conLive').value||90)/100), waf=Math.max(0.05,Math.min(1,+$('conWaf').value||0.4));
+  let pend0={tan:0,graus:0,aspectUp:0}; if(!W.dem){ try{ pend0=await conPendent(c.lat,c.lng); }catch(e){} }
+  // FMd hora a hora: manual > model (Tª i HR al punt de la flama, desades amb la simulació) > estació més pròxima
+  const man=$('conFmd').value?+$('conFmd').value:null, fl=(S.r.sim&&S.r.sim.fl)||[], est=conFmdAuto(c.lat,c.lng,null); let font='';
+  const fmdH=[]; for(let k=0;k<W.nt;k++){ let v=null; if(man!=null){ v=man; font='manual'; } else { const q=fl[k]; if(q&&q[0]!=null&&q[1]!=null){ v=fmdDe(q[0],q[1]); font='model (Tª i HR hora a hora)'; } }
+    if(v==null){ v=est.fmd; font=font||('constant · '+est.font); } fmdH.push(v); }
+  const pv=focPerimVigent(), perim0=(pv&&pv.pts&&pv.pts.length>=3)?pv.pts:null;
+  S.cfg={lat0:c.lat,lon0:c.lng,fuel:fuel,ml:ml,waf:waf,fmdH:fmdH,perim0:perim0,pend0:pend0,fmdFont:font};
+  S.res=focSimPropaga(W,S.cfg); S.img=null;
+  if(!FD.simLayer){ FD.simLayer=new FocSimLayer(); FD.simLayer.addTo(FD.map); } else FD.simLayer.redraw();
+  $('simCtl').style.display='flex'; $('simHour').max=W.nt; focSimTaula();
+  inf.innerHTML='<b style="color:#fbbf24">BETA</b> · '+_cmpEsc(S.r.model||'')+(S.r.mrun?(' '+S.r.mrun.slice(8,10)+'Z'):'')+' · '+fuel.nom+' · viu '+Math.round(ml*100)+' % · vent a mitja flama ×'+waf+' · FMd: '+font+' · '+(W.dem?'pendent del relleu a cada punt del front':'<span style="color:#fca5a5">sense relleu al fitxer: pendent únic del punt d\'inici</span>')+' · inici: '+(perim0?'perímetre vigent':'punt de la flama')+(S.res.vora?' · <span style="color:#fca5a5">el foc arriba al límit de la caixa de vent: fes-la més gran per veure\'n la resta</span>':'');
+}
+function focSimTaula(){
+  const S=FD&&FD.sim; if(!S||!S.res) return; const sel=FD.simHour||0, hf=ms=>new Date(ms).toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'})+' h';
+  let h='<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px"><tr style="color:#94a3b8"><th style="text-align:left;padding:2px 3px">Hora</th><th>Vent</th><th>FMd</th><th>Cap</th><th>Avanç</th><th>Sup.</th></tr>';
+  S.res.files.forEach(f=>{ const on=f.k===sel, gir=f.gir>=45, puja=f.dvv>=10, baixa=f.dvv<=-10;
+    h+='<tr class="simFila" data-k="'+f.k+'" style="cursor:pointer;border-top:1px solid #16233b;'+(on?'background:#3b2a0a;':'')+'"><td style="padding:3px"><b style="color:'+SIMCOLS[Math.min(f.k,SIMCOLS.length-1)]+'">+'+f.k+' h</b> <span style="color:#94a3b8">'+hf(f.t)+'</span></td>'
+      +'<td style="text-align:center"><b>'+Math.round(f.vv)+'</b> km/h '+harDeg2Nom(f.dv)+(gir?(' <span style="color:#d8b4fe" title="Gir de '+Math.round(f.gir)+'° respecte de l\'hora anterior">↻ gir</span>'):'')+(puja?' <span style="color:#fca5a5" title="El vent puja 10 km/h o més">▲</span>':'')+(baixa?' <span style="color:#86efac" title="El vent baixa 10 km/h o més">▼</span>':'')+'</td>'
+      +'<td style="text-align:center'+(f.fmd<8?';color:#fde047':'')+'">'+f.fmd.toFixed(1)+' %</td>'
+      +'<td style="text-align:center">'+f.R.toFixed(1)+' m/min'+(f.dir!=null?(' → '+harDeg2Nom(f.dir)):'')+(f.I>4000?' <span style="color:#f87171" title="Intensitat molt alta: possible foc de capçades, fora de l\'abast del model">⚠</span>':'')+'</td>'
+      +'<td style="text-align:center">'+(f.dist/1000).toFixed(2)+' km '+harDeg2Nom(f.rumb)+'</td><td style="text-align:center">'+(f.ha>=10?Math.round(f.ha):f.ha.toFixed(1))+' ha</td></tr>'; });
+  $('simTaula').innerHTML=h+'</table><div style="font-size:10.5px;color:#94a3b8;margin-top:4px">Vent, FMd i velocitat del cap: al punt d\'inici. Avanç: distància màxima del front des de l\'inici i cap on. ↻ gir ≥ 45° · ▲▼ canvi ≥ 10 km/h respecte de l\'hora anterior.</div>';
+}
+function focSimHora(k){ const S=FD&&FD.sim; if(!S||!S.res) return; k=Math.max(0,Math.min(S.W.nt,+k||0)); FD.simHour=k; FD.runHour=Math.max(0,k-1);
+  $('simHour').value=k; const f=S.res.files[k-1]; $('simLbl').textContent=k?('+'+k+' h · '+new Date(f.t).toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'})+' h'):'inici';
+  if(FD.ventLayer) FD.ventLayer.redraw(); if(FD.simLayer) FD.simLayer.redraw(); focSimTaula(); }
+function focSimAmaga(){ if(!FD) return; FD.sim=null; FD.simHour=0; FD.runHour=0; if(FD.simLayer) FD.simLayer.redraw(); $('simCtl').style.display='none'; $('simTaula').innerHTML=''; $('simInfo').textContent='';
+  if(typeof focPrevOculta==='function') focPrevOculta(); focSimRenderSaved(); }
+async function focSimCalcula(){
+  if(!FD) return; const c=FD.centre; if(!c){ alert('Cal la flama de l\'incendi al mapa.'); return; }
+  const btn=$('simCalc'), old=btn.textContent, inf=$('simInfo'), model=$('simModel').value||HARM.model, mi=MODELS_INFO[model]||{curt:model};
+  const fi=(t,ms)=>{ btn.textContent=t; setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },ms||5000); };
+  btn.disabled=true; btn.textContent='Carregant el model…'; inf.textContent='';
+  let p=null; try{ const ix=await harIdx(model); if(harIdxOk(ix)) p=await harCarregaRun(ix.darrera||ix.runs[ix.runs.length-1],model); }catch(e){}
+  if(!p){ inf.textContent='No hi ha cap passada publicada del model '+mi.curt+'.'; btn.disabled=false; btn.textContent=old; return; }
+  const now=Date.now(), idx=[]; p.hores.forEach((s,i)=>{ if(Date.parse(s)>now&&idx.length<6) idx.push(i); });
+  if(idx.length<2){ inf.textContent='La passada '+p.run.slice(8,10)+'Z de '+mi.curt+' ja no cobreix les hores següents.'; btn.disabled=false; btn.textContent=old; return; }
+  // caixa: la de previsió si n'hi ha; si no, ~12 km al voltant de la flama
+  let b=FD.prevBox; if(!b){ const dl=0.055, dn=dl/Math.cos(c.lat*Math.PI/180); b={lat0:c.lat-dl,lat1:c.lat+dl,lon0:c.lng-dn,lon1:c.lng+dn}; }
+  const bbox=[b.lon0.toFixed(4),b.lat0.toFixed(4),b.lon1.toFixed(4),b.lat1.toFixed(4)].join(','), punts=[], n=3;
+  for(let r=0;r<n;r++)for(let q=0;q<n;q++){ const lat=b.lat0+(b.lat1-b.lat0)*(r+0.5)/n, lon=b.lon0+(b.lon1-b.lon0)*(q+0.5)/n, s=harPuntSerie(p,lat,lon); if(!s.vent||!s.dir) continue;
+    const h=idx.map(i=>s.dir[i]==null?null:[Math.round(s.vent[i]),Math.round(s.dir[i]),s.temp?+s.temp[i].toFixed(1):null,s.nuvol?Math.round(s.nuvol[i]):null]);
+    if(h.every(x=>x)) punts.push({lat:+lat.toFixed(5),lon:+lon.toFixed(5),h:h}); }
+  if(!punts.length){ inf.textContent='El model no dona vent dins de la caixa.'; btn.disabled=false; btn.textContent=old; return; }
+  const hores=idx.map(i=>Date.parse(p.hores[i])), sf=harPuntSerie(p,c.lat,c.lng), fl=idx.map(i=>[sf.temp?+sf.temp[i].toFixed(1):null, sf.hr?Math.round(sf.hr[i]):null, sf.vent?Math.round(sf.vent[i]):null, (sf.dir&&sf.dir[i]!=null)?Math.round(sf.dir[i]):null]);
+  const serie={hores:hores.map(_isoUTC), punts:punts};
+  const est0=await workerJSON({accio:'zona_estat'}), urlAbans=(est0&&est0.url)||'';
+  btn.textContent='Enviant…';
+  const d=await workerJSON({accio:'zona',bbox:bbox,nom:(FD.foc.nom||'Incendi')+' (simulació)',punts:JSON.stringify(serie),hora:serie.hores[0],diurn:punts.every(x=>x.h.every(v=>v[2]!=null&&v[3]!=null))});
+  if(!d){ btn.disabled=false; btn.textContent=old; return; }
+  if(d.error==='running'){ inf.textContent='Ja hi ha un càlcul de vent en marxa (teu o d\'un company). Espera que acabe.'; btn.disabled=false; btn.textContent=old; return; }
+  if(!d.ok){ inf.innerHTML='No s\'ha pogut llançar: '+_cmpEsc(d.error||'?')+(d.error==='punts'?' — el servidor d\'incendis encara no accepta simulacions (cal redesplegar el Worker).':''); btn.disabled=false; btn.textContent=old; return; }
+  inf.textContent='Simulació llançada: WindNinja calcula '+hores.length+' hores ('+mi.curt+' '+p.run.slice(8,10)+'Z). Sol tardar uns minuts…';
+  const t0=Date.now();
+  for(let i=0;i<120;i++){
+    btn.textContent='Calculant… '+Math.round((Date.now()-t0)/1000)+' s'; await sleep(10000);
+    const st=await workerJSON({accio:'zona_estat'}); if(!st) continue;
+    if(!(st.url&&st.url!==urlAbans&&st.estat==='completed')) continue;
+    if(st.resultat!=='success'){ inf.innerHTML='El càlcul ha fallat'+(st.url?(' · <a href="'+st.url+'" target="_blank" style="color:#f59e0b">registre</a>'):'')+'. Si és la primera simulació, comprova que has pujat windninja_prep.py, windninja_zona.py i el workflow nous.'; fi('✗ ha fallat',6000); return; }
+    btn.textContent='Desant…'; let enc=null;
+    for(let k=0;k<8;k++){ const zf=await workerJSON({accio:'zona_fitxer'}); if(zf&&zf.ok&&zf.enc){ enc=zf.enc; break; } await sleep(4000); }
+    if(!enc){ inf.textContent='El càlcul ha anat bé però no s\'ha pogut llegir el fitxer. Torna a provar en un minut.'; fi('no s\'ha pogut desar',7000); return; }
+    let nt=1; try{ const W=focSimDecode(await desxifra(JSON.parse(enc),PASS)); nt=W.nt; }catch(e){}
+    if(nt<2){ inf.textContent='El fitxer només porta una hora: el workflow de WindNinja del repositori encara és l\'antic. Puja els fitxers nous i torna a provar.'; fi('✗ workflow antic',7000); return; }
+    const f=FD.foc, meta={ts:Date.now(),bbox:bbox,obs:hores[0],malla:100,tipus:'previsio',hora:hores[0],nom:'Simulació '+hores.length+' h',model:mi.curt,mrun:p.run,
+      punts:punts.map(x=>({lat:x.lat,lon:x.lon,vel:x.h[0][0],dir:x.h[0][1],temp:x.h[0][2],nuv:x.h[0][3]})), sim:{hores:hores,fl:fl}};
+    const a=await focsAPI('run_add',{id:f.id,enc:enc,meta:meta});
+    if(!a){ fi('no s\'ha pogut desar',6000); return; }
+    focsCache=a; focsLocalDesa(a); const g=a.find(x=>String(x.id)===String(f.id));
+    if(g){ FD.foc=g; FD.runs=(g.runs||[]).slice().sort((x,y)=>focRunTemps(x)-focRunTemps(y)); focActualRuns=g.runs||[]; } focsRender();
+    const nou=focSimRuns()[0];
+    if(nou&&nou.sim) await focSimMostra(nou.rid); else inf.textContent='Desada, però el servidor d\'incendis no ha guardat les dades de la simulació (cal redesplegar el Worker).';
+    fi('✓ Simulació llesta',4000); return;
+  }
+  fi('Tarda més del previst',5000);
+}
+// Quin model va millor A PROP de l'incendi (estacions a ≤50 km): només vent i direcció
+async function focSimVerif(){
+  const el=$('simVer'), c=FD&&FD.centre; if(!el||!c) return; el.innerHTML='<span style="font-size:11px;color:#94a3b8">Comparant els tres models amb les estacions a menys de 50 km…</span>';
+  let res; try{ const o=L.latLng(c.lat,c.lng); res=await verifCalcula(e=>haversineKm(o,L.latLng(e.lat,e.lon))<=50); }catch(e){ el.textContent='No s\'ha pogut calcular.'; return; }
+  if(res.hEnd<0){ el.innerHTML='<span style="font-size:11px;color:#fca5a5">Encara no hi ha observacions de hui a prop.</span>'; return; }
+  const curt=m=>(MODELS_INFO[m]||{}).curt||m, ok=res.M.filter(r=>r.A), cel=(r,sc,vk)=>{ const a=r.A[sc][vk]; return a.n>=3?{pc:a.hit/a.n,n:a.n,mae:a.abs/a.n}:null; };
+  const best=(sc,vk)=>{ let b=null; ok.forEach(r=>{ const x=cel(r,sc,vk); if(x&&(!b||x.pc>b.pc||(x.pc===b.pc&&x.mae<b.mae))) b=Object.assign({m:r.m},x); }); return b; };
+  const cols=[['dia','vv','Vent · des de mitjanit'],['hora','vv','Vent · última hora'],['dia','dv','Direcció · des de mitjanit'],['hora','dv','Direcció · última hora']], B=cols.map(x=>best(x[0],x[1]));
+  let h='<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px"><tr style="color:#94a3b8"><th style="text-align:left">Model</th>'+cols.map(x=>'<th style="padding:1px 3px">'+x[2]+'</th>').join('')+'</tr>';
+  res.M.forEach(r=>{ h+='<tr style="border-top:1px solid #16233b"><td style="padding:2px 3px"><b>'+curt(r.m)+'</b>'+(r.run?(' <span style="color:#94a3b8">'+r.run.slice(8,10)+'Z</span>'):'')+'</td>';
+    if(!r.A){ h+='<td colspan="4" style="color:#94a3b8">'+_cmpEsc(r.err||'sense dades')+'</td></tr>'; return; }
+    cols.forEach((x,i)=>{ const v=cel(r,x[0],x[1]), es=v&&B[i]&&B[i].m===r.m&&ok.length>1; h+='<td style="text-align:center;padding:2px 3px;'+(es?'background:#14532d;color:#bbf7d0':'')+'">'+(v?('<b>'+Math.round(100*v.pc)+' %</b> <span style="opacity:.7">±'+v.mae.toFixed(x[1]==='dv'?0:1)+(x[1]==='dv'?'°':'')+'</span>'):'—')+'</td>'; }); h+='</tr>'; });
+  const bd=B[0], bh=B[1];
+  el.innerHTML=h+'</table><div style="font-size:10.5px;color:#94a3b8;margin-top:3px">Estacions a ≤ 50 km de l\'incendi · hores 00 → '+res.hEnd+' h · encert = vent dins de ±'+VER_TOL.vv+' km/h, direcció dins de ±'+VER_TOL.dv+'° (amb vent ≥ 8 km/h) · ± = error mitjà.'
+    +(bd?(' <b style="color:#bbf7d0">Hui, en vent: '+curt(bd.m)+(bh&&bh.m!==bd.m?(' (última hora: '+curt(bh.m)+')'):'')+'.</b>'):'')+'</div>';
+}
+(function(){ if($('simCalc')) $('simCalc').onclick=focSimCalcula; if($('simVerBtn')) $('simVerBtn').onclick=focSimVerif; if($('simHide')) $('simHide').onclick=focSimAmaga;
+  if($('simRecalc')) $('simRecalc').onclick=async()=>{ await focSimRecalcula(); focSimHora(FD.simHour||1); };
+  if($('simHour')) $('simHour').oninput=()=>focSimHora($('simHour').value);
+  if($('simPrev')) $('simPrev').onclick=()=>focSimHora((FD.simHour||0)-1); if($('simNext')) $('simNext').onclick=()=>focSimHora((FD.simHour||0)+1);
+  if($('simSaved')) $('simSaved').onclick=e=>{ const ch=e.target.closest('.simChip'); if(ch) focSimMostra(ch.dataset.rid); };
+  if($('simTaula')) $('simTaula').onclick=e=>{ const tr=e.target.closest('.simFila'); if(tr) focSimHora(+tr.dataset.k); }; })();
 // ====== EXPLORADOR DE PREVISIÓ (pestanya Previsió): clic al mapa -> meteograma + acumulats + taula ======
 const PEX={lat:null,lon:null,chart:null,marker:null,pick:false,_s:null};
 function pexHourOpts(s){ return s.hores.map((ms,i)=>'<option value="'+i+'">'+new Date(ms).toLocaleString('ca-ES',{weekday:'short',day:'2-digit',hour:'2-digit'})+'</option>').join(''); }
@@ -6480,7 +6715,7 @@ function focMarks(){
     box.insertAdjacentHTML('beforeend','<span title="Perímetre · '+new Date(p.ts).toLocaleTimeString('ca-ES',{hour:'2-digit',minute:'2-digit'})+'" style="position:absolute;left:'+x+'%;top:0;transform:translateX(-50%);color:#f87171;font-size:10px;line-height:1">◆</span>'); });
 }
 async function focLoadRun(idx){
-  const r=FD.runs[idx]; if(!r) return; FD.runIdx=idx;
+  const r=FD.runs[idx]; if(!r) return; FD.runIdx=idx; FD.runHour=0;
   $('focRunInfo').textContent='carregant vent…';
   try{
     const d=await workerJSON({accio:'run_get',rid:r.rid});
@@ -6979,6 +7214,7 @@ function focPrevRenderSaved(){
   const box=$('focPrevSaved'); if(!box||!FD)return;
   const prevs=(FD.runs||[]).filter(r=>r.tipus==='previsio').sort((a,b)=>focRunTemps(a)-focRunTemps(b));
   const cb=$('focCmpBtn'); if(cb) cb.style.display=(prevs.length>=2)?'':'none';
+  if(typeof focSimRenderSaved==='function') focSimRenderSaved();
   if(!prevs.length){ box.innerHTML=''; return; }
   box.innerHTML='<div style="font-size:11px;color:#94a3b8;margin:4px 0 2px">Previsions desades (clica per veure-la al mapa; torna a clicar per amagar):</div>'
     +prevs.map(r=>{ const act=(r.rid===FD.prevActiveRid),
