@@ -147,8 +147,9 @@ def converteix(dirpath, bbox, nx=None, ny=None, estacions=None, dem=None, combus
         raise SystemExit("No trobe *_vel.asc i *_ang.asc a %s" % dirpath)
     serie = len(parells) > 1
     # una simulació porta diverses hores: graella una mica més grossa perquè el fitxer no passe d'1 MB
-    nx = nx or (160 if serie else 220)
-    ny = ny or (160 if serie else 220)
+    gr = 220 if not serie else (160 if len(parells) <= 8 else 128)     # 12 hores: graella més grossa per no inflar el fitxer
+    nx = nx or gr
+    ny = ny or gr
     _t0, fvel, fang = parells[0]
     hv, vel = llig_asc(fvel)
     ha, ang = llig_asc(fang)

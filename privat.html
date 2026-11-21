@@ -1030,18 +1030,20 @@
       </div>
       <!-- 2c) SIMULACIÓ 6 h (BETA) -->
       <div class="acc collapsed" id="accSim">
-        <div class="acc-h">🧪 Simulació 6 h <span style="font-weight:700;font-size:10px;color:#0b1220;background:#fbbf24;border-radius:999px;padding:1px 7px;margin-left:4px">BETA</span> <span style="font-weight:400;font-size:11px;color:#94a3b8">· WindNinja hora a hora</span><span class="chev">▾</span></div>
+        <div class="acc-h">🧪 Simulació 6–12 h <span style="font-weight:700;font-size:10px;color:#0b1220;background:#fbbf24;border-radius:999px;padding:1px 7px;margin-left:4px">BETA</span> <span style="font-weight:400;font-size:11px;color:#94a3b8">· WindNinja hora a hora</span><span class="chev">▾</span></div>
         <div class="acc-b">
-          <p style="font-size:11px;color:#fbbf24;margin:0 0 8px;line-height:1.35">⚠️ <b>Versió beta.</b> Calcula el camp de vent WindNinja de les 6 hores següents amb el model triat i avança el front hora a hora (Rothermel de superfície, relleu de la caixa, humitat del combustible de cada hora). Combustible del <b>mapa oficial</b> on n'hi ha (Comunitat Valenciana); si no, <b>únic</b>. Sense focus secundaris, capçades ni extinció. Escenari per a decidir, no predicció.</p>
+          <p style="font-size:11px;color:#fbbf24;margin:0 0 8px;line-height:1.35">⚠️ <b>Versió beta.</b> Calcula el camp de vent WindNinja de les 6 o 12 hores següents amb el model triat i avança el front hora a hora (Rothermel de superfície, relleu de la caixa, humitat del combustible de cada hora). Combustible del <b>mapa oficial</b> on n'hi ha (Comunitat Valenciana); si no, <b>únic</b>. Sense focus secundaris, capçades ni extinció. Escenari per a decidir, no predicció.</p>
           <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
             <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:5px">Model
               <select id="simModel" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"><option value="harmonie">HARMONIE</option><option value="arome">AROME</option><option value="icon">ICON-EU</option></select></label>
+            <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:5px" title="12 h tarda el doble a calcular i la caixa automàtica és més gran">Durada
+              <select id="simDur" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"><option value="6">6 h</option><option value="12">12 h</option></select></label>
             <button class="btn small" id="simVerBtn" title="Compara els tres models amb les estacions a menys de 50 km de l'incendi: vent i direcció, des de mitjanit i última hora">📊 Quin model va millor a prop?</button>
           </div>
           <div id="simVer"></div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.35">Humitat del viu, factor de vent i FMd manual: els del panell «Con de propagació» (i el combustible, quan no hi ha mapa). Amb el mapa, la humitat del viu pesa molt en herba i matoll: 60 % = estiu sec, 90 % = primavera, 120 % = verd. Sense FMd manual, s'usa la del model hora a hora (AROME i ICON-EU; HARMONIE no porta humitat i agafa l'estació més pròxima). La caixa és la de «Previsió WindNinja» si n'hi ha; si no, uns 12 km al voltant de la flama. Si hi ha un perímetre vigent, la simulació en parteix.</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.35">Humitat del viu, factor de vent i FMd manual: els del panell «Con de propagació» (i el combustible, quan no hi ha mapa). Amb el mapa, la humitat del viu pesa molt en herba i matoll: 60 % = estiu sec, 90 % = primavera, 120 % = verd. Sense FMd manual, s'usa la del model hora a hora (AROME i ICON-EU; HARMONIE no porta humitat i agafa l'estació més pròxima). La caixa és la de «Previsió WindNinja» si n'hi ha; si no, uns 12 km al voltant de la flama (16 km per a 12 h). Si hi ha un perímetre vigent, la simulació en parteix.</div>
           <div class="row" style="gap:8px;margin-top:8px;align-items:center">
-            <button class="btn small" id="simCalc" style="flex:1">▶ Calcular simulació (WindNinja × 6 h)</button>
+            <button class="btn small" id="simCalc" style="flex:1">▶ Calcular simulació (WindNinja hora a hora)</button>
           </div>
           <div id="simFuelCtl" class="row" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:11px;color:#cbd5e1">
             <label style="display:flex;align-items:center;gap:4px" title="Usa el model de combustible de cada punt del mapa oficial en lloc d'un combustible únic"><input type="checkbox" id="simMapa" checked> Combustible del mapa</label>
@@ -6200,7 +6202,7 @@ async function verifObre(){
 //    torna un sol fitxer amb 6 camps de vent i el relleu de la caixa.
 // 2) El foc es propaga per temps mínim d'arribada sobre una malla de 25 m (vegeu focSimPropaga).
 // Límits: combustible únic, foc de superfície, sense focus secundaris, capçades ni extinció. Eina d'escenaris.
-const SIMCOLS=['#ffffff','#fde047','#fbbf24','#fb923c','#f97316','#ef4444','#b91c1c','#7f1d1d','#450a0a'];
+const SIMCOLS=['#ffffff','#fde047','#fbbf24','#fb923c','#f97316','#ef4444','#dc2626','#b91c1c','#be185d','#a21caf','#7e22ce','#5b21b6','#312e81'];     // inici + fins a 12 hores
 async function focSimDecode(p){ const W=decodeVentHores(p); W.nt=(p.t||[]).length||1;
   if(p.fuel&&p.fuel.gz){ try{ const u=await gunzipB64(p.fuel.gz); if(u.length===p.fuel.nx*p.fuel.ny) W.fuel={nx:p.fuel.nx,ny:p.fuel.ny,c:u,font:p.fuel.font||''}; }catch(e){} }
   if(p.dem){ try{ const b=_b64u8(p.dem); W.dem=new Int16Array(b.buffer,b.byteOffset,b.length>>1); if(W.dem.length!==W.nx*W.ny) W.dem=null; }catch(e){ W.dem=null; } }
@@ -6244,7 +6246,7 @@ function focSimPropaga(W,cfg){
   const mdH=cfg.fmdH.map(f=>{ const m1=Math.max(0.02,Math.min(0.35,f/100)); return [m1,m1+0.01,m1+0.02]; }), cache=new Map(), ambMapa=!!(cfg.mapa&&W.fuel);
   const FC=ambMapa?new Uint8Array(gx*gy).fill(255):null;      // classe de combustible de cada cel·la (255 = encara no mirada)
   const classe=c=>{ if(!FC) return 0; let k=FC[c]; if(k===255){ const i=c%gx, j=(c-i)/gx, ll=LL(cx(i),cy(j)); k=simFuelClasse(W,ll[0],ll[1]); FC[c]=k; } return k; };
-  const spread=(c,k)=>{ const key=c*8+k; let r=cache.get(key); if(r!==undefined) return r;
+  const spread=(c,k)=>{ const key=c*16+k; let r=cache.get(key); if(r!==undefined) return r;
     const i=c%gx, j=(c-i)/gx, ll=LL(cx(i),cy(j)), v=simVent(W,k,ll[0],ll[1]); if(!v){ cache.set(key,null); return null; }
     let fu=ambMapa?simFuelDe(classe(c),cfg):cfg.fuel; if(!fu&&T[c]===0) fu=cfg.fuel;          // la ignició sempre crema (amb el combustible del panell si cau en no combustible)
     if(!fu){ cache.set(key,null); return null; }
@@ -6396,10 +6398,10 @@ async function focSimCalcula(){
   btn.disabled=true; btn.textContent='Carregant el model…'; inf.textContent='';
   let p=null; try{ const ix=await harIdx(model); if(harIdxOk(ix)) p=await harCarregaRun(ix.darrera||ix.runs[ix.runs.length-1],model); }catch(e){}
   if(!p){ inf.textContent='No hi ha cap passada publicada del model '+mi.curt+'.'; btn.disabled=false; btn.textContent=old; return; }
-  const now=Date.now(), idx=[]; p.hores.forEach((s,i)=>{ if(Date.parse(s)>now&&idx.length<6) idx.push(i); });
+  const NH=($('simDur')&&+$('simDur').value===12)?12:6, now=Date.now(), idx=[]; p.hores.forEach((s,i)=>{ if(Date.parse(s)>now&&idx.length<NH) idx.push(i); });
   if(idx.length<2){ inf.textContent='La passada '+p.run.slice(8,10)+'Z de '+mi.curt+' ja no cobreix les hores següents.'; btn.disabled=false; btn.textContent=old; return; }
   // caixa: la de previsió si n'hi ha; si no, ~12 km al voltant de la flama
-  let b=FD.prevBox; if(!b){ const dl=0.055, dn=dl/Math.cos(c.lat*Math.PI/180); b={lat0:c.lat-dl,lat1:c.lat+dl,lon0:c.lng-dn,lon1:c.lng+dn}; }
+  let b=FD.prevBox; if(!b){ const dl=NH>6?0.075:0.055, dn=dl/Math.cos(c.lat*Math.PI/180); b={lat0:c.lat-dl,lat1:c.lat+dl,lon0:c.lng-dn,lon1:c.lng+dn}; }
   const bbox=[b.lon0.toFixed(4),b.lat0.toFixed(4),b.lon1.toFixed(4),b.lat1.toFixed(4)].join(','), punts=[], n=3;
   for(let r=0;r<n;r++)for(let q=0;q<n;q++){ const lat=b.lat0+(b.lat1-b.lat0)*(r+0.5)/n, lon=b.lon0+(b.lon1-b.lon0)*(q+0.5)/n, s=harPuntSerie(p,lat,lon); if(!s.vent||!s.dir) continue;
     const h=idx.map(i=>s.dir[i]==null?null:[Math.round(s.vent[i]),Math.round(s.dir[i]),s.temp?+s.temp[i].toFixed(1):null,s.nuvol?Math.round(s.nuvol[i]):null]);
@@ -6413,7 +6415,7 @@ async function focSimCalcula(){
   if(!d){ btn.disabled=false; btn.textContent=old; return; }
   if(d.error==='running'){ inf.textContent='Ja hi ha un càlcul de vent en marxa (teu o d\'un company). Espera que acabe.'; btn.disabled=false; btn.textContent=old; return; }
   if(!d.ok){ inf.innerHTML='No s\'ha pogut llançar: '+_cmpEsc(d.error||'?')+(d.error==='punts'?' — el servidor d\'incendis encara no accepta simulacions (cal redesplegar el Worker).':''); btn.disabled=false; btn.textContent=old; return; }
-  inf.textContent='Simulació llançada: WindNinja calcula '+hores.length+' hores ('+mi.curt+' '+p.run.slice(8,10)+'Z). Sol tardar uns minuts…';
+  inf.textContent='Simulació llançada: WindNinja calcula '+hores.length+' hores ('+mi.curt+' '+p.run.slice(8,10)+'Z). '+(hores.length>6?'Amb 12 hores pot passar dels 10 minuts…':'Sol tardar uns minuts…');
   const t0=Date.now();
   for(let i=0;i<120;i++){
     btn.textContent='Calculant… '+Math.round((Date.now()-t0)/1000)+' s'; await sleep(10000);

@@ -590,7 +590,7 @@ def escriu_previsio_serie(out, mesh, dem_src, serie, diurn=False):
 
     serie: {"hores": [ISO UTC, ...], "punts": [{"lat","lon","h": [[vel,dir,temp,nuv], ...]}]}
     """
-    hores = [str(h) for h in (serie.get("hores") or [])][:8]
+    hores = [str(h) for h in (serie.get("hores") or [])][:12]
     punts = serie.get("punts") or []
     if not hores or not punts:
         raise SystemExit("la sèrie de previsió necessita 'hores' i 'punts'")
