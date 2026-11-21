@@ -6269,15 +6269,34 @@ function focSimPropaga(W,cfg){
     f.gir=prev?angDif(v0.dv,prev.dv):0; f.dvv=prev?(v0.vv-prev.vv):0; out.files.push(f); prev=v0; }
   return out;
 }
-// imatge de les isòcrones: una banda de color per hora; fins a l'hora triada, opaca; les posteriors, tènues
+// imatge de les isòcrones: el temps d'arribada s'interpola a ~6 m i després es classifica per hores, de manera que les
+// vores ixen suaus; una línia fina fosca separa cada hora i una de clara marca el front de l'hora triada.
 function focSimImatge(R,sel,nt){
-  const gx=R.gx, gy=R.gy, cv=document.createElement('canvas'); cv.width=gx; cv.height=gy; const c=cv.getContext('2d'), im=c.createImageData(gx,gy), d=im.data, cols=SIMCOLS.map(_hexRGB);
-  const K=new Uint8Array(gx*gy); for(let q=0;q<gx*gy;q++){ const t=R.T[q]; K[q]=(t===Infinity)?255:(t===0?0:Math.min(nt,Math.ceil(t/60))); }
-  for(let j=0;j<gy;j++)for(let i=0;i<gx;i++){ const q=j*gx+i, k=K[q]; if(k===255) continue; const o=q*4;
-    const vora=(i+1<gx&&K[q+1]!==k)||(j+1<gy&&K[q+gx]!==k)||(i>0&&K[q-1]===255)||(j>0&&K[q-gx]===255);
-    if(vora){ const fort=(k<=sel)||(K[q+1]<=sel)||(K[q+gx]<=sel); d[o]=2; d[o+1]=6; d[o+2]=23; d[o+3]=fort?235:110; continue; }
-    const col=cols[Math.min(k,cols.length-1)]; d[o]=col[0]; d[o+1]=col[1]; d[o+2]=col[2]; d[o+3]=(sel===0||k<=sel)?150:45; }
-  c.putImageData(im,0,0); return cv;
+  const gx=R.gx, gy=R.gy, T=R.T, tmax=nt*60; let i0=gx,i1=-1,j0=gy,j1=-1;
+  for(let j=0;j<gy;j++)for(let i=0;i<gx;i++){ if(T[j*gx+i]<=tmax){ if(i<i0)i0=i; if(i>i1)i1=i; if(j<j0)j0=j; if(j>j1)j1=j; } }
+  if(i1<0) return null;
+  i0=Math.max(0,i0-2); j0=Math.max(0,j0-2); i1=Math.min(gx-1,i1+2); j1=Math.min(gy-1,j1+2);
+  const w=i1-i0+1, h=j1-j0+1, up=Math.max(1,Math.min(4,Math.floor(1800/Math.max(w,h)))), W=w*up, H=h*up, FORA=tmax+90;
+  const val=(i,j)=>{ const t=T[j*gx+i]; return t===Infinity?FORA:t; }, V=new Float32Array(W*H), K=new Uint8Array(W*H);
+  for(let y=0;y<H;y++){ const gyf=Math.max(0,Math.min(h-1,(y+0.5)/up-0.5)), ja=Math.floor(gyf), jb=Math.min(h-1,ja+1), fy=gyf-ja;
+    for(let x=0;x<W;x++){ const gxf=Math.max(0,Math.min(w-1,(x+0.5)/up-0.5)), ia=Math.floor(gxf), ib=Math.min(w-1,ia+1), fx=gxf-ia;
+      const v=(val(i0+ia,j0+ja)*(1-fx)+val(i0+ib,j0+ja)*fx)*(1-fy)+(val(i0+ia,j0+jb)*(1-fx)+val(i0+ib,j0+jb)*fx)*fy;
+      V[y*W+x]=v; K[y*W+x]=v>tmax?255:(v<=0.01?0:Math.min(nt,Math.ceil(v/60))); } }
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d'), im=c.createImageData(W,H), d=im.data, cols=SIMCOLS.map(_hexRGB);
+  const dins=k=>k!==255&&(sel===0||k<=sel);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){ const q=y*W+x, k=K[q], o=q*4, kr=x+1<W?K[q+1]:k, kb=y+1<H?K[q+W]:k;
+    if(k===255&&kr===255&&kb===255) continue;
+    const front=(dins(k)!==dins(kr))||(dins(k)!==dins(kb));                 // límit de l'hora triada (o perímetre final)
+    if(front){ d[o]=255; d[o+1]=247; d[o+2]=205; d[o+3]=255; continue; }
+    if(k!==kr||k!==kb){ d[o]=2; d[o+1]=6; d[o+2]=23; d[o+3]=(dins(k)||dins(kr)||dins(kb))?215:120; continue; }   // isòcrona
+    const col=cols[Math.min(k,cols.length-1)]; d[o]=col[0]; d[o+1]=col[1]; d[o+2]=col[2]; d[o+3]=dins(k)?140:50; }
+  c.putImageData(im,0,0);
+  // el front de l'hora triada, una mica més gruixut: es repinta desplaçat un píxel
+  if(up>=2){ const t=document.createElement('canvas'); t.width=W; t.height=H; const tc=t.getContext('2d'), im2=tc.createImageData(W,H), e=im2.data;
+    for(let q=0;q<W*H;q++){ if(d[q*4]===255&&d[q*4+1]===247&&d[q*4+2]===205){ e[q*4]=255; e[q*4+1]=247; e[q*4+2]=205; e[q*4+3]=255; } }
+    tc.putImageData(im2,0,0); c.drawImage(t,1,0); c.drawImage(t,0,1); }
+  const fx=a=>R.nw[1]+(R.se[1]-R.nw[1])*a/gx, fy=a=>R.nw[0]+(R.se[0]-R.nw[0])*a/gy;
+  return {cv:cv, nw:[fy(j0),fx(i0)], se:[fy(j1+1),fx(i1+1)], up:up};
 }
 const FocSimLayer=L.Layer.extend({
   onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
@@ -6289,8 +6308,8 @@ const FocSimLayer=L.Layer.extend({
   _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
     const S=FD&&FD.sim; if(!S||!S.res) return; const R=S.res, sel=FD.simHour||0;
     if(!S.img||S.imgSel!==sel){ S.img=focSimImatge(R,sel,S.W.nt); S.imgSel=sel; }
-    const a=m.latLngToContainerPoint(R.nw), b=m.latLngToContainerPoint(R.se);
-    ctx.imageSmoothingEnabled=(b.x-a.x)/R.gx<1.5; ctx.drawImage(S.img,a.x,a.y,b.x-a.x,b.y-a.y);
+    if(S.img){ const a=m.latLngToContainerPoint(S.img.nw), b=m.latLngToContainerPoint(S.img.se);
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high'; ctx.drawImage(S.img.cv,a.x,a.y,b.x-a.x,b.y-a.y); }
     ctx.font='bold 10.5px system-ui,Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
     R.files.forEach(f=>{ if(!(f.dist>0)) return; const p=m.latLngToContainerPoint(f.capLL), t='+'+f.k+' h', w=ctx.measureText(t).width+8, on=(f.k===sel);
       ctx.fillStyle=on?'#fde68a':'rgba(2,6,23,.85)'; ctx.fillRect(p.x-w/2,p.y-8,w,15); ctx.fillStyle=on?'#111':SIMCOLS[Math.min(f.k,SIMCOLS.length-1)]; ctx.fillText(t,p.x,p.y); });
