@@ -1032,17 +1032,24 @@
       <div class="acc collapsed" id="accSim">
         <div class="acc-h">🧪 Simulació 6 h <span style="font-weight:700;font-size:10px;color:#0b1220;background:#fbbf24;border-radius:999px;padding:1px 7px;margin-left:4px">BETA</span> <span style="font-weight:400;font-size:11px;color:#94a3b8">· WindNinja hora a hora</span><span class="chev">▾</span></div>
         <div class="acc-b">
-          <p style="font-size:11px;color:#fbbf24;margin:0 0 8px;line-height:1.35">⚠️ <b>Versió beta.</b> Calcula el camp de vent WindNinja de les 6 hores següents amb el model triat i avança el front hora a hora (Rothermel de superfície, relleu de la caixa, humitat del combustible de cada hora). Combustible <b>únic</b>; sense focus secundaris, capçades ni extinció. Escenari per a decidir, no predicció.</p>
+          <p style="font-size:11px;color:#fbbf24;margin:0 0 8px;line-height:1.35">⚠️ <b>Versió beta.</b> Calcula el camp de vent WindNinja de les 6 hores següents amb el model triat i avança el front hora a hora (Rothermel de superfície, relleu de la caixa, humitat del combustible de cada hora). Combustible del <b>mapa oficial</b> on n'hi ha (Comunitat Valenciana); si no, <b>únic</b>. Sense focus secundaris, capçades ni extinció. Escenari per a decidir, no predicció.</p>
           <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
             <label style="font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:5px">Model
               <select id="simModel" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:3px 5px;font-size:11px"><option value="harmonie">HARMONIE</option><option value="arome">AROME</option><option value="icon">ICON-EU</option></select></label>
             <button class="btn small" id="simVerBtn" title="Compara els tres models amb les estacions a menys de 50 km de l'incendi: vent i direcció, des de mitjanit i última hora">📊 Quin model va millor a prop?</button>
           </div>
           <div id="simVer"></div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.35">Combustible, humitat del viu, factor de vent i FMd manual: els del panell «Con de propagació». Sense FMd manual, s'usa la del model hora a hora (AROME i ICON-EU; HARMONIE no porta humitat i agafa l'estació més pròxima). La caixa és la de «Previsió WindNinja» si n'hi ha; si no, uns 12 km al voltant de la flama. Si hi ha un perímetre vigent, la simulació en parteix.</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.35">Humitat del viu, factor de vent i FMd manual: els del panell «Con de propagació» (i el combustible, quan no hi ha mapa). Amb el mapa, la humitat del viu pesa molt en herba i matoll: 60 % = estiu sec, 90 % = primavera, 120 % = verd. Sense FMd manual, s'usa la del model hora a hora (AROME i ICON-EU; HARMONIE no porta humitat i agafa l'estació més pròxima). La caixa és la de «Previsió WindNinja» si n'hi ha; si no, uns 12 km al voltant de la flama. Si hi ha un perímetre vigent, la simulació en parteix.</div>
           <div class="row" style="gap:8px;margin-top:8px;align-items:center">
             <button class="btn small" id="simCalc" style="flex:1">▶ Calcular simulació (WindNinja × 6 h)</button>
           </div>
+          <div id="simFuelCtl" class="row" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:11px;color:#cbd5e1">
+            <label style="display:flex;align-items:center;gap:4px" title="Usa el model de combustible de cada punt del mapa oficial en lloc d'un combustible únic"><input type="checkbox" id="simMapa" checked> Combustible del mapa</label>
+            <label style="display:flex;align-items:center;gap:4px" title="El mapa dona l'agrícola com a no combustible. A l'estiu, rostolls i erms cremen: pots tractar-lo com a herba baixa (GR2)">Agrícola
+              <select id="simAgr" style="background:#0b1220;color:#e5e7eb;border:1px solid #334155;border-radius:6px;padding:2px 4px;font-size:11px"><option value="nb">no crema</option><option value="gr2">crema com a herba (GR2)</option></select></label>
+            <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="simFuelVeure"> Veure el mapa</label>
+          </div>
+          <div id="simFuelLeg" style="display:none;margin-top:5px;font-size:10.5px;color:#cbd5e1;line-height:1.7"></div>
           <div id="simInfo" style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4"></div>
           <div id="simSaved"></div>
           <div id="simCtl" class="row" style="display:none;gap:6px;align-items:center;margin-top:8px">
@@ -5562,19 +5569,38 @@ const FUELS13={
   12:{nom:'12 · Restes mitjanes',               w:[4.01,14.03,16.53,0,0],sav:1500,savL:1500,d:2.3,mx:20},
   13:{nom:'13 · Restes pesades',                w:[7.01,23.04,28.05,0,0],sav:1500,savL:1500,d:3.0,mx:25},
 };
+const FUELS_SB={
+  1:{codi:'GR2',nom:'GR2 · herba baixa, càrrega baixa',w:[0.1,0,0,1,0],sav:2000,savH:1800,savL:1600,d:1,mx:15,dyn:true,col:'#fef08a'},
+  2:{codi:'GR4',nom:'GR4 · herba mitjana',w:[0.25,0,0,1.9,0],sav:2000,savH:1800,savL:1600,d:2,mx:15,dyn:true,col:'#fde047'},
+  3:{codi:'GR7',nom:'GR7 · herba alta, càrrega alta',w:[1,0,0,5.4,0],sav:2000,savH:1800,savL:1600,d:3,mx:15,dyn:true,col:'#facc15'},
+  4:{codi:'GR8',nom:'GR8 · herba molt alta (canyar)',w:[0.5,1,0,7.3,0],sav:1500,savH:1300,savL:1600,d:4,mx:30,dyn:true,col:'#ca8a04'},
+  5:{codi:'SB3',nom:'SB3 · restes de tallada o ventada',w:[5.5,2.75,3,0,0],sav:2000,savH:1800,savL:1600,d:1.2,mx:25,dyn:false,col:'#a8a29e'},
+  6:{codi:'SH1',nom:'SH1 · matoll baix i clar',w:[0.25,0.25,0,0.15,1.3],sav:2000,savH:1800,savL:1600,d:1,mx:15,dyn:true,col:'#fed7aa'},
+  7:{codi:'SH3',nom:'SH3 · matoll mitjà, humit',w:[0.45,3,0,0,6.2],sav:1600,savH:1800,savL:1400,d:2.4,mx:40,dyn:false,col:'#fdba74'},
+  8:{codi:'SH4',nom:'SH4 · matoll baix-mitjà',w:[0.85,1.15,0.2,0,2.55],sav:2000,savH:1800,savL:1600,d:3,mx:30,dyn:false,col:'#fb923c'},
+  9:{codi:'SH5',nom:'SH5 · matoll alt, càrrega alta',w:[3.6,2.1,0,1.55,2.9],sav:750,savH:1800,savL:1600,d:6,mx:15,dyn:false,col:'#ea580c'},
+  10:{codi:'SH9',nom:'SH9 · matoll molt alt i dens',w:[4.5,2.45,0,0.2,7],sav:750,savH:1800,savL:1500,d:4.4,mx:40,dyn:true,col:'#9a3412'},
+  11:{codi:'TU1',nom:'TU1 · sotabosc lleuger amb herba i matoll',w:[0.2,0.9,1.5,0,0.9],sav:2000,savH:1800,savL:1600,d:0.6,mx:20,dyn:true,col:'#bbf7d0'},
+  12:{codi:'TU2',nom:'TU2 · sotabosc moderat',w:[0.95,1.8,1.25,0.65,0.2],sav:2000,savH:1800,savL:1600,d:1,mx:30,dyn:false,col:'#4ade80'},
+  13:{codi:'TU3',nom:'TU3 · sotabosc amb herba i matoll',w:[1.1,0.15,0.25,0,1.1],sav:1800,savH:1600,savL:1400,d:1.3,mx:30,dyn:true,col:'#16a34a'},
+  14:{codi:'TU5',nom:'TU5 · sotabosc molt carregat',w:[4,4,3,0,3],sav:1500,savH:1800,savL:750,d:1,mx:25,dyn:false,col:'#14532d'}
+};
 // Rothermel amb ponderació d'Albini per classes. Entrades: fuel (FUELS13), mdead=[m1h,m10h,m100h] (fracció), mlive (fracció),
 // Umid = vent a mitja flama (m/s), slope = tan(pendent) en la direcció del vent... es combinen com a vectors (vegeu conCalcula).
 function rothermel(fuel, mdead, mlive, Umid_ms, tanSlope){
   const TPA=2000/43560;                                   // t/ac -> lb/ft²
-  const w0=fuel.w.map(x=>x*TPA);                          // [1h,10h,100h,herb,llenyós]
-  const sav=[fuel.sav,109,30,fuel.savL,fuel.savL];
-  const M=[mdead[0],mdead[1],mdead[2],mlive,mlive];
+  // Models DINÀMICS (Scott & Burgan 2005): una part de l'herbaci viu passa a mort segons la seua humitat
+  // (120 % → res curat; 30 % → tot curat) i crema amb la humitat de l'1 h. Als 13 d'Anderson (dyn absent) no canvia res.
+  const cur=fuel.dyn?Math.max(0,Math.min(1,(1.2-mlive)/0.9)):0, savH=fuel.savH||fuel.savL;
+  const w0=[fuel.w[0],fuel.w[1],fuel.w[2],fuel.w[3]*cur,fuel.w[3]*(1-cur),fuel.w[4]].map(x=>x*TPA);   // [1h,10h,100h,herb curat | herb viu, llenyós viu]
+  const sav=[fuel.sav,109,30,savH,savH,fuel.savL];
+  const M=[mdead[0],mdead[1],mdead[2],mdead[0],mlive,mlive];
   const h=8000, rp=32, ST=0.0555, SE=0.010;
-  const cat=[[0,1,2],[3,4]];                              // mort / viu
+  const cat=[[0,1,2,3],[4,5]];                            // mort / viu
   const A=w0.map((w,j)=>sav[j]*w/rp);
   const Ai=cat.map(ix=>ix.reduce((a,j)=>a+A[j],0)), AT=Ai[0]+Ai[1];
   if(AT<=0) return null;
-  const f=w0.map((w,j)=>{ const i=j<3?0:1; return Ai[i]>0?A[j]/Ai[i]:0; });
+  const f=w0.map((w,j)=>{ const i=j<4?0:1; return Ai[i]>0?A[j]/Ai[i]:0; });
   const fi=Ai.map(a=>a/AT);
   const sigI=cat.map((ix,i)=>ix.reduce((a,j)=>a+f[j]*sav[j],0));
   const sig=fi[0]*sigI[0]+fi[1]*sigI[1];
@@ -6175,7 +6201,8 @@ async function verifObre(){
 // 2) El foc es propaga per temps mínim d'arribada sobre una malla de 25 m (vegeu focSimPropaga).
 // Límits: combustible únic, foc de superfície, sense focus secundaris, capçades ni extinció. Eina d'escenaris.
 const SIMCOLS=['#ffffff','#fde047','#fbbf24','#fb923c','#f97316','#ef4444','#b91c1c','#7f1d1d','#450a0a'];
-function focSimDecode(p){ const W=decodeVentHores(p); W.nt=(p.t||[]).length||1;
+async function focSimDecode(p){ const W=decodeVentHores(p); W.nt=(p.t||[]).length||1;
+  if(p.fuel&&p.fuel.gz){ try{ const u=await gunzipB64(p.fuel.gz); if(u.length===p.fuel.nx*p.fuel.ny) W.fuel={nx:p.fuel.nx,ny:p.fuel.ny,c:u,font:p.fuel.font||''}; }catch(e){} }
   if(p.dem){ try{ const b=_b64u8(p.dem); W.dem=new Int16Array(b.buffer,b.byteOffset,b.length>>1); if(W.dem.length!==W.nx*W.ny) W.dem=null; }catch(e){ W.dem=null; } }
   return W; }
 function simIJ(W,lat,lon){ const B=W.bbox, i=Math.round((lon-B[0])/((B[1]-B[0])/(W.nx-1))), j=Math.round((B[3]-lat)/((B[3]-B[2])/(W.ny-1)));
@@ -6190,8 +6217,13 @@ function simPendent(W,lat,lon){ if(!W.dem) return null; const B=W.bbox, nx=W.nx,
 // Propagació per TEMPS MÍNIM D'ARRIBADA sobre una malla de 25 m (Dijkstra amb 16 veïns): de cada cel·la cremada el foc
 // passa a les veïnes amb la velocitat de l'el·lipse de Rothermel en eixa direcció, amb el vent WindNinja de l'hora en
 // curs, el pendent del relleu i la FMd de l'hora. Dona isòcrones netes encara que el vent gire (sense plecs del front).
-// cfg: {lat0,lon0,fuel,ml,waf,fmdH:[% per hora],perim0:[{lat,lng}]|null,pend0:{tan,aspectUp}}
+// cfg: {lat0,lon0,fuel,ml,waf,fmdH:[% per hora],perim0:[{lat,lng}]|null,pend0:{tan,aspectUp},mapa:bool,agr:'nb'|'gr2'}
+// Amb cfg.mapa i W.fuel (classes del mapa regional: 1..14 Scott & Burgan, 15 no combustible, 16 agrícola), cada cel·la crema
+// amb el seu model; 15 no crema; 16 segons cfg.agr; 0 (sense dada) usa el combustible del panell.
 const SIM_CS=25;
+function simFuelClasse(W,lat,lon){ const F=W.fuel; if(!F) return 0; const B=W.bbox, i=Math.floor((lon-B[0])/(B[1]-B[0])*F.nx), j=Math.floor((B[3]-lat)/(B[3]-B[2])*F.ny);
+  return (i<0||j<0||i>=F.nx||j>=F.ny)?0:F.c[j*F.nx+i]; }
+function simFuelDe(k,cfg){ if(k>=1&&k<=14) return FUELS_SB[k]; if(k===15) return null; if(k===16) return cfg.agr==='gr2'?FUELS_SB[1]:null; return cfg.fuel; }
 function focSimPropaga(W,cfg){
   const B=W.bbox, MLAT=111320, MLON=111320*Math.cos(cfg.lat0*Math.PI/180), cs=SIM_CS;
   const x0=(B[0]-cfg.lon0)*MLON, y1=(B[3]-cfg.lat0)*MLAT, gx=Math.max(4,Math.min(900,Math.floor((B[1]-B[0])*MLON/cs))), gy=Math.max(4,Math.min(900,Math.floor((B[3]-B[2])*MLAT/cs)));
@@ -6209,23 +6241,30 @@ function focSimPropaga(W,cfg){
   const io=Math.max(0,Math.min(gx-1,Math.floor((0-x0)/cs))), jo=Math.max(0,Math.min(gy-1,Math.floor((y1-0)/cs)));
   if(!n0){ T[jo*gx+io]=0; push(0,jo*gx+io); n0=1; }
   const NB=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1],[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]].map(d=>{ const dx=d[0]*cs, dy=-d[1]*cs; return {di:d[0],dj:d[1],dist:Math.hypot(dx,dy),bear:Math.atan2(dx,dy)}; });
-  const mdH=cfg.fmdH.map(f=>{ const m1=Math.max(0.02,Math.min(0.35,f/100)); return [m1,m1+0.01,m1+0.02]; }), cache=new Map();
+  const mdH=cfg.fmdH.map(f=>{ const m1=Math.max(0.02,Math.min(0.35,f/100)); return [m1,m1+0.01,m1+0.02]; }), cache=new Map(), ambMapa=!!(cfg.mapa&&W.fuel);
+  const FC=ambMapa?new Uint8Array(gx*gy).fill(255):null;      // classe de combustible de cada cel·la (255 = encara no mirada)
+  const classe=c=>{ if(!FC) return 0; let k=FC[c]; if(k===255){ const i=c%gx, j=(c-i)/gx, ll=LL(cx(i),cy(j)); k=simFuelClasse(W,ll[0],ll[1]); FC[c]=k; } return k; };
   const spread=(c,k)=>{ const key=c*8+k; let r=cache.get(key); if(r!==undefined) return r;
     const i=c%gx, j=(c-i)/gx, ll=LL(cx(i),cy(j)), v=simVent(W,k,ll[0],ll[1]); if(!v){ cache.set(key,null); return null; }
-    const pe=simPendent(W,ll[0],ll[1])||cfg.pend0, q=conCalcula(cfg.fuel,mdH[k],cfg.ml,v.vv/3.6*cfg.waf,v.dv,pe.tan,pe.aspectUp);
+    let fu=ambMapa?simFuelDe(classe(c),cfg):cfg.fuel; if(!fu&&T[c]===0) fu=cfg.fuel;          // la ignició sempre crema (amb el combustible del panell si cau en no combustible)
+    if(!fu){ cache.set(key,null); return null; }
+    const pe=simPendent(W,ll[0],ll[1])||cfg.pend0, q=conCalcula(fu,mdH[k],cfg.ml,v.vv/3.6*cfg.waf,v.dv,pe.tan,pe.aspectUp);
     r=q?{R:q.R_mmin, e:Math.sqrt(Math.max(0,1-1/(q.LB*q.LB))), d:q.dir*Math.PI/180}:null; cache.set(key,r); return r; };
   let vora=false;
   while(ht.length){ const tc=pop(), t=tc[0], c=tc[1]; if(t>T[c]) continue; if(t>=tmax) break;
     const k=Math.min(W.nt-1,Math.floor(t/60)), r=spread(c,k); if(!r||!(r.R>0)) continue; const i=c%gx, j=(c-i)/gx;
     for(let a=0;a<16;a++){ const nb=NB[a], i2=i+nb.di, j2=j+nb.dj; if(i2<0||j2<0||i2>=gx||j2>=gy){ vora=true; continue; }
-      const sp=r.R*(1-r.e)/(1-r.e*Math.cos(nb.bear-r.d)), t2=t+nb.dist/sp, c2=j2*gx+i2; if(t2<T[c2]&&t2<=tmax){ T[c2]=t2; push(t2,c2); } } }
+      const c2=j2*gx+i2; if(ambMapa&&!simFuelDe(classe(c2),cfg)) continue;                      // la veïna no és combustible
+      const sp=r.R*(1-r.e)/(1-r.e*Math.cos(nb.bear-r.d)), t2=t+nb.dist/sp; if(t2<T[c2]&&t2<=tmax){ T[c2]=t2; push(t2,c2); } } }
   // resum per hora
-  const out={T:T,gx:gx,gy:gy,cs:cs,nw:LL(x0,y1),se:LL(x0+gx*cs,y1-gy*cs),files:[],vora:vora,ha0:n0*cs*cs/10000}; let prev=null;
+  const out={T:T,gx:gx,gy:gy,cs:cs,nw:LL(x0,y1),se:LL(x0+gx*cs,y1-gy*cs),files:[],vora:vora,ha0:n0*cs*cs/10000,ambMapa:ambMapa,comb:null}; let prev=null;
+  const fu0=(ambMapa&&simFuelDe(classe(jo*gx+io),cfg))||cfg.fuel; out.fuel0=fu0;
+  if(ambMapa){ const hc=new Array(17).fill(0); let tot=0; for(let c=0;c<T.length;c++){ if(T[c]!==Infinity&&T[c]>0){ hc[classe(c)]++; tot++; } } out.comb=hc.map((n,k)=>({k:k,n:n,pc:tot?100*n/tot:0})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n); }
   const cnt=new Array(W.nt+1).fill(0), far=[]; for(let k=0;k<=W.nt;k++) far.push({d:-1,x:0,y:0});
   for(let c=0;c<T.length;c++){ const t=T[c]; if(t===Infinity) continue; const k=Math.max(1,Math.ceil(t/60)); if(k>W.nt) continue; cnt[t===0?0:k]++; const i=c%gx, j=(c-i)/gx, x=cx(i), y=cy(j), d=Math.hypot(x,y); const kk=t===0?0:k; if(d>far[kk].d) far[kk]={d:d,x:x,y:y}; }
   let acum=cnt[0], fm={d:far[0].d,x:far[0].x,y:far[0].y};
   for(let k=0;k<W.nt;k++){ acum+=cnt[k+1]; if(far[k+1].d>fm.d) fm=far[k+1];
-    const v0=simVent(W,k,cfg.lat0,cfg.lon0)||{vv:0,dv:0}, p0=simPendent(W,cfg.lat0,cfg.lon0)||cfg.pend0, r0=conCalcula(cfg.fuel,mdH[k],cfg.ml,v0.vv/3.6*cfg.waf,v0.dv,p0.tan,p0.aspectUp);
+    const v0=simVent(W,k,cfg.lat0,cfg.lon0)||{vv:0,dv:0}, p0=simPendent(W,cfg.lat0,cfg.lon0)||cfg.pend0, r0=conCalcula(fu0,mdH[k],cfg.ml,v0.vv/3.6*cfg.waf,v0.dv,p0.tan,p0.aspectUp);
     const f={k:k+1,t:W.t[k],vv:v0.vv,dv:v0.dv,fmd:cfg.fmdH[k],R:r0?r0.R_mmin:0,dir:r0?r0.dir:null,I:r0?r0.I_kWm:0,dist:Math.max(0,fm.d),rumb:(Math.atan2(fm.x,fm.y)*180/Math.PI+360)%360,ha:acum*cs*cs/10000,capLL:LL(fm.x,fm.y)};
     f.gir=prev?angDif(v0.dv,prev.dv):0; f.dvv=prev?(v0.vv-prev.vv):0; out.files.push(f); prev=v0; }
   return out;
@@ -6257,6 +6296,29 @@ const FocSimLayer=L.Layer.extend({
       ctx.fillStyle=on?'#fde68a':'rgba(2,6,23,.85)'; ctx.fillRect(p.x-w/2,p.y-8,w,15); ctx.fillStyle=on?'#111':SIMCOLS[Math.min(f.k,SIMCOLS.length-1)]; ctx.fillText(t,p.x,p.y); });
   }
 });
+const SIMFCOL={15:'#64748b',16:'#e7e5e4'};
+function focSimFuelImatge(W){ const F=W.fuel, cv=document.createElement('canvas'); cv.width=F.nx; cv.height=F.ny; const c=cv.getContext('2d'), im=c.createImageData(F.nx,F.ny), d=im.data, pal={};
+  for(let k=1;k<=14;k++) pal[k]=_hexRGB(FUELS_SB[k].col); pal[15]=_hexRGB(SIMFCOL[15]); pal[16]=_hexRGB(SIMFCOL[16]);
+  for(let q=0;q<F.c.length;q++){ const p=pal[F.c[q]]; if(!p) continue; d[q*4]=p[0]; d[q*4+1]=p[1]; d[q*4+2]=p[2]; d[q*4+3]=F.c[q]===15?150:215; }
+  c.putImageData(im,0,0); return cv; }
+const FocFuelLayer=L.Layer.extend({
+  onAdd:function(m){this._m=m;const c=this._c=L.DomUtil.create('canvas','');c.style.position='absolute';c.style.pointerEvents='none';
+    const s=m.getSize();c.width=s.x;c.height=s.y;m.getPanes().overlayPane.appendChild(c);
+    m.on('moveend zoomend resize',this._rs,this);this._rs();},
+  onRemove:function(m){L.DomUtil.remove(this._c);m.off('moveend zoomend resize',this._rs,this);},
+  redraw:function(){if(this._m)this._rs();},
+  _rs:function(){const m=this._m,s=m.getSize(),tl=m.containerPointToLayerPoint([0,0]);L.DomUtil.setPosition(this._c,tl);this._c.width=s.x;this._c.height=s.y;this._dr();},
+  _dr:function(){const ctx=this._c.getContext('2d'),m=this._m,s=m.getSize();ctx.clearRect(0,0,s.x,s.y);
+    const S=FD&&FD.sim; if(!S||!S.W.fuel||!FD.simFuelOn) return; if(!S.fimg) S.fimg=focSimFuelImatge(S.W);
+    const B=S.W.bbox, a=m.latLngToContainerPoint([B[3],B[0]]), b=m.latLngToContainerPoint([B[2],B[1]]);
+    ctx.imageSmoothingEnabled=false; ctx.globalAlpha=0.8; ctx.drawImage(S.fimg,a.x,a.y,b.x-a.x,b.y-a.y); ctx.globalAlpha=1; }
+});
+function focSimFuelVeure(on){ if(!FD) return; FD.simFuelOn=!!on; const S=FD.sim, leg=$('simFuelLeg');
+  if(on&&S&&S.W.fuel){ if(!FD.simFuelLayer){ FD.simFuelLayer=new FocFuelLayer(); FD.simFuelLayer.addTo(FD.map); if(FD.simLayer){ FD.map.removeLayer(FD.simLayer); FD.simLayer.addTo(FD.map); } } else FD.simFuelLayer.redraw();
+    const hi={}; S.W.fuel.c.forEach(k=>{ hi[k]=(hi[k]||0)+1; }); const sw=(col,t)=>'<span style="white-space:nowrap;margin-right:9px"><i style="display:inline-block;width:11px;height:11px;background:'+col+';border:1px solid #334155;vertical-align:-1px;margin-right:3px"></i>'+t+'</span>';
+    let h=''; for(let k=1;k<=14;k++) if(hi[k]) h+=sw(FUELS_SB[k].col,FUELS_SB[k].nom); if(hi[15]) h+=sw(SIMFCOL[15],'no combustible'); if(hi[16]) h+=sw(SIMFCOL[16],'agrícola');
+    leg.innerHTML=h+'<br><span style="color:#94a3b8">'+_cmpEsc(S.W.fuel.font||'')+'</span>'; leg.style.display='block'; }
+  else { if(FD.simFuelLayer) FD.simFuelLayer.redraw(); if(leg) leg.style.display='none'; } }
 function focSimRuns(){ return ((FD&&FD.runs)||[]).filter(r=>r.sim&&Array.isArray(r.sim.hores)).sort((a,b)=>(b.ts||0)-(a.ts||0)); }
 function focSimRenderSaved(){
   const box=$('simSaved'); if(!box||!FD) return; const R=focSimRuns();
@@ -6268,7 +6330,7 @@ function focSimRenderSaved(){
 async function focSimMostra(rid){
   if(!FD) return; const r=FD.runs.find(x=>x.rid===rid); if(!r) return; const inf=$('simInfo'); inf.textContent='Carregant els camps de vent…';
   FD.simCache=FD.simCache||{}; let W=FD.simCache[rid];
-  if(!W){ try{ const d=await workerJSON({accio:'run_get',rid:rid}); if(!(d&&d.ok&&d.enc)) throw new Error('no s\'ha pogut llegir la correguda'); W=focSimDecode(await desxifra(JSON.parse(d.enc),PASS)); FD.simCache[rid]=W; }
+  if(!W){ try{ const d=await workerJSON({accio:'run_get',rid:rid}); if(!(d&&d.ok&&d.enc)) throw new Error('no s\'ha pogut llegir la correguda'); W=await focSimDecode(await desxifra(JSON.parse(d.enc),PASS)); FD.simCache[rid]=W; }
     catch(e){ inf.textContent='No s\'ha pogut carregar: '+(e&&e.message||e); return; } }
   const c0=FD.centre; FD.sim={rid:rid,r:r,W:W,res:null}; await focSimRecalcula();
   FD.prevActiveRid=rid; FD.runData=W; FD.runIdx=FD.runs.indexOf(r); focSimHora(1);
@@ -6284,11 +6346,12 @@ async function focSimRecalcula(){
   const fmdH=[]; for(let k=0;k<W.nt;k++){ let v=null; if(man!=null){ v=man; font='manual'; } else { const q=fl[k]; if(q&&q[0]!=null&&q[1]!=null){ v=fmdDe(q[0],q[1]); font='model (Tª i HR hora a hora)'; } }
     if(v==null){ v=est.fmd; font=font||('constant · '+est.font); } fmdH.push(v); }
   const pv=focPerimVigent(), perim0=(pv&&pv.pts&&pv.pts.length>=3)?pv.pts:null;
-  S.cfg={lat0:c.lat,lon0:c.lng,fuel:fuel,ml:ml,waf:waf,fmdH:fmdH,perim0:perim0,pend0:pend0,fmdFont:font};
+  const teMapa=!!W.fuel; $('simFuelCtl').style.display=teMapa?'flex':'none'; if(!teMapa){ $('simFuelLeg').style.display='none'; }
+  S.cfg={lat0:c.lat,lon0:c.lng,fuel:fuel,ml:ml,waf:waf,fmdH:fmdH,perim0:perim0,pend0:pend0,fmdFont:font,mapa:teMapa&&$('simMapa').checked,agr:$('simAgr').value};
   S.res=focSimPropaga(W,S.cfg); S.img=null;
   if(!FD.simLayer){ FD.simLayer=new FocSimLayer(); FD.simLayer.addTo(FD.map); } else FD.simLayer.redraw();
   $('simCtl').style.display='flex'; $('simHour').max=W.nt; focSimTaula();
-  inf.innerHTML='<b style="color:#fbbf24">BETA</b> · '+_cmpEsc(S.r.model||'')+(S.r.mrun?(' '+S.r.mrun.slice(8,10)+'Z'):'')+' · '+fuel.nom+' · viu '+Math.round(ml*100)+' % · vent a mitja flama ×'+waf+' · FMd: '+font+' · '+(W.dem?'pendent del relleu a cada punt del front':'<span style="color:#fca5a5">sense relleu al fitxer: pendent únic del punt d\'inici</span>')+' · inici: '+(perim0?'perímetre vigent':'punt de la flama')+(S.res.vora?' · <span style="color:#fca5a5">el foc arriba al límit de la caixa de vent: fes-la més gran per veure\'n la resta</span>':'');
+  inf.innerHTML='<b style="color:#fbbf24">BETA</b> · '+_cmpEsc(S.r.model||'')+(S.r.mrun?(' '+S.r.mrun.slice(8,10)+'Z'):'')+' · '+(S.res.ambMapa?('<b>combustible del mapa</b> ('+_cmpEsc((W.fuel.font||'mapa regional').replace(/\s*\(CC BY\)/,''))+'; agrícola: '+(S.cfg.agr==='gr2'?'crema com a GR2':'no crema')+'; a l\'inici: '+_cmpEsc(S.res.fuel0.codi||S.res.fuel0.nom)+')'):('combustible únic: '+fuel.nom))+' · viu '+Math.round(ml*100)+' % · vent a mitja flama ×'+waf+' · FMd: '+font+' · '+(W.dem?'pendent del relleu a cada punt del front':'<span style="color:#fca5a5">sense relleu al fitxer: pendent únic del punt d\'inici</span>')+' · inici: '+(perim0?'perímetre vigent':'punt de la flama')+(S.res.vora?' · <span style="color:#fca5a5">el foc arriba al límit de la caixa de vent: fes-la més gran per veure\'n la resta</span>':'');
 }
 function focSimTaula(){
   const S=FD&&FD.sim; if(!S||!S.res) return; const sel=FD.simHour||0, hf=ms=>new Date(ms).toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'})+' h';
@@ -6299,12 +6362,13 @@ function focSimTaula(){
       +'<td style="text-align:center'+(f.fmd<8?';color:#fde047':'')+'">'+f.fmd.toFixed(1)+' %</td>'
       +'<td style="text-align:center">'+f.R.toFixed(1)+' m/min'+(f.dir!=null?(' → '+harDeg2Nom(f.dir)):'')+(f.I>4000?' <span style="color:#f87171" title="Intensitat molt alta: possible foc de capçades, fora de l\'abast del model">⚠</span>':'')+'</td>'
       +'<td style="text-align:center">'+(f.dist/1000).toFixed(2)+' km '+harDeg2Nom(f.rumb)+'</td><td style="text-align:center">'+(f.ha>=10?Math.round(f.ha):f.ha.toFixed(1))+' ha</td></tr>'; });
-  $('simTaula').innerHTML=h+'</table><div style="font-size:10.5px;color:#94a3b8;margin-top:4px">Vent, FMd i velocitat del cap: al punt d\'inici. Avanç: distància màxima del front des de l\'inici i cap on. ↻ gir ≥ 45° · ▲▼ canvi ≥ 10 km/h respecte de l\'hora anterior.</div>';
+  const nomC=k=>k>=1&&k<=14?FUELS_SB[k].codi:(k===15?'no combustible':(k===16?'agrícola':'sense dada')); const cb=S.res.comb?('<div style="font-size:11px;color:#cbd5e1;margin-top:5px">Cremat a +'+S.W.nt+' h per combustible: '+S.res.comb.slice(0,6).map(x=>'<b>'+nomC(x.k)+'</b> '+Math.round(x.pc)+' %').join(' · ')+'</div>'):'';
+  $('simTaula').innerHTML=h+'</table>'+cb+'<div style="font-size:10.5px;color:#94a3b8;margin-top:4px">Vent, FMd i velocitat del cap: al punt d\'inici. Avanç: distància màxima del front des de l\'inici i cap on. ↻ gir ≥ 45° · ▲▼ canvi ≥ 10 km/h respecte de l\'hora anterior.</div>';
 }
 function focSimHora(k){ const S=FD&&FD.sim; if(!S||!S.res) return; k=Math.max(0,Math.min(S.W.nt,+k||0)); FD.simHour=k; FD.runHour=Math.max(0,k-1);
   $('simHour').value=k; const f=S.res.files[k-1]; $('simLbl').textContent=k?('+'+k+' h · '+new Date(f.t).toLocaleString('ca-ES',{weekday:'short',hour:'2-digit'})+' h'):'inici';
   if(FD.ventLayer) FD.ventLayer.redraw(); if(FD.simLayer) FD.simLayer.redraw(); focSimTaula(); }
-function focSimAmaga(){ if(!FD) return; FD.sim=null; FD.simHour=0; FD.runHour=0; if(FD.simLayer) FD.simLayer.redraw(); $('simCtl').style.display='none'; $('simTaula').innerHTML=''; $('simInfo').textContent='';
+function focSimAmaga(){ if(!FD) return; FD.sim=null; FD.simFuelOn=false; if(FD.simFuelLayer) FD.simFuelLayer.redraw(); if($('simFuelVeure')) $('simFuelVeure').checked=false; if($('simFuelCtl')) $('simFuelCtl').style.display='none'; if($('simFuelLeg')) $('simFuelLeg').style.display='none'; FD.simHour=0; FD.runHour=0; if(FD.simLayer) FD.simLayer.redraw(); $('simCtl').style.display='none'; $('simTaula').innerHTML=''; $('simInfo').textContent='';
   if(typeof focPrevOculta==='function') focPrevOculta(); focSimRenderSaved(); }
 async function focSimCalcula(){
   if(!FD) return; const c=FD.centre; if(!c){ alert('Cal la flama de l\'incendi al mapa.'); return; }
@@ -6340,7 +6404,7 @@ async function focSimCalcula(){
     btn.textContent='Desant…'; let enc=null;
     for(let k=0;k<8;k++){ const zf=await workerJSON({accio:'zona_fitxer'}); if(zf&&zf.ok&&zf.enc){ enc=zf.enc; break; } await sleep(4000); }
     if(!enc){ inf.textContent='El càlcul ha anat bé però no s\'ha pogut llegir el fitxer. Torna a provar en un minut.'; fi('no s\'ha pogut desar',7000); return; }
-    let nt=1; try{ const W=focSimDecode(await desxifra(JSON.parse(enc),PASS)); nt=W.nt; }catch(e){}
+    let nt=1; try{ const W=await focSimDecode(await desxifra(JSON.parse(enc),PASS)); nt=W.nt; }catch(e){}
     if(nt<2){ inf.textContent='El fitxer només porta una hora: el workflow de WindNinja del repositori encara és l\'antic. Puja els fitxers nous i torna a provar.'; fi('✗ workflow antic',7000); return; }
     const f=FD.foc, meta={ts:Date.now(),bbox:bbox,obs:hores[0],malla:100,tipus:'previsio',hora:hores[0],nom:'Simulació '+hores.length+' h',model:mi.curt,mrun:p.run,
       punts:punts.map(x=>({lat:x.lat,lon:x.lon,vel:x.h[0][0],dir:x.h[0][1],temp:x.h[0][2],nuv:x.h[0][3]})), sim:{hores:hores,fl:fl}};
@@ -6374,6 +6438,8 @@ async function focSimVerif(){
   if($('simRecalc')) $('simRecalc').onclick=async()=>{ await focSimRecalcula(); focSimHora(FD.simHour||1); };
   if($('simHour')) $('simHour').oninput=()=>focSimHora($('simHour').value);
   if($('simPrev')) $('simPrev').onclick=()=>focSimHora((FD.simHour||0)-1); if($('simNext')) $('simNext').onclick=()=>focSimHora((FD.simHour||0)+1);
+  ['simMapa','simAgr'].forEach(id=>{ if($(id)) $(id).onchange=async()=>{ if(FD&&FD.sim){ await focSimRecalcula(); focSimHora(FD.simHour||1); } }; });
+  if($('simFuelVeure')) $('simFuelVeure').onchange=()=>focSimFuelVeure($('simFuelVeure').checked);
   if($('simSaved')) $('simSaved').onclick=e=>{ const ch=e.target.closest('.simChip'); if(ch) focSimMostra(ch.dataset.rid); };
   if($('simTaula')) $('simTaula').onclick=e=>{ const tr=e.target.closest('.simFila'); if(tr) focSimHora(+tr.dataset.k); }; })();
 // ====== EXPLORADOR DE PREVISIÓ (pestanya Previsió): clic al mapa -> meteograma + acumulats + taula ======

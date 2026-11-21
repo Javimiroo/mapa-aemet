@@ -104,7 +104,44 @@ def utm_epsg(lon, lat):
     return (32600 if lat >= 0 else 32700) + z
 
 
-def converteix(dirpath, bbox, nx=None, ny=None, estacions=None, dem=None):
+def mostreja_combustible(path, bbox, pas_m=20.0, maxn=900):
+    """Classes de combustible (uint8) del ràster regional (combustible_prep.py) a la caixa, en una graella
+    lat/lon regular d'uns 20 m (nord primer). Torna {nx, ny, gz} amb les dades comprimides en gzip+base64."""
+    try:
+        import gzip
+        import rasterio
+        lon0, lat0, lon1, lat1 = bbox
+        latm = 0.5 * (lat0 + lat1)
+        fx = int(min(maxn, max(8, round((lon1 - lon0) * 111320.0 * math.cos(math.radians(latm)) / pas_m))))
+        fy = int(min(maxn, max(8, round((lat1 - lat0) * 111320.0 / pas_m))))
+        lons = lon0 + (np.arange(fx) + 0.5) * (lon1 - lon0) / fx
+        lats = lat1 - (np.arange(fy) + 0.5) * (lat1 - lat0) / fy
+        LON, LAT = np.meshgrid(lons, lats)
+        with rasterio.open(path) as ds:
+            tf = Transformer.from_crs("EPSG:4326", ds.crs, always_xy=True)
+            X, Y = tf.transform(LON, LAT)
+            c = np.floor((X - ds.transform.c) / ds.transform.a).astype(int)
+            r = np.floor((Y - ds.transform.f) / ds.transform.e).astype(int)
+            ok = (c >= 0) & (c < ds.width) & (r >= 0) & (r < ds.height)
+            if not ok.any():
+                return None
+            c0, c1, r0, r1 = int(c[ok].min()), int(c[ok].max()), int(r[ok].min()), int(r[ok].max())
+            from rasterio.windows import Window
+            a = ds.read(1, window=Window(c0, r0, c1 - c0 + 1, r1 - r0 + 1))
+            out = np.zeros((fy, fx), np.uint8)
+            out[ok] = a[r[ok] - r0, c[ok] - c0]
+            font = ds.tags().get("font", "")
+        if not out.any():
+            return None
+        v, n = np.unique(out, return_counts=True)
+        print("  combustible afegit: %dx%d · classes %s" % (fx, fy, ", ".join("%d:%d%%" % (int(a_), round(100.0 * b_ / out.size)) for a_, b_ in zip(v, n))))
+        return {"nx": fx, "ny": fy, "gz": base64.b64encode(gzip.compress(out.tobytes(), 9)).decode(), "font": font}
+    except Exception as ex:
+        print("  avis: no s'ha pogut afegir el combustible (%s)" % ex)
+        return None
+
+
+def converteix(dirpath, bbox, nx=None, ny=None, estacions=None, dem=None, combustible=None):
     parells = troba_parells(dirpath)
     if not parells:
         raise SystemExit("No trobe *_vel.asc i *_ang.asc a %s" % dirpath)
@@ -197,6 +234,11 @@ def converteix(dirpath, bbox, nx=None, ny=None, estacions=None, dem=None):
         if z is not None:
             payload["dem"] = base64.b64encode(z.tobytes()).decode()     # int16 LE, metres, ny*nx, nord primer
             print("  relleu afegit: %d..%d m" % (int(z.min()), int(z.max())))
+    comb = combustible or "combustible_20m.tif"          # ràster regional de models de combustible (si el repo en té)
+    if os.path.exists(comb):
+        fu = mostreja_combustible(comb, bbox)
+        if fu:
+            payload["fuel"] = fu
     print("  camp: %dx%d (%d cel·les vàlides) · %d hora/es · malla WindNinja %g m · vent %.1f-%.1f km/h"
           % (nx, ny, n, len(camps), cs, vmin * 3.6, vmax * 3.6))
     return payload
@@ -277,10 +319,11 @@ def main():
     ap.add_argument("--nx", type=int, default=None, help="per defecte 220 (160 si hi ha diverses hores)")
     ap.add_argument("--ny", type=int, default=None)
     ap.add_argument("--dem", default=None, help="DEM de WindNinja (per defecte <dir>/dem.tif) per afegir el relleu")
+    ap.add_argument("--combustible", default=None, help="ràster de classes de combustible (per defecte ./combustible_20m.tif si existeix)")
     ap.add_argument("--out", default="vent_zona.enc")
     a = ap.parse_args()
     bbox = tuple(float(x) for x in a.bbox.split(","))
-    p = converteix(a.dir, bbox, a.nx, a.ny, a.estacions, a.dem)
+    p = converteix(a.dir, bbox, a.nx, a.ny, a.estacions, a.dem, a.combustible)
     pwd = os.environ.get("MAPA_PASS")
     if not pwd:
         raise SystemExit("Falta la variable d'entorn MAPA_PASS")
